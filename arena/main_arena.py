@@ -3,12 +3,15 @@ from __future__ import annotations
 import argparse
 import multiprocessing
 import random
+import sys
 import threading
 from pathlib import Path
 
 
 CURRENT_DIR = Path(__file__).resolve().parent
 WORKSPACE_ROOT = CURRENT_DIR.parent
+if str(WORKSPACE_ROOT) not in sys.path:
+    sys.path.insert(0, str(WORKSPACE_ROOT))
 
 
 def add_agent_args(parser, prefix):
@@ -53,7 +56,8 @@ def build_model_config(args, prefix):
 
 
 def build_agent(args, prefix, game):
-    from agent import MCTSAgent, RandomAgent, TinyPolicyAgent, is_tiny_policy_checkpoint
+    from agent import RandomAgent, is_tiny_policy_checkpoint
+    from connect4_runtime import load_v22_agent
 
     if getattr(args, f"{prefix}_random"):
         return RandomAgent(game, getattr(args, f"{prefix}_name") or f"{prefix}_random")
@@ -64,17 +68,13 @@ def build_agent(args, prefix, game):
 
     requested_type = (getattr(args, f"{prefix}_agent_type") or "auto").strip().lower()
     auto_is_tiny = is_tiny_policy_checkpoint(model_path)
-    use_tiny = requested_type == "tiny" or (requested_type == "auto" and auto_is_tiny)
 
-    if use_tiny:
-        return TinyPolicyAgent(
-            game=game,
-            model_path=model_path,
-            name=getattr(args, f"{prefix}_name"),
-            device=getattr(args, f"{prefix}_device"),
-        )
+    if requested_type == "tiny" and not auto_is_tiny:
+        raise ValueError(f"{model_path} is not a tiny policy checkpoint")
+    if requested_type == "mcts" and auto_is_tiny:
+        raise ValueError(f"{model_path} is a tiny policy checkpoint, not an MCTS checkpoint")
 
-    return MCTSAgent(
+    return load_v22_agent(
         game=game,
         model_path=model_path,
         name=getattr(args, f"{prefix}_name"),

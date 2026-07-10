@@ -14,14 +14,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 CURRENT_DIR = Path(__file__).resolve().parent
+WORKSPACE_ROOT = CURRENT_DIR.parent
 TRAINING_DIR = CURRENT_DIR.parent / "training"
 TRAIN_FEATURES_DIR = CURRENT_DIR.parent / "train_features"
-if str(TRAINING_DIR) not in sys.path:
-    sys.path.insert(0, str(TRAINING_DIR))
-if str(TRAIN_FEATURES_DIR) not in sys.path:
-    sys.path.insert(0, str(TRAIN_FEATURES_DIR))
+for required_path in (WORKSPACE_ROOT, TRAINING_DIR, TRAIN_FEATURES_DIR):
+    if str(required_path) not in sys.path:
+        sys.path.insert(0, str(required_path))
 
-from arena_game_rules import infer_board_size_from_action_dim
+from connect4_core.game_rules import infer_board_size_from_action_dim
 from mcts import AsyncBatchInferenceManager, MCTS
 from model import Connect4Net, board_to_channels
 
@@ -122,7 +122,10 @@ class MCTSAgent(BaseAgent):
     def get_action(self, board, player, temp=0):
         canonical_board = self.game.get_canonical_form(board, player)
         mcts = MCTS(self.game, self.inference_manager, self.mcts_args)
-        probs = np.asarray(mcts.get_action_prob(canonical_board, temp=temp, training=False), dtype=np.float64)
+        try:
+            probs = np.asarray(mcts.get_action_prob(canonical_board, temp=temp, training=False), dtype=np.float64)
+        finally:
+            mcts.close()
         probs = _mask_policy_to_valid_moves(self.game, board, probs)
 
         if temp == 0:
@@ -148,10 +151,10 @@ class MCTSAgent(BaseAgent):
             raise ValueError(
                 f"Agent {self.name} expects board size {board_size}x{board_size}, but arena uses {game_shape}."
             )
-        if board_layers < int(game_shape[0]):
+        if board_layers != int(game_shape[0]):
             raise ValueError(
                 f"Agent {self.name} expects {board_layers} layers, but arena uses {int(game_shape[0])} layers. "
-                "仅支持旧模型层数大于等于竞技规则层数的兼容适配。"
+                "The v2.2 runtime requires an exact board match."
             )
 
 
@@ -373,17 +376,21 @@ class ArenaModelPredictor:
 def load_model_checkpoint(model_path, requested_config, game, device):
     checkpoint = _load_checkpoint_payload(model_path)
     state_dict, metadata = _extract_state_dict_and_metadata(checkpoint)
-    inferred_config = infer_model_config(state_dict, requested_config=requested_config, game=game)
+    embedded_config = metadata.get("student_model_config") or metadata.get("model_config") or {}
+    merged_config = dict(embedded_config) if isinstance(embedded_config, dict) else {}
+    merged_config.update({key: value for key, value in (requested_config or {}).items() if value is not None})
+    inferred_config = infer_model_config(state_dict, requested_config=merged_config, game=game)
     architecture = inferred_config["architecture"]
-    if architecture == "legacy-v21":
-        model = LegacyConnect4Net(
-            board_layers=inferred_config["board_layers"],
-            board_size=inferred_config["board_size"],
+    if architecture == "gravity_resnet_v1":
+        from experimental_models import GravityPolicyValueNet
+
+        model = GravityPolicyValueNet(
             num_channels=inferred_config["num_channels"],
-            residual_blocks=inferred_config["num_res_blocks"],
-            dropout=float(inferred_config.get("dropout", 0.0) or 0.0),
+            num_res_blocks=inferred_config["num_res_blocks"],
+            backbone_type=inferred_config["backbone_type"],
+            global_context_blocks=inferred_config.get("global_context_blocks", 0),
         )
-    else:
+    elif architecture == "modern":
         model = Connect4Net(
             board_layers=inferred_config["board_layers"],
             board_size=inferred_config["board_size"],
@@ -391,6 +398,8 @@ def load_model_checkpoint(model_path, requested_config, game, device):
             num_res_blocks=inferred_config.get("num_res_blocks", 8),
             dropout=float(inferred_config.get("dropout", 0.0) or 0.0),
         )
+    else:
+        raise ValueError(f"Unsupported v2.2 model architecture: {architecture}")
     model.load_state_dict(state_dict, strict=True)
     model.to(device)
     model.eval()
@@ -406,6 +415,29 @@ def load_model_checkpoint(model_path, requested_config, game, device):
 
 def infer_model_config(state_dict, requested_config=None, game=None):
     requested_config = requested_config or {}
+    architecture = _detect_architecture(state_dict)
+    if architecture == "gravity_resnet_v1":
+        stem_weight = state_dict.get("stem.weight")
+        if stem_weight is None:
+            raise ValueError("Gravity checkpoint is missing stem.weight.")
+        block_indices = [int(match.group(1)) for key in state_dict if (match := re.match(r"blocks\.(\d+)\.", key))]
+        global_indices = [int(match.group(1)) for key in state_dict if (match := re.match(r"global_blocks\.(\d+)\.", key))]
+        return {
+            "board_size": 5,
+            "board_layers": 6,
+            "num_channels": int(stem_weight.shape[0]),
+            "dropout": 0.0,
+            "num_res_blocks": max(block_indices) + 1 if block_indices else 0,
+            "policy_channels": 1,
+            "value_channels": 1,
+            "value_hidden_dim": 0,
+            "input_channels": 2,
+            "architecture": architecture,
+            "backbone_type": str(requested_config.get("backbone_type") or ("factorized3d" if stem_weight.ndim == 5 else "layer2d")),
+            "global_context_blocks": max(global_indices) + 1 if global_indices else 0,
+            "policy_space": "columns25",
+            "action_dim": 150,
+        }
     action_dim = int(state_dict["prob_fc.bias"].shape[0])
     preferred_size = requested_config.get("board_size")
     if preferred_size is None and game is not None:
@@ -423,7 +455,6 @@ def infer_model_config(state_dict, requested_config=None, game=None):
             f"显式指定的棋盘层数 {requested_board_layers} 与模型权重推断值 {inferred_layers} 不一致。"
         )
 
-    architecture = _detect_architecture(state_dict)
     config = {
         "board_size": int(inferred_size),
         "board_layers": int(inferred_layers),
@@ -435,6 +466,7 @@ def infer_model_config(state_dict, requested_config=None, game=None):
         "value_hidden_dim": int(state_dict["val_fc1.weight"].shape[0]),
         "input_channels": int(state_dict["conv1.weight"].shape[1]),
         "architecture": architecture,
+        "action_dim": action_dim,
     }
     return config
 
@@ -457,11 +489,13 @@ def _infer_res_block_count(state_dict):
 
 
 def _detect_architecture(state_dict):
+    if "stem.weight" in state_dict and "policy_head.weight" in state_dict:
+        return "gravity_resnet_v1"
     if any(key.startswith("res_blocks.") for key in state_dict):
         return "modern"
     if any(re.match(r"res\d+\.conv1\.weight", key) for key in state_dict):
-        return "legacy-v21"
-    raise ValueError("无法识别模型架构：既不是当前版 res_blocks.*，也不是旧版 res1..resN。")
+        raise ValueError("Legacy v2.1 checkpoints are not supported by the v2.2 runtime.")
+    raise ValueError("Cannot identify a supported v2.2 model architecture.")
 
 
 def _load_checkpoint_payload(model_path):
@@ -469,11 +503,7 @@ def _load_checkpoint_payload(model_path):
         with torch.serialization.safe_globals([np._core.multiarray._reconstruct]):
             return torch.load(model_path, map_location="cpu")
     except Exception:
-        try:
-            with torch.serialization.safe_globals([np.core.multiarray._reconstruct]):
-                return torch.load(model_path, map_location="cpu")
-        except Exception:
-            return torch.load(model_path, map_location="cpu", weights_only=False)
+        return torch.load(model_path, map_location="cpu", weights_only=False)
 
 
 def _extract_state_dict_and_metadata(checkpoint):
@@ -484,7 +514,7 @@ def _extract_state_dict_and_metadata(checkpoint):
     else:
         state_dict = checkpoint
     if not isinstance(state_dict, (dict, OrderedDict)):
-        raise TypeError("无法从模型文件中提取 state_dict。")
+        raise TypeError("Cannot extract a state_dict from the checkpoint.")
     return state_dict, metadata
 
 

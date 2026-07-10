@@ -1,4 +1,6 @@
 *.pyc
+__pycache__/
+.venv/
 
 *.pth
 *.tar
@@ -6,5 +8,7 @@ arena/history/*
 test/history/*
 */checkpoints/*
 *.log
+*.tmp
+*.partial
 
 迭代性能记录.xlsx

@@ -8,11 +8,13 @@ from pathlib import Path
 import numpy as np
 
 CURRENT_DIR = Path(__file__).resolve().parent
+WORKSPACE_ROOT = CURRENT_DIR.parent
 TRAINING_DIR = CURRENT_DIR.parent / "training"
-if str(TRAINING_DIR) not in sys.path:
-    sys.path.insert(0, str(TRAINING_DIR))
+for required_path in (WORKSPACE_ROOT, TRAINING_DIR):
+    if str(required_path) not in sys.path:
+        sys.path.insert(0, str(required_path))
 
-from arena_game_rules import GameRules
+from connect4_core import GameRules
 
 
 class Arena:
