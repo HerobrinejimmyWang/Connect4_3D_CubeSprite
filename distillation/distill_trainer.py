@@ -28,6 +28,7 @@ if str(TRAINING_DIR) not in sys.path:
     sys.path.insert(0, str(TRAINING_DIR))
 
 from game_rules import BOARD_SIZE, MAX_LAYERS, GameRules  # noqa: E402
+from experimental_models import EXPERIMENTAL_MODEL_PRESETS, GravityPolicyValueNet  # noqa: E402
 from model import Connect4Net, board_to_channels, build_model_config  # noqa: E402
 from model_compat import load_checkpoint_payload, load_compatible_model  # noqa: E402
 from parallel_games import (  # noqa: E402
@@ -36,6 +37,7 @@ from parallel_games import (  # noqa: E402
     execute_self_play_parallel,
     execute_teacher_failure_parallel,
 )
+from runtime_resources import available_cpu_count  # noqa: E402
 
 
 SOURCE_SELF_PLAY = 0
@@ -305,6 +307,12 @@ class DistillationArgs:
 
     balanced_model_preset: Dict[str, int] = field(default_factory=lambda: {"num_channels": 224, "num_res_blocks": 4})
     fast_model_preset: Dict[str, int] = field(default_factory=lambda: {"num_channels": 128, "num_res_blocks": 3})
+    experimental_model_presets: Dict[str, Dict[str, object]] = field(
+        default_factory=lambda: {
+            **copy.deepcopy(EXPERIMENTAL_MODEL_PRESETS),
+            "gravity_balanced": copy.deepcopy(EXPERIMENTAL_MODEL_PRESETS["balanced"]),
+        }
+    )
     active_model_preset: str = "balanced"
 
     teacher_model_path: str = "training/checkpoints/best_new.pth.tar"
@@ -314,6 +322,7 @@ class DistillationArgs:
     teacher_label_temperature: float = 0.06
     hot_start_iterations: int = 4
     hot_start_teacher_games_per_iteration: int = 250
+    hot_start_shuffle_teacher_games: bool = False
     adversarial_loss_teacher_weight: float = 1.0
     adversarial_win_student_weight: float = 0.35
     adversarial_win_teacher_response_weight: float = 0.35
@@ -327,6 +336,7 @@ class DistillationArgs:
     teacher_data_cache_path: str = "distillation/cache/teacher_examples.pth.tar"
     teacher_data_batch_size: int = 4096
     teacher_data_regenerate: bool = False
+    teacher_data_append: bool = False
     teacher_data_refresh_policy: str = "manual"
 
     resume: bool = False
@@ -345,6 +355,7 @@ class DistillationArgs:
     baseline_eval_parallelize: bool = True
     shared_evaluation_services: bool = True
     eval_games_vs_teacher: int = 30
+    teacher_eval_interval: int = 1
     eval_games_vs_v21_high: int = 30
     enable_best_refresh: bool = True
     info_log_name: str = "train_info.log"
@@ -355,14 +366,39 @@ class DistillationArgs:
     recovery_teacher_weight: float = 0.80
     recovery_temperature_cap: float = 0.15
     recovery_boost_iterations: int = 3
+    drift_recovery_enabled: bool = True
+
+    teacher_guard_enabled: bool = False
+    teacher_guard_start_iteration: int = 21
+    teacher_guard_trigger_win_rate: float = 0.50
+    teacher_guard_adversarial_games: int = 40
+
+    anchor_guard_enabled: bool = False
+    anchor_model_path: Optional[str] = None
+    anchor_eval_games: int = 0
+    anchor_eval_interval: int = 1
+    anchor_guard_start_iteration: int = 1
+    anchor_guard_trigger_win_rate: float = 0.55
+    anchor_guard_adversarial_games: int = 40
+    anchor_guard_initial_iteration: int = 0
+    anchor_guard_initial_games: int = 0
+
+    best_health_gate_enabled: bool = False
+    best_health_gate_start_iteration: int = 21
+    best_health_min_avg_steps: float = 18.0
+    best_health_min_var_steps: float = 50.0
+    best_health_min_self_value_loss: float = 0.20
+    best_health_min_failed_metrics: int = 2
+    best_health_teacher_fail_win_rate: float = 0.50
+    best_health_teacher_override_win_rate: float = 0.60
 
     enable_speed_check: bool = False
     speed_check_iterations: List[int] = field(default_factory=lambda: [10, -1])
 
     train_device: str = "cuda" if torch.cuda.is_available() else "cpu"
     shared_inference_device: str = "cuda" if torch.cuda.is_available() else "cpu"
-    self_play_workers: int = min(64, max(1, multiprocessing.cpu_count()))
-    max_self_play_workers: int = max(1, multiprocessing.cpu_count())
+    self_play_workers: int = min(64, available_cpu_count())
+    max_self_play_workers: int = available_cpu_count()
     self_play_cpu_ratio: float = 0.75
     search_thread_budget: int = 0
 
@@ -526,6 +562,11 @@ class DistillationTrainer:
 
         self.teacher_model_spec = self._load_compatible_model_spec(self.args.teacher_model_path, "teacher", required=False)
         self.v21_model_spec = self._load_compatible_model_spec(self.args.v21_high_model_path, "v2.1_high", required=False)
+        self.anchor_model_spec = self._load_compatible_model_spec(
+            self.args.anchor_model_path,
+            "anchor",
+            required=bool(getattr(self.args, "anchor_guard_enabled", False)),
+        )
 
         self.teacher_cache_examples: List[Tuple[np.ndarray, np.ndarray, float]] = []
         self.teacher_cache_games: List[List[Tuple[np.ndarray, np.ndarray, float]]] = []
@@ -545,6 +586,10 @@ class DistillationTrainer:
         self.best_older_state: Optional[Dict[str, object]] = None
         self.no_refresh_streak: int = 0
         self.recovery_until_iteration: int = 0
+        self.teacher_guard_pending_games: int = 0
+        self.teacher_guard_last_trigger_iteration: int = 0
+        self.anchor_guard_pending_games: int = 0
+        self.anchor_guard_last_trigger_iteration: int = 0
 
         self._ensure_teacher_cache_ready()
         resumed = self._maybe_resume_from_checkpoint()
@@ -618,7 +663,7 @@ class DistillationTrainer:
         if precision == "bf16" and not torch.cuda.is_bf16_supported():
             raise RuntimeError("BF16 inference was requested but this CUDA device does not support BF16.")
 
-        cpu_count = max(1, multiprocessing.cpu_count())
+        cpu_count = available_cpu_count()
         thread_budget = int(getattr(self.args, "search_thread_budget", 0) or 0) or cpu_count
         mcts_threads = max(1, int(getattr(self.args, "num_mcts_threads", 1) or 1))
         worker_cap = max(1, thread_budget // mcts_threads)
@@ -653,22 +698,38 @@ class DistillationTrainer:
                 digest.update(block)
         return digest.hexdigest()
 
-    def _resolve_student_model_config(self) -> Dict[str, int]:
+    def _resolve_student_model_config(self) -> Dict[str, object]:
         active = str(self.args.active_model_preset).strip().lower()
-        if active not in {"balanced", "fast"}:
-            raise ValueError("active_model_preset must be 'balanced' or 'fast'.")
+        if active in {"balanced", "fast"}:
+            preset = self.args.balanced_model_preset if active == "balanced" else self.args.fast_model_preset
+            return build_model_config(
+                board_layers=MAX_LAYERS,
+                board_size=BOARD_SIZE,
+                num_channels=int(preset.get("num_channels", 256)),
+                num_res_blocks=int(preset.get("num_res_blocks", 8)),
+            )
 
-        preset = self.args.balanced_model_preset if active == "balanced" else self.args.fast_model_preset
-        num_channels = int(preset.get("num_channels", 256))
-        num_res_blocks = int(preset.get("num_res_blocks", 8))
-        return build_model_config(
-            board_layers=MAX_LAYERS,
-            board_size=BOARD_SIZE,
-            num_channels=num_channels,
-            num_res_blocks=num_res_blocks,
+        presets = dict(self.args.experimental_model_presets or {})
+        if active not in presets:
+            supported = ", ".join(["balanced", "fast", *sorted(presets)])
+            raise ValueError(f"Unknown active_model_preset '{active}'. Supported presets: {supported}.")
+        preset = dict(presets[active])
+        model = GravityPolicyValueNet(
+            num_channels=int(preset.get("num_channels", 128)),
+            num_res_blocks=int(preset.get("num_res_blocks", 6)),
+            backbone_type=str(preset.get("backbone_type", "layer2d")),
+            global_context_blocks=int(preset.get("global_context_blocks", 0)),
         )
+        return model.model_config()
 
-    def _build_student_model(self) -> Connect4Net:
+    def _build_student_model(self) -> torch.nn.Module:
+        if self.student_model_config.get("architecture") == "gravity_resnet_v1":
+            return GravityPolicyValueNet(
+                num_channels=int(self.student_model_config["num_channels"]),
+                num_res_blocks=int(self.student_model_config["num_res_blocks"]),
+                backbone_type=str(self.student_model_config["backbone_type"]),
+                global_context_blocks=int(self.student_model_config.get("global_context_blocks", 0)),
+            )
         return Connect4Net(
             board_layers=int(self.student_model_config["board_layers"]),
             board_size=int(self.student_model_config["board_size"]),
@@ -713,6 +774,31 @@ class DistillationTrainer:
             logging.warning("%s model path missing, skip: %s", label, path)
             return None
 
+        payload = load_checkpoint_payload(str(path))
+        if isinstance(payload, dict) and isinstance(payload.get("state_dict"), dict):
+            embedded_config = payload.get("student_model_config") or payload.get("model_config")
+            if isinstance(embedded_config, dict) and embedded_config.get("architecture") == "gravity_resnet_v1":
+                config = dict(embedded_config)
+                state_dict = {k: v.detach().cpu() for k, v in payload["state_dict"].items()}
+                model = GravityPolicyValueNet(
+                    num_channels=int(config["num_channels"]),
+                    num_res_blocks=int(config["num_res_blocks"]),
+                    backbone_type=str(config["backbone_type"]),
+                    global_context_blocks=int(config.get("global_context_blocks", 0)),
+                )
+                model.load_state_dict(state_dict, strict=True)
+                return {
+                    "label": label,
+                    "path": str(path),
+                    "state_dict": state_dict,
+                    "config": config,
+                    "metadata": {
+                        "model_path": str(path),
+                        "architecture": config["architecture"],
+                        "iteration": int(payload.get("iteration", 0) or 0),
+                    },
+                }
+
         model, config, metadata = load_compatible_model(str(path), device="cpu")
         state_dict = {k: v.detach().cpu() for k, v in model.state_dict().items()}
         return {
@@ -725,7 +811,7 @@ class DistillationTrainer:
 
     def _resolve_worker_count(self, total_games: int, num_mcts_threads: Optional[int] = None) -> int:
         explicit = int(getattr(self.args, "self_play_workers", 0) or 0)
-        cpu_count = max(1, multiprocessing.cpu_count())
+        cpu_count = available_cpu_count()
         if explicit > 0:
             target = explicit
         else:
@@ -1461,8 +1547,20 @@ class DistillationTrainer:
         ]
 
         if use_student_exploration_table and search_profile == "student_self_play_search":
+            phase_schedule_source = profile.get("self_play_phase_schedule")
+            phase_iteration_entry = self._match_schedule_entry(
+                list(profile.get("self_play_phase_iteration_schedule") or []),
+                int(iteration),
+            )
+            if isinstance(phase_iteration_entry, dict):
+                phase_schedule_source = (
+                    phase_iteration_entry.get("self_play_phase_schedule")
+                    or phase_iteration_entry.get("phases")
+                    or phase_schedule_source
+                )
+
             profile_phases = self._parse_self_play_phase_schedule(
-                profile.get("self_play_phase_schedule"),
+                phase_schedule_source,
                 default_temperature=float(temperature),
                 default_dirichlet_alpha=float(dirichlet_alpha),
                 default_dirichlet_epsilon=float(dirichlet_epsilon),
@@ -1719,7 +1817,7 @@ class DistillationTrainer:
             "games": list(self.teacher_cache_games),
             "metadata": dict(self.teacher_cache_metadata),
         }
-        torch.save(payload, str(cache_path))
+        self._atomic_torch_save(payload, cache_path)
         logging.info(
             "Saved teacher cache: samples=%s games=%s path=%s",
             len(self.teacher_cache_examples),
@@ -1730,6 +1828,11 @@ class DistillationTrainer:
     def generate_teacher_data_cache(self):
         if self.teacher_model_spec is None:
             raise RuntimeError("teacher_model_path is required for teacher data generation.")
+
+        append_existing = bool(getattr(self.args, "teacher_data_append", False))
+        existing_games = list(self.teacher_cache_games) if append_existing else []
+        existing_summaries = list(self.teacher_cache_game_summaries) if append_existing else []
+        existing_metadata = dict(self.teacher_cache_metadata) if append_existing else {}
 
         num_games = max(1, int(self.args.teacher_data_generation_games))
         teacher_cache_sims = self._resolve_teacher_cache_num_mcts_sims()
@@ -1771,22 +1874,50 @@ class DistillationTrainer:
             for item in game_results
             if bool(item.get("used_for_training", True)) and len(item.get("examples") or []) > 0
         ]
-        self.teacher_cache_games = [list(item.get("examples") or []) for item in usable_games]
+        generated_games = [list(item.get("examples") or []) for item in usable_games]
+        generated_summaries = [self._build_game_summary(item) for item in game_results]
+        self.teacher_cache_games = existing_games + generated_games
         self.teacher_cache_examples = [example for group in self.teacher_cache_games for example in group]
-        self.teacher_cache_game_summaries = [self._build_game_summary(item) for item in game_results]
+        self.teacher_cache_game_summaries = existing_summaries + generated_summaries
         quality = self._summarize_game_quality(self.teacher_cache_game_summaries)
+
+        generation_segments = list(existing_metadata.get("generation_segments") or [])
+        if append_existing and existing_games and not generation_segments:
+            generation_segments.append(
+                {
+                    "kind": "existing_cache",
+                    "games": int(len(existing_games)),
+                    "samples": int(sum(len(group) for group in existing_games)),
+                    "teacher_label_temperature": existing_metadata.get("teacher_label_temperature"),
+                    "teacher_num_mcts_sims": existing_metadata.get("teacher_num_mcts_sims"),
+                }
+            )
+        generation_segments.append(
+            {
+                "kind": "appended_generation" if append_existing else "generation",
+                "generated_at": datetime.now().isoformat(timespec="seconds"),
+                "requested_games": int(num_games),
+                "usable_games": int(len(generated_games)),
+                "samples": int(sum(len(group) for group in generated_games)),
+                "teacher_label_temperature": float(teacher_cache_temp),
+                "teacher_noise_scale": float(teacher_cache_noise),
+                "teacher_num_mcts_sims": int(teacher_cache_sims),
+            }
+        )
         self.teacher_cache_metadata = {
             "generated_at": datetime.now().isoformat(timespec="seconds"),
-            "games": int(num_games),
+            "games": int(len(self.teacher_cache_games)),
             "samples": int(len(self.teacher_cache_examples)),
             "teacher_model_path": self.teacher_model_spec["path"],
             "teacher_model_sha256": self._file_fingerprint(self.teacher_model_spec["path"]),
             "teacher_model_architecture": self.teacher_model_spec["config"].get("architecture"),
             "teacher_num_mcts_sims": int(teacher_cache_sims),
             "teacher_label_temperature": float(teacher_cache_temp),
+            "teacher_noise_scale": float(teacher_cache_noise),
             "teacher_data_refresh_policy": str(self.args.teacher_data_refresh_policy),
-            "used_games_for_training": int(sum(1 for item in game_results if item.get("used_for_training", False))),
+            "used_games_for_training": int(len(self.teacher_cache_games)),
             "usable_games": int(len(self.teacher_cache_games)),
+            "generation_segments": generation_segments,
             "game_summaries": list(self.teacher_cache_game_summaries),
             "quality": quality,
         }
@@ -1821,7 +1952,14 @@ class DistillationTrainer:
         start = max(0, int(iteration - 1) * per_iter_games)
         end = start + per_iter_games
 
-        selected = self.teacher_cache_games[start:end]
+        if bool(getattr(self.args, "hot_start_shuffle_teacher_games", False)):
+            rng = np.random.default_rng(int(self.args.seed))
+            order = rng.permutation(len(self.teacher_cache_games)).tolist()
+            ordered_games = [self.teacher_cache_games[int(i)] for i in order]
+        else:
+            ordered_games = self.teacher_cache_games
+
+        selected = list(ordered_games[start:end])
         if len(selected) >= per_iter_games:
             return [list(item) for item in selected]
 
@@ -1829,8 +1967,9 @@ class DistillationTrainer:
         if shortage <= 0:
             return [list(item) for item in selected]
 
-        fallback_indices = np.random.choice(len(self.teacher_cache_games), shortage, replace=True)
-        selected.extend(self.teacher_cache_games[int(i)] for i in np.atleast_1d(fallback_indices))
+        fallback_rng = np.random.default_rng(int(self.args.seed) + int(iteration))
+        fallback_indices = fallback_rng.choice(len(ordered_games), shortage, replace=True)
+        selected.extend(ordered_games[int(i)] for i in np.atleast_1d(fallback_indices))
         return [list(item) for item in selected]
 
     def _build_hot_start_training_examples(self, iteration: int) -> Tuple[List[Tuple[np.ndarray, np.ndarray, float, int]], Dict[str, object]]:
@@ -1925,6 +2064,10 @@ class DistillationTrainer:
             "best_older_state": copy.deepcopy(self.best_older_state),
             "no_refresh_streak": int(self.no_refresh_streak),
             "recovery_until_iteration": int(self.recovery_until_iteration),
+            "teacher_guard_pending_games": int(self.teacher_guard_pending_games),
+            "teacher_guard_last_trigger_iteration": int(self.teacher_guard_last_trigger_iteration),
+            "anchor_guard_pending_games": int(self.anchor_guard_pending_games),
+            "anchor_guard_last_trigger_iteration": int(self.anchor_guard_last_trigger_iteration),
             "args": self.args.to_dict(),
         }
 
@@ -1955,8 +2098,28 @@ class DistillationTrainer:
         self._atomic_torch_save(state["state_dict"], model_path)
         self.last_checkpoint_iteration = int(iteration)
 
-        self._cleanup_old_checkpoints()
         logging.info("Saved checkpoint: %s", checkpoint_path)
+
+    @staticmethod
+    def _select_equally_spaced_indices(start_idx: int, end_idx: int, target_count: int) -> List[int]:
+        if end_idx < start_idx:
+            return []
+        total = end_idx - start_idx + 1
+        if total <= target_count:
+            return list(range(start_idx, end_idx + 1))
+
+        rounded = [int(round(value)) for value in np.linspace(start_idx, end_idx, num=target_count)]
+        deduped: List[int] = []
+        for idx in rounded:
+            if not deduped or idx != deduped[-1]:
+                deduped.append(idx)
+        if len(deduped) < target_count:
+            for idx in range(start_idx, end_idx + 1):
+                if idx not in deduped:
+                    deduped.append(idx)
+                if len(deduped) >= target_count:
+                    break
+        return sorted(deduped[:target_count])
 
     def _save_iteration_samples(self, iteration: int, folder: Path):
         if not self.iteration_metrics_history:
@@ -1966,14 +2129,35 @@ class DistillationTrainer:
         if not game_results:
             return
 
+        valid_games = [
+            game
+            for game in game_results
+            if int(game.get("steps", 0) or 0) > 0 and isinstance(game.get("trace"), dict)
+        ]
+        if not valid_games:
+            return
+
+        sorted_games = sorted(valid_games, key=lambda item: int(item.get("steps", 0) or 0))
+        if len(sorted_games) <= 2:
+            sampled_indices = list(range(len(sorted_games)))
+        else:
+            sampled_indices = self._select_equally_spaced_indices(
+                start_idx=1,
+                end_idx=len(sorted_games) - 2,
+                target_count=min(5, len(sorted_games) - 2),
+            )
+
         sampled = []
-        for game in game_results[: min(5, len(game_results))]:
+        for rank, idx in enumerate(sampled_indices, start=1):
+            game = sorted_games[idx]
             trace = game.get("trace") or {}
             sampled.append(
                 {
+                    "sample_rank": int(rank),
                     "game_idx": int(game.get("game_idx", -1)),
                     "steps": int(game.get("steps", 0)),
                     "used_for_training": bool(game.get("used_for_training", False)),
+                    "policy_entropy_mean": float(game.get("policy_entropy_mean", 0.0) or 0.0),
                     "winner": int(trace.get("winner", 0)),
                     "is_draw": bool(trace.get("is_draw", False)),
                     "result_code": float(trace.get("result_code", 0.0)),
@@ -1983,8 +2167,16 @@ class DistillationTrainer:
 
         sample_payload = {
             "iteration": int(iteration),
+            "source": "self_play_stage",
             "samples": sampled,
-            "sampling_rule": "first_n_games",
+            "sampling_rule": {
+                "method": "equally_spaced_by_steps",
+                "sorted_by": "steps_ascending",
+                "range": "from_second_shortest_to_second_longest",
+                "target_games": 5,
+                "actual_games": len(sampled),
+            },
+            "total_games_considered": len(sorted_games),
         }
         with open(folder / "self_play_samples.json", "w", encoding="utf-8") as f:
             json.dump(sample_payload, f, ensure_ascii=False, indent=2)
@@ -2007,6 +2199,7 @@ class DistillationTrainer:
 
         for _, folder in all_folders[:-keep]:
             shutil.rmtree(folder, ignore_errors=True)
+            logging.info("Removed old checkpoint after best refresh: %s", folder)
 
     def _load_best_from_state(self, state: Optional[Dict[str, object]]) -> Optional[Dict[str, object]]:
         if not state:
@@ -2158,6 +2351,16 @@ class DistillationTrainer:
         self.best_older_state = self._load_best_from_state(payload.get("best_older_state"))
         self.no_refresh_streak = int(payload.get("no_refresh_streak", 0))
         self.recovery_until_iteration = int(payload.get("recovery_until_iteration", 0))
+        self.teacher_guard_pending_games = max(0, int(payload.get("teacher_guard_pending_games", 0) or 0))
+        self.teacher_guard_last_trigger_iteration = max(
+            0,
+            int(payload.get("teacher_guard_last_trigger_iteration", 0) or 0),
+        )
+        self.anchor_guard_pending_games = max(0, int(payload.get("anchor_guard_pending_games", 0) or 0))
+        self.anchor_guard_last_trigger_iteration = max(
+            0,
+            int(payload.get("anchor_guard_last_trigger_iteration", 0) or 0),
+        )
 
         default_start = int(payload.get("iteration", 0)) + 1
         if self.args.continue_from_iteration is not None:
@@ -2183,8 +2386,16 @@ class DistillationTrainer:
         base_games = max(1, int(self_play_games))
         return max(2, int(round(base_games * teacher_ratio)))
 
-    def _run_student_teacher_adversarial(self, iteration: int, self_play_games: int) -> Dict[str, object]:
-        if self.teacher_model_spec is None:
+    def _run_student_teacher_adversarial(
+        self,
+        iteration: int,
+        self_play_games: int,
+        override_num_games: Optional[int] = None,
+        opponent_model_spec: Optional[Dict[str, object]] = None,
+        opponent_label: str = "teacher",
+    ) -> Dict[str, object]:
+        active_opponent_spec = opponent_model_spec or self.teacher_model_spec
+        if active_opponent_spec is None:
             return {
                 "games": 0,
                 "wins": 0,
@@ -2196,7 +2407,10 @@ class DistillationTrainer:
                 "game_results": [],
             }
 
-        num_games = self._resolve_adversarial_game_count(iteration, self_play_games)
+        if override_num_games is None:
+            num_games = self._resolve_adversarial_game_count(iteration, self_play_games)
+        else:
+            num_games = max(0, int(override_num_games))
         if num_games <= 0:
             return {
                 "games": 0,
@@ -2281,8 +2495,8 @@ class DistillationTrainer:
             model_state={k: v.detach().cpu() for k, v in self.student.state_dict().items()},
             model_config=dict(self.student_model_config),
             teacher_model_spec={
-                "state_dict": self.teacher_model_spec["state_dict"],
-                "config": self.teacher_model_spec["config"],
+                "state_dict": active_opponent_spec["state_dict"],
+                "config": active_opponent_spec["config"],
             },
             model_inference_batch_size=int(model_inference_batch_size),
             model_inference_timeout_s=float(model_inference_timeout_s),
@@ -2290,7 +2504,7 @@ class DistillationTrainer:
             teacher_inference_timeout_s=float(teacher_inference_timeout_s),
             model_inference_server_count=int(model_inference_server_count),
             teacher_inference_server_count=int(teacher_inference_server_count),
-            progress_desc=f"Distill Adversarial Iter {iteration}",
+            progress_desc=f"Distill {str(opponent_label).title()} Adversarial Iter {iteration}",
         )
 
         wins = 0
@@ -2309,9 +2523,20 @@ class DistillationTrainer:
             else:
                 draws += 1
 
-            loss_examples.extend(list(item.get("loss_examples") or []))
-            win_student_examples.extend(list(item.get("win_student_examples") or []))
-            win_teacher_response_examples.extend(list(item.get("win_teacher_response_examples") or []))
+            item_loss_examples = list(item.get("loss_examples") or [])
+            item_win_student_examples = list(item.get("win_student_examples") or [])
+            item_win_teacher_response_examples = list(item.get("win_teacher_response_examples") or [])
+            if (
+                not item_loss_examples
+                and not item_win_student_examples
+                and not item_win_teacher_response_examples
+                and outcome < 0.0
+            ):
+                item_loss_examples = list(item.get("examples") or [])
+
+            loss_examples.extend(item_loss_examples)
+            win_student_examples.extend(item_win_student_examples)
+            win_teacher_response_examples.extend(item_win_teacher_response_examples)
 
         return {
             "games": int(num_games),
@@ -2539,14 +2764,26 @@ class DistillationTrainer:
         }
 
     def _evaluate_baselines(self, iteration: int) -> Dict[str, Optional[Dict[str, object]]]:
+        teacher_games = int(self.args.eval_games_vs_teacher)
+        teacher_interval = max(1, int(getattr(self.args, "teacher_eval_interval", 1) or 1))
+        anchor_games = int(getattr(self.args, "anchor_eval_games", 0) or 0)
+        anchor_interval = max(1, int(getattr(self.args, "anchor_eval_interval", 1) or 1))
+        eval_interval = max(1, int(getattr(self.args, "eval_interval", 1) or 1))
+        eval_index = max(1, int(iteration) // eval_interval)
+        if teacher_interval > 1 and eval_index % teacher_interval != 0:
+            teacher_games = 0
+        if anchor_interval > 1 and eval_index % anchor_interval != 0:
+            anchor_games = 0
+
         tasks = [
-            ("teacher_eval", self.teacher_model_spec, int(self.args.eval_games_vs_teacher), "teacher"),
+            ("teacher_eval", self.teacher_model_spec, teacher_games, "teacher"),
+            ("anchor_eval", self.anchor_model_spec, anchor_games, "anchor"),
             ("v21_eval", self.v21_model_spec, int(self.args.eval_games_vs_v21_high), "v2.1_high"),
         ]
 
         active_tasks = [task for task in tasks if task[1] is not None and task[2] > 0]
         if not active_tasks:
-            return {"teacher_eval": None, "v21_eval": None}
+            return {"teacher_eval": None, "anchor_eval": None, "v21_eval": None}
 
         if bool(getattr(self.args, "shared_evaluation_services", True)) and len(active_tasks) > 1:
             eval_args = self._build_eval_args(iteration)
@@ -2572,7 +2809,11 @@ class DistillationTrainer:
                 new_model_state={k: v.detach().cpu() for k, v in self.student.state_dict().items()},
                 new_model_config=dict(self.student_model_config),
             )
-            result_map: Dict[str, Optional[Dict[str, object]]] = {"teacher_eval": None, "v21_eval": None}
+            result_map: Dict[str, Optional[Dict[str, object]]] = {
+                "teacher_eval": None,
+                "anchor_eval": None,
+                "v21_eval": None,
+            }
             for (key, _, games, label), counts in zip(active_tasks, counts_list):
                 wins, losses, draws = counts
                 result_map[key] = {
@@ -2589,7 +2830,11 @@ class DistillationTrainer:
             key, model_spec, games, label = task
             return key, self._evaluate_against_model_spec(iteration, model_spec, games, label)
 
-        result_map: Dict[str, Optional[Dict[str, object]]] = {"teacher_eval": None, "v21_eval": None}
+        result_map: Dict[str, Optional[Dict[str, object]]] = {
+            "teacher_eval": None,
+            "anchor_eval": None,
+            "v21_eval": None,
+        }
         run_parallel = bool(getattr(self.args, "baseline_eval_parallelize", True)) and len(active_tasks) > 1
         if run_parallel:
             with ThreadPoolExecutor(max_workers=len(active_tasks)) as executor:
@@ -2641,6 +2886,211 @@ class DistillationTrainer:
         if self.best_older_state is not None:
             self._atomic_torch_save(self.best_older_state, older_path)
 
+    def _consume_teacher_guard_games(self, iteration: int) -> int:
+        if not bool(getattr(self.args, "teacher_guard_enabled", False)):
+            self.teacher_guard_pending_games = 0
+            return 0
+        if int(iteration) < int(getattr(self.args, "teacher_guard_start_iteration", 1)):
+            return 0
+
+        games = max(0, int(self.teacher_guard_pending_games))
+        self.teacher_guard_pending_games = 0
+        if games > 0:
+            logging.warning(
+                "Teacher guard pulse active at iteration %s: generating exactly %s adversarial games.",
+                iteration,
+                games,
+            )
+        return games
+
+    def _update_teacher_guard_from_eval(
+        self,
+        iteration: int,
+        teacher_eval: Optional[Dict[str, object]],
+    ) -> int:
+        self.teacher_guard_pending_games = 0
+        if not bool(getattr(self.args, "teacher_guard_enabled", False)):
+            return 0
+        if int(iteration) < int(getattr(self.args, "teacher_guard_start_iteration", 1)):
+            return 0
+        if teacher_eval is None:
+            logging.warning("Teacher guard could not decide at iteration %s because teacher evaluation is missing.", iteration)
+            return 0
+
+        trigger = float(getattr(self.args, "teacher_guard_trigger_win_rate", 0.50))
+        win_rate = float(teacher_eval.get("win_rate", 0.0) or 0.0)
+        if win_rate < trigger:
+            self.teacher_guard_pending_games = max(
+                0,
+                int(getattr(self.args, "teacher_guard_adversarial_games", 40)),
+            )
+            self.teacher_guard_last_trigger_iteration = int(iteration)
+            logging.warning(
+                "Teacher guard scheduled one correction pulse for iteration %s: win_rate=%.3f < %.3f, games=%s.",
+                int(iteration) + 1,
+                win_rate,
+                trigger,
+                self.teacher_guard_pending_games,
+            )
+        else:
+            logging.info(
+                "Teacher guard passed at iteration %s: win_rate=%.3f >= %.3f; no correction games scheduled.",
+                iteration,
+                win_rate,
+                trigger,
+            )
+        return int(self.teacher_guard_pending_games)
+
+    def _consume_anchor_guard_games(self, iteration: int) -> int:
+        if not bool(getattr(self.args, "anchor_guard_enabled", False)):
+            self.anchor_guard_pending_games = 0
+            return 0
+        if int(iteration) < int(getattr(self.args, "anchor_guard_start_iteration", 1)):
+            return 0
+
+        initial_iteration = int(getattr(self.args, "anchor_guard_initial_iteration", 0) or 0)
+        if (
+            self.anchor_guard_pending_games <= 0
+            and initial_iteration > 0
+            and int(iteration) == initial_iteration
+            and self.anchor_guard_last_trigger_iteration == 0
+        ):
+            self.anchor_guard_pending_games = max(
+                0,
+                int(getattr(self.args, "anchor_guard_initial_games", 0) or 0),
+            )
+            if self.anchor_guard_pending_games > 0:
+                self.anchor_guard_last_trigger_iteration = max(0, int(iteration) - 1)
+                logging.warning(
+                    "Anchor guard initial pulse active at iteration %s: generating exactly %s adversarial games.",
+                    iteration,
+                    self.anchor_guard_pending_games,
+                )
+
+        games = max(0, int(self.anchor_guard_pending_games))
+        self.anchor_guard_pending_games = 0
+        if games > 0:
+            if self.teacher_guard_pending_games > 0:
+                logging.info(
+                    "Anchor guard takes priority at iteration %s; suppressing %s pending teacher-guard games.",
+                    iteration,
+                    self.teacher_guard_pending_games,
+                )
+                self.teacher_guard_pending_games = 0
+            logging.warning(
+                "Anchor guard pulse active at iteration %s: generating exactly %s adversarial games.",
+                iteration,
+                games,
+            )
+        return games
+
+    def _update_anchor_guard_from_eval(
+        self,
+        iteration: int,
+        anchor_eval: Optional[Dict[str, object]],
+    ) -> int:
+        self.anchor_guard_pending_games = 0
+        if not bool(getattr(self.args, "anchor_guard_enabled", False)):
+            return 0
+        if int(iteration) < int(getattr(self.args, "anchor_guard_start_iteration", 1)):
+            return 0
+        if anchor_eval is None:
+            logging.warning("Anchor guard could not decide at iteration %s because anchor evaluation is missing.", iteration)
+            return 0
+
+        trigger = float(getattr(self.args, "anchor_guard_trigger_win_rate", 0.55))
+        win_rate = float(anchor_eval.get("win_rate", 0.0) or 0.0)
+        if win_rate < trigger:
+            self.anchor_guard_pending_games = max(
+                0,
+                int(getattr(self.args, "anchor_guard_adversarial_games", 40)),
+            )
+            self.anchor_guard_last_trigger_iteration = int(iteration)
+            if self.anchor_guard_pending_games > 0 and self.teacher_guard_pending_games > 0:
+                logging.info(
+                    "Anchor correction takes priority after iteration %s; clearing %s scheduled teacher-guard games.",
+                    iteration,
+                    self.teacher_guard_pending_games,
+                )
+                self.teacher_guard_pending_games = 0
+            logging.warning(
+                "Anchor guard scheduled one correction pulse for iteration %s: win_rate=%.3f < %.3f, games=%s.",
+                int(iteration) + 1,
+                win_rate,
+                trigger,
+                self.anchor_guard_pending_games,
+            )
+        else:
+            logging.info(
+                "Anchor guard passed at iteration %s: win_rate=%.3f >= %.3f; no correction games scheduled.",
+                iteration,
+                win_rate,
+                trigger,
+            )
+        return int(self.anchor_guard_pending_games)
+
+    def _evaluate_best_health_gate(
+        self,
+        iteration: int,
+        health_context: Optional[Dict[str, object]],
+        teacher_eval: Optional[Dict[str, object]] = None,
+    ) -> Dict[str, object]:
+        result = {"healthy": True, "failed_metrics": [], "metrics": {}, "decision_reason": "disabled"}
+        if not bool(getattr(self.args, "best_health_gate_enabled", False)):
+            return result
+        if int(iteration) < int(getattr(self.args, "best_health_gate_start_iteration", 1)):
+            return result
+        if not isinstance(health_context, dict):
+            return result
+
+        self_play_stats = health_context.get("self_play_stats") or {}
+        train_metrics = health_context.get("train_metrics") or {}
+        avg_steps = float(self_play_stats.get("mean_steps", 0.0) or 0.0)
+        var_steps = float(self_play_stats.get("variance_steps", 0.0) or 0.0)
+        self_value_loss = float(train_metrics.get("self_value_loss", 0.0) or 0.0)
+        metrics = {
+            "avg_steps": avg_steps,
+            "var_steps": var_steps,
+            "self_value_loss": self_value_loss,
+        }
+
+        failed_metrics = []
+        if avg_steps < float(getattr(self.args, "best_health_min_avg_steps", 18.0)):
+            failed_metrics.append("avg_steps")
+        if var_steps < float(getattr(self.args, "best_health_min_var_steps", 50.0)):
+            failed_metrics.append("var_steps")
+        if self_value_loss < float(getattr(self.args, "best_health_min_self_value_loss", 0.20)):
+            failed_metrics.append("self_value_loss")
+
+        required = max(1, int(getattr(self.args, "best_health_min_failed_metrics", 2)))
+        teacher_win_rate = None
+        if isinstance(teacher_eval, dict):
+            teacher_win_rate = float(teacher_eval.get("win_rate", 0.0) or 0.0)
+            metrics["teacher_win_rate"] = teacher_win_rate
+
+        teacher_fail = float(getattr(self.args, "best_health_teacher_fail_win_rate", 0.50))
+        teacher_override = float(getattr(self.args, "best_health_teacher_override_win_rate", 0.60))
+        if teacher_win_rate is not None and teacher_win_rate >= teacher_override:
+            healthy = True
+            decision_reason = "teacher_override"
+        elif teacher_win_rate is not None and teacher_win_rate < teacher_fail:
+            healthy = len(failed_metrics) < required
+            decision_reason = "teacher_failed"
+        elif teacher_win_rate is not None:
+            gray_required = max(required + 1, 3)
+            healthy = len(failed_metrics) < gray_required
+            decision_reason = "teacher_gray_zone"
+        else:
+            healthy = len(failed_metrics) < required
+            decision_reason = "teacher_missing"
+        return {
+            "healthy": bool(healthy),
+            "failed_metrics": failed_metrics,
+            "metrics": metrics,
+            "required_failed_metrics": required,
+            "decision_reason": decision_reason,
+        }
+
     def _run_drift_recovery_if_needed(
         self,
         iteration: int,
@@ -2648,19 +3098,34 @@ class DistillationTrainer:
         teacher_eval: Optional[Dict[str, object]],
         v21_eval: Optional[Dict[str, object]],
     ):
+        if not bool(getattr(self.args, "drift_recovery_enabled", True)):
+            if improved:
+                self.no_refresh_streak = 0
+            else:
+                self.no_refresh_streak += 1
+            return
         if improved:
             self.no_refresh_streak = 0
             return
 
         self.no_refresh_streak += 1
+        if self.no_refresh_streak >= int(self.args.drift_no_refresh_patience):
+            missed_iterations = self.no_refresh_streak * max(1, int(self.args.eval_interval))
+            logging.warning(
+                "Best refresh stalled: no_refresh_streak=%s (~%s iterations) at iteration %s.",
+                self.no_refresh_streak,
+                missed_iterations,
+                iteration,
+            )
         if self.no_refresh_streak < int(self.args.drift_no_refresh_patience):
             return
 
-        if teacher_eval is None or v21_eval is None:
+        available_baselines = [item for item in (teacher_eval, v21_eval) if item is not None]
+        if not available_baselines:
             return
 
         drift_threshold = float(self.args.drift_min_win_rate)
-        if teacher_eval["win_rate"] < drift_threshold and v21_eval["win_rate"] < drift_threshold:
+        if all(float(item["win_rate"]) < drift_threshold for item in available_baselines):
             self.recovery_until_iteration = max(
                 self.recovery_until_iteration,
                 iteration + int(self.args.recovery_boost_iterations),
@@ -2671,13 +3136,32 @@ class DistillationTrainer:
                 self.recovery_until_iteration,
             )
 
-    def evaluate_and_refresh_best(self, iteration: int) -> Dict[str, object]:
+    def evaluate_and_refresh_best(
+        self,
+        iteration: int,
+        health_context: Optional[Dict[str, object]] = None,
+    ) -> Dict[str, object]:
         best_results = self._evaluate_against_best_generations(iteration)
         baseline_results = self._evaluate_baselines(iteration)
         teacher_eval = baseline_results.get("teacher_eval")
+        anchor_eval = baseline_results.get("anchor_eval")
         v21_eval = baseline_results.get("v21_eval")
 
-        improved = self._promote_best_if_needed(iteration, best_results)
+        health_gate = self._evaluate_best_health_gate(iteration, health_context, teacher_eval=teacher_eval)
+        if bool(health_gate.get("healthy", True)):
+            improved = self._promote_best_if_needed(iteration, best_results)
+        else:
+            improved = False
+            logging.warning(
+                "Best promotion blocked by health gate at iteration %s: failed=%s metrics=%s.",
+                iteration,
+                health_gate.get("failed_metrics"),
+                health_gate.get("metrics"),
+            )
+        teacher_guard_games_next_iteration = self._update_teacher_guard_from_eval(iteration, teacher_eval)
+        anchor_guard_games_next_iteration = self._update_anchor_guard_from_eval(iteration, anchor_eval)
+        if anchor_guard_games_next_iteration > 0:
+            teacher_guard_games_next_iteration = 0
         self._run_drift_recovery_if_needed(iteration, improved, teacher_eval, v21_eval)
 
         result = {
@@ -2685,7 +3169,11 @@ class DistillationTrainer:
             "improved": bool(improved),
             "best_results": best_results,
             "teacher_eval": teacher_eval,
+            "anchor_eval": anchor_eval,
             "v21_eval": v21_eval,
+            "health_gate": health_gate,
+            "teacher_guard_games_next_iteration": int(teacher_guard_games_next_iteration),
+            "anchor_guard_games_next_iteration": int(anchor_guard_games_next_iteration),
             "no_refresh_streak": int(self.no_refresh_streak),
             "recovery_until_iteration": int(self.recovery_until_iteration),
         }
@@ -3064,6 +3552,37 @@ class DistillationTrainer:
                         f"win_rate={teacher_eval['win_rate']:.3f}"
                     )
                 )
+            anchor_eval = eval_result.get("anchor_eval")
+            if anchor_eval is not None:
+                lines.append(
+                    (
+                        f"  Eval-Anchor: games={anchor_eval['games']} | "
+                        f"W/L/D={anchor_eval['wins']}/{anchor_eval['losses']}/{anchor_eval['draws']} | "
+                        f"win_rate={anchor_eval['win_rate']:.3f}"
+                    )
+                )
+            health_gate = dict(eval_result.get("health_gate") or {})
+            if health_gate:
+                lines.append(
+                    (
+                        f"  Eval-Health-Gate: healthy={bool(health_gate.get('healthy', True))} | "
+                        f"failed={health_gate.get('failed_metrics', [])} | "
+                        f"metrics={json.dumps(health_gate.get('metrics', {}), ensure_ascii=False)}"
+                    )
+                )
+            lines.append(
+                (
+                    "  Teacher-Guard: "
+                    f"next_iteration_games={int(eval_result.get('teacher_guard_games_next_iteration', 0) or 0)}"
+                )
+            )
+            if bool(getattr(self.args, "anchor_guard_enabled", False)):
+                lines.append(
+                    (
+                        "  Anchor-Guard: "
+                        f"next_iteration_games={int(eval_result.get('anchor_guard_games_next_iteration', 0) or 0)}"
+                    )
+                )
             v21_eval = eval_result.get("v21_eval")
             if v21_eval is not None:
                 lines.append(
@@ -3108,6 +3627,8 @@ class DistillationTrainer:
                 "game_results": [],
             }
             adversarial_duration = 0.0
+            teacher_guard_games = 0
+            anchor_guard_games = 0
 
             if self._is_hot_start_iteration(iteration):
                 merged_examples, data_mix = self._build_hot_start_training_examples(iteration)
@@ -3117,10 +3638,22 @@ class DistillationTrainer:
                 self_play_duration = time.perf_counter() - self_play_start
 
                 adversarial_start = time.perf_counter()
-                adversarial_data = self._run_student_teacher_adversarial(
-                    iteration,
-                    self_play_games=int(self.args.num_self_play_games),
-                )
+                anchor_guard_games = self._consume_anchor_guard_games(iteration)
+                if anchor_guard_games > 0:
+                    adversarial_data = self._run_student_teacher_adversarial(
+                        iteration,
+                        self_play_games=int(self.args.num_self_play_games),
+                        override_num_games=anchor_guard_games,
+                        opponent_model_spec=self.anchor_model_spec,
+                        opponent_label="anchor",
+                    )
+                else:
+                    teacher_guard_games = self._consume_teacher_guard_games(iteration)
+                    adversarial_data = self._run_student_teacher_adversarial(
+                        iteration,
+                        self_play_games=int(self.args.num_self_play_games),
+                        override_num_games=teacher_guard_games if teacher_guard_games > 0 else None,
+                    )
                 adversarial_duration = time.perf_counter() - adversarial_start
                 merged_examples, data_mix = self._compose_training_examples(
                     self_play_examples,
@@ -3132,12 +3665,29 @@ class DistillationTrainer:
             adversarial_stats = self._summarize_runtime_games(list(adversarial_data.get("game_results") or []))
 
             train_metrics = self.train_network(merged_examples, iteration)
+            if teacher_guard_games > 0 or anchor_guard_games > 0:
+                self.adversarial_examples_history = [
+                    entry
+                    for entry in self.adversarial_examples_history
+                    if int(entry.get("iteration", 0) or 0) != int(iteration)
+                ]
+                logging.info(
+                    "%s guard pulse samples from iteration %s were consumed once and removed from replay history.",
+                    "Anchor" if anchor_guard_games > 0 else "Teacher",
+                    iteration,
+                )
             if self.scheduler is not None:
                 self.scheduler.step()
 
             eval_result = None
             if iteration % int(self.args.eval_interval) == 0:
-                eval_result = self.evaluate_and_refresh_best(iteration)
+                eval_result = self.evaluate_and_refresh_best(
+                    iteration,
+                    health_context={
+                        "self_play_stats": self_play_stats,
+                        "train_metrics": train_metrics,
+                    },
+                )
 
             speed_check = self._maybe_run_speed_check(iteration)
 
@@ -3162,8 +3712,18 @@ class DistillationTrainer:
             self._compact_iteration_metrics_history(keep_last_full=True)
             self._log_iteration(summary)
 
+            checkpoint_saved = False
             if iteration % int(self.args.checkpoint_interval) == 0:
                 self.save_checkpoint(iteration)
+                checkpoint_saved = True
+
+            if eval_result is not None and bool(eval_result.get("improved", False)):
+                self._cleanup_old_checkpoints()
+                if not checkpoint_saved:
+                    logging.info(
+                        "Best refreshed at iteration %s without a periodic checkpoint; cleanup used existing checkpoints.",
+                        iteration,
+                    )
 
             last_iteration = iteration
 

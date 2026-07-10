@@ -166,7 +166,18 @@ def load_compatible_model(model_path, device="cpu"):
 
 
 def build_model_from_state_dict(state_dict, config, device="cpu"):
-    if config["architecture"] == "legacy-v21":
+    if config["architecture"] == "gravity_resnet_v1":
+        # Import lazily to keep the legacy compatibility module usable without
+        # introducing an import cycle through mcts at module import time.
+        from experimental_models import GravityPolicyValueNet
+
+        model = GravityPolicyValueNet(
+            num_channels=int(config.get("num_channels", 128)),
+            num_res_blocks=int(config.get("num_res_blocks", 6)),
+            backbone_type=str(config.get("backbone_type", "layer2d")),
+            global_context_blocks=int(config.get("global_context_blocks", 0)),
+        )
+    elif config["architecture"] == "legacy-v21":
         model = LegacyConnect4Net(
             board_layers=config["board_layers"],
             board_size=config["board_size"],

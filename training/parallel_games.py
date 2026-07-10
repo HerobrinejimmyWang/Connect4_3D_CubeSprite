@@ -264,6 +264,7 @@ def play_evaluation_game(game, new_predictor, best_predictor, args, game_idx, se
     new_model_player = 1 if int(game_idx) % 2 == 0 else -1
     board = game.get_init_board()
     cur_player = 1
+    move_count = 0
 
     mcts_new = MCTS(game, new_predictor, args)
     mcts_best = MCTS(game, best_predictor, args) if best_predictor is not None else None
@@ -291,6 +292,7 @@ def play_evaluation_game(game, new_predictor, best_predictor, args, game_idx, se
             action = np.random.choice(len(probabilities), p=probabilities)
 
         board, cur_player = game.get_next_state(board, cur_player, action)
+        move_count += 1
         result = game.get_game_ended(board, 1)
         if result == 0:
             next_canonical = game.get_canonical_form(board, cur_player)
@@ -302,10 +304,18 @@ def play_evaluation_game(game, new_predictor, best_predictor, args, game_idx, se
         if mcts_best is not None:
             mcts_best.close()
         if result == 1e-4:
-            return 'draw'
-        if (result == 1 and new_model_player == 1) or (result == -1 and new_model_player == -1):
-            return 'win'
-        return 'loss'
+            outcome = 'draw'
+        elif (result == 1 and new_model_player == 1) or (result == -1 and new_model_player == -1):
+            outcome = 'win'
+        else:
+            outcome = 'loss'
+        if bool(getattr(args, 'evaluation_return_details', False)):
+            return {
+                'outcome': outcome,
+                'move_count': int(move_count),
+                'candidate_player': int(new_model_player),
+            }
+        return outcome
 
 
 def _select_action_from_policy(policy):
@@ -422,6 +432,9 @@ def play_teacher_failure_game(game, model_predictor, teacher_predictor, args, ga
         teacher_mcts.close()
         return {
             'examples': failure_examples,
+            'loss_examples': failure_examples,
+            'win_student_examples': [],
+            'win_teacher_response_examples': [],
             'steps': int(episode_step),
             'used_for_training': used_for_training,
             'model_player': int(model_player),
@@ -863,10 +876,11 @@ def execute_evaluation_parallel(
             inference_precision=inference_precision,
         )
 
-    base_seed = int(time.time())
+    base_seed = int(getattr(args, 'evaluation_seed', int(time.time())))
     wins = 0
     losses = 0
     draws = 0
+    detailed_results = []
 
     try:
         new_worker_recv_conns = []
@@ -917,16 +931,21 @@ def execute_evaluation_parallel(
         progress_bar = tqdm(total=num_games, desc='Evaluation')
         while completed_games < num_games:
             try:
-                _, result = result_queue.get(timeout=5.0)
+                game_idx, result = result_queue.get(timeout=5.0)
             except queue.Empty:
                 failed_workers = [p.exitcode for p in worker_processes if p.exitcode not in (0, None)]
                 if failed_workers:
                     raise RuntimeError(f'Evaluation worker failed with exit codes: {failed_workers}')
                 continue
 
-            if result == 'win':
+            if isinstance(result, dict):
+                detailed_results.append({'game_index': int(game_idx), **result})
+                outcome = result['outcome']
+            else:
+                outcome = result
+            if outcome == 'win':
                 wins += 1
-            elif result == 'loss':
+            elif outcome == 'loss':
                 losses += 1
             else:
                 draws += 1
@@ -948,6 +967,9 @@ def execute_evaluation_parallel(
         result_queue.close()
         result_queue.join_thread()
 
+    if bool(getattr(args, 'evaluation_return_details', False)):
+        detailed_results.sort(key=lambda item: item['game_index'])
+        return wins, losses, draws, detailed_results
     return wins, losses, draws
 
 

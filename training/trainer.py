@@ -36,6 +36,7 @@ from model_compat import (
     load_checkpoint_payload,
     load_compatible_model,
 )
+from runtime_resources import available_cpu_count
 
 # Logging setup
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -76,7 +77,7 @@ class Connect4Dataset(torch.utils.data.Dataset):
 class TrainerArgs:
     def __init__(self):
         has_cuda = torch.cuda.is_available()
-        cpu_count = max(1, multiprocessing.cpu_count())
+        cpu_count = available_cpu_count()
 
         self.num_iterations = 200     # Total training iterations
         self.num_self_play_games = 100 # Games per iteration (Parallelized)
@@ -1516,7 +1517,7 @@ class Trainer:
         )
 
     def _get_parallel_worker_count(self, total_games):
-        cpu_count = multiprocessing.cpu_count()
+        cpu_count = available_cpu_count()
         explicit_workers = int(getattr(self.args, 'self_play_workers', 0) or 0)
         if explicit_workers > 0:
             target_workers = explicit_workers

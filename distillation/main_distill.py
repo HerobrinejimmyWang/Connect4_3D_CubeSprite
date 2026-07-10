@@ -19,7 +19,7 @@ def parse_cli_args() -> argparse.Namespace:
     parser.add_argument(
         "--active-model-preset",
         type=str,
-        choices=["balanced", "fast"],
+        choices=["balanced", "fast", "mini", "gravity_balanced", "flagship", "factorized3d"],
         default=None,
         help="Select which student preset to train. Both presets can be configured in config file, but only one runs per process.",
     )
@@ -120,6 +120,7 @@ def main():
             "active_model_preset": args.active_model_preset,
             "balanced_model_preset": args.balanced_model_preset,
             "fast_model_preset": args.fast_model_preset,
+            "experimental_model_presets": args.experimental_model_presets,
         },
         ensure_ascii=False,
         indent=2,

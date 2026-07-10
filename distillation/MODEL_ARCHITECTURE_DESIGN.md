@@ -1,5 +1,4 @@
 # 3D Connect4 分级模型架构设计
-
 ## 1. 目标
 
 为同一套 6×5×5 重力四子棋规则设计 `mini`、`balanced`、`flagship` 三档模型。三档模型不是简单同比例增加普通 3D 残差块，而是共享相同的重力感知表示、25 列策略空间和部署接口，再按延迟预算增加主干容量与全局建模能力。
@@ -345,7 +344,7 @@ L = w_search_policy * CE(search_policy)
 
 - 25↔150 policy 映射往返及满柱测试。
 - 任何非终局都恰好最多有 25 个候选 action，非零概率只位于合法 action。
-- D4 旋转/镜像前后的 policy 严格对应。
+- D4 旋转/镜像后的输入、合法列和训练 target 必须严格对应；如需单次网络输出严格等变，另行启用 D4 ensemble 或群等变卷积。
 - 新旧架构 checkpoint 自动识别和加载。
 - teacher/student 架构不同仍可蒸馏。
 - mini/balanced/flagship 均能完成 CPU 保存→加载→推理。

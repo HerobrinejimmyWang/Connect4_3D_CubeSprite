@@ -13,6 +13,7 @@ import torch
 import torch.multiprocessing as mp
 
 from model import Connect4Net, board_to_channels
+from experimental_models import GravityPolicyValueNet
 
 
 class TreeNode:
@@ -123,12 +124,20 @@ def run_global_inference_server(
     stats_queue=None,
 ):
     model_config = dict(model_config or {})
-    model = Connect4Net(
-        board_layers=int(model_config.get("board_layers", 6)),
-        board_size=int(model_config.get("board_size", 5)),
-        num_channels=int(model_config.get("num_channels", 256)),
-        num_res_blocks=int(model_config.get("num_res_blocks", 8)),
-    )
+    if model_config.get("architecture") == "gravity_resnet_v1":
+        model = GravityPolicyValueNet(
+            num_channels=int(model_config.get("num_channels", 128)),
+            num_res_blocks=int(model_config.get("num_res_blocks", 6)),
+            backbone_type=str(model_config.get("backbone_type", "layer2d")),
+            global_context_blocks=int(model_config.get("global_context_blocks", 0)),
+        )
+    else:
+        model = Connect4Net(
+            board_layers=int(model_config.get("board_layers", 6)),
+            board_size=int(model_config.get("board_size", 5)),
+            num_channels=int(model_config.get("num_channels", 256)),
+            num_res_blocks=int(model_config.get("num_res_blocks", 8)),
+        )
     model.load_state_dict(model_state)
     model.to(device)
     model.eval()
