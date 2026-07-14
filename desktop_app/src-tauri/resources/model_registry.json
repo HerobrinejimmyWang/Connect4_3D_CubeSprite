@@ -1,0 +1,70 @@
+{
+  "manifest_version": 1,
+  "product_version": "0.1.0",
+  "models": [
+    {
+      "id": "cubesprite_v3",
+      "display_name": "CubeSprite V3",
+      "model_path": null,
+      "architecture": "cubesprite-v3-placeholder",
+      "board_layers": 6,
+      "board_size": 5,
+      "input_channels": 2,
+      "action_dim": 150,
+      "defaults": { "mcts_sims": 128, "temperature": 1.0 },
+      "description": {
+        "zh": "CubeSprite V3 预留模型位，当前版本尚未提供权重。",
+        "en": "Reserved for CubeSprite V3; weights are not included in this release."
+      },
+      "placeholder": true
+    },
+    {
+      "id": "cubesprite_v3_mini",
+      "display_name": "CubeSprite V3 mini",
+      "model_path": null,
+      "architecture": "cubesprite-v3-mini-placeholder",
+      "board_layers": 6,
+      "board_size": 5,
+      "input_channels": 2,
+      "action_dim": 150,
+      "defaults": { "mcts_sims": 128, "temperature": 1.0 },
+      "description": {
+        "zh": "CubeSprite V3 mini 预留模型位，当前版本尚未提供权重。",
+        "en": "Reserved for CubeSprite V3 mini; weights are not included in this release."
+      },
+      "placeholder": true
+    },
+    {
+      "id": "v2.2_balance",
+      "display_name": "v2.2 Balance",
+      "model_path": "models/v2.2_balance.onnx",
+      "architecture": "modern-v22",
+      "board_layers": 6,
+      "board_size": 5,
+      "input_channels": 2,
+      "action_dim": 150,
+      "defaults": { "mcts_sims": 128, "temperature": 1.0 },
+      "description": {
+        "zh": "当前 6×5×5 平衡模型，原生输出 150 个合法动作平面。",
+        "en": "Current balanced 6×5×5 model with a native 150-action policy."
+      },
+      "placeholder": false
+    },
+    {
+      "id": "v2.1_high",
+      "display_name": "v2.1 High",
+      "model_path": "models/v2.1_high.onnx",
+      "architecture": "legacy-v21-adapted-6-layer",
+      "board_layers": 8,
+      "board_size": 5,
+      "input_channels": 1,
+      "action_dim": 200,
+      "defaults": { "mcts_sims": 128, "temperature": 1.0 },
+      "description": {
+        "zh": "旧版高强度模型适配到固定六层规则：输入补零到 8 层，200 维策略裁剪为前 150 维并重新归一化。",
+        "en": "Legacy high-strength model adapted to six-layer play: inputs are zero-padded to 8 layers and its 200-action policy is cropped to 150 actions and renormalized."
+      },
+      "placeholder": false
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from numbers import Integral
 
 import numpy as np
 
@@ -11,8 +12,16 @@ CONNECT_N = 4
 BOARD_SHAPE = (MAX_LAYERS, BOARD_SIZE, BOARD_SIZE)
 
 
+def _strict_int(value, name):
+    if isinstance(value, (bool, np.bool_)) or not isinstance(value, Integral):
+        raise ValueError(f"{name} must be an integer, got {value!r}.")
+    return int(value)
+
+
 def action_to_coords(action, board_size=BOARD_SIZE, max_layers=MAX_LAYERS):
-    board_size, max_layers, action = int(board_size), int(max_layers), int(action)
+    board_size = _strict_int(board_size, "board_size")
+    max_layers = _strict_int(max_layers, "max_layers")
+    action = _strict_int(action, "action")
     action_size = max_layers * board_size * board_size
     if action < 0 or action >= action_size:
         raise ValueError(f"Action {action} out of range [0, {action_size - 1}].")
@@ -22,8 +31,11 @@ def action_to_coords(action, board_size=BOARD_SIZE, max_layers=MAX_LAYERS):
 
 
 def coords_to_action(layer, row, col, board_size=BOARD_SIZE, max_layers=MAX_LAYERS):
-    board_size, max_layers = int(board_size), int(max_layers)
-    layer, row, col = int(layer), int(row), int(col)
+    board_size = _strict_int(board_size, "board_size")
+    max_layers = _strict_int(max_layers, "max_layers")
+    layer = _strict_int(layer, "layer")
+    row = _strict_int(row, "row")
+    col = _strict_int(col, "col")
     if not (0 <= layer < max_layers and 0 <= row < board_size and 0 <= col < board_size):
         raise ValueError(f"Coordinates ({layer}, {row}, {col}) are outside {(max_layers, board_size, board_size)}.")
     return layer * board_size * board_size + row * board_size + col

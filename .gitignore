@@ -11,4 +11,18 @@ test/history/*
 *.tmp
 *.partial
 
+# Local product references and generated desktop build artifacts
+tmp_built_app/
+desktop_app/node_modules/
+desktop_app/dist/
+desktop_app/coverage/
+desktop_app/.sidecar-build/
+desktop_app/src-tauri/target/
+desktop_app/src-tauri/gen/
+desktop_app/src-tauri/binaries/*.exe
+desktop_app/backend/build/
+desktop_app/backend/dist/
+desktop_app/backend/*.spec
+desktop_app/visual-*.png
+
 迭代性能记录.xlsx

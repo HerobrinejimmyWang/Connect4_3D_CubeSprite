@@ -58,6 +58,10 @@ class SharedRulesTests(unittest.TestCase):
             action_to_coords(150)
         with self.assertRaises(ValueError):
             coords_to_action(6, 0, 0)
+        with self.assertRaises(ValueError):
+            action_to_coords(True)
+        with self.assertRaises(ValueError):
+            coords_to_action(0.5, 0, 0)
 
     def test_gravity_and_occupied_moves_raise(self):
         game = GameRules()
@@ -95,6 +99,12 @@ class SharedRulesTests(unittest.TestCase):
         from arena.arena_game_rules import GameRules as ArenaRules
         self.assertIs(TrainingRules, GameRules)
         self.assertIs(ArenaRules, GameRules)
+
+    def test_draw_and_board_serialization(self):
+        game = GameRules(board_size=3, max_layers=1, connect_n=4)
+        board = np.array([[[1, -1, 1], [-1, 1, -1], [1, -1, 1]]], dtype=np.int8)
+        self.assertEqual(game.get_game_ended(board, 1), 1e-4)
+        self.assertEqual(game.string_representation(board), board.tobytes())
 
 
 class ControllerTests(unittest.TestCase):
