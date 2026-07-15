@@ -2,8 +2,6 @@ import type { Language } from "./types";
 
 export interface Copy {
   appName: string;
-  tagline: string;
-  technologyTag: string;
   version: string;
   loading: string;
   loadingDetail: string;
@@ -99,8 +97,6 @@ export interface Copy {
 export const translations: Record<Language, Copy> = {
   zh: {
     appName: "Connect4 3D CubeSprite",
-    tagline: "在六层立方棋盘上，连成属于你的四子路线。",
-    technologyTag: "离线 · 本地 AI · 6 × 5 × 5",
     version: "版本 0.1.0",
     loading: "正在唤醒 CubeSprite",
     loadingDetail: "正在启动本地规则与 AI 引擎…",
@@ -196,8 +192,6 @@ export const translations: Record<Language, Copy> = {
   },
   en: {
     appName: "Connect4 3D CubeSprite",
-    tagline: "Build your line of four across a six-floor cube.",
-    technologyTag: "OFFLINE · LOCAL AI · 6 × 5 × 5",
     version: "Version 0.1.0",
     loading: "Waking CubeSprite",
     loadingDetail: "Starting the local rules and AI engine…",

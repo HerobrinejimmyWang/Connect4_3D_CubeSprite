@@ -326,7 +326,7 @@ export function App({ backend = sidecarBackend }: AppProps) {
     if (screen === "menu") {
       return <MenuScreen copy={t} sideChoiceOpen={sideChoiceOpen} busy={menuBusy} onPvp={() => void startGame("pvp")} onOpenPvai={() => setSideChoiceOpen(true)} onChooseSide={(player) => void startGame("pvai", player)} onCancelSide={() => setSideChoiceOpen(false)} onAiSettings={() => navigate("ai-settings")} onSettings={() => navigate("settings")} onInstructions={() => navigate("instructions")} />;
     }
-    if (screen === "ai-settings") return <AiSettingsScreen copy={t} language={language} models={models} mctsOptions={mctsOptions} settings={aiSettings} onChange={updateAi} onBack={() => navigate("menu")} />;
+    if (screen === "ai-settings") return <AiSettingsScreen copy={t} models={models} mctsOptions={mctsOptions} settings={aiSettings} onChange={updateAi} onBack={() => navigate("menu")} />;
     if (screen === "settings") return <SettingsScreen copy={t} preloadHint={preloadHint} onPreloadHint={setPreloadHint} onBack={() => navigate("menu")} />;
     if (screen === "instructions") return <InstructionsScreen copy={t} onBack={() => navigate("menu")} />;
     if (screen === "game" && game) {

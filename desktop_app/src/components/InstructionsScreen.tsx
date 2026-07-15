@@ -11,12 +11,12 @@ export function InstructionsScreen({ copy: t, onBack }: Props) {
   ] as const;
   return (
     <PageShell copy={t} title={t.instructions.title} subtitle={t.instructions.subtitle} onBack={onBack} wide>
-      <div className="instruction-grid">
+      <div className="instruction-list" role="region" aria-label={t.instructions.title} tabIndex={0}>
         {sections.map(([number, title, items]) => (
-          <article className="instruction-card" key={number}>
+          <section className="instruction-section" key={number}>
             <header><span>{number}</span><h2>{title}</h2></header>
-            <ol>{items.map((item) => <li key={item}>{item}</li>)}</ol>
-          </article>
+            <ul>{items.map((item) => <li key={item}>{item}</li>)}</ul>
+          </section>
         ))}
       </div>
     </PageShell>

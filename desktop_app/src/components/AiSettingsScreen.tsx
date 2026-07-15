@@ -1,14 +1,13 @@
 import { useEffect, useState } from "react";
 
 import type { Copy } from "../i18n";
-import type { AiConfig, AiRole, AiSettings, Language, ModelInfo } from "../types";
+import type { AiConfig, AiRole, AiSettings, ModelInfo } from "../types";
 import { PageShell } from "./PageShell";
 
 const ROLE_ORDER: AiRole[] = ["combat", "hint", "winRate"];
 
 interface Props {
   copy: Copy;
-  language: Language;
   models: ModelInfo[];
   mctsOptions: number[];
   settings: AiSettings;
@@ -52,7 +51,7 @@ function TemperatureControl({ value, onChange }: { value: number; onChange: (val
   );
 }
 
-export function AiSettingsScreen({ copy: t, language, models, mctsOptions, settings, onChange, onBack }: Props) {
+export function AiSettingsScreen({ copy: t, models, mctsOptions, settings, onChange, onBack }: Props) {
   const roleNames: Record<AiRole, [string, string]> = {
     combat: [t.ai.combat, t.ai.combatDetail],
     hint: [t.ai.hint, t.ai.hintDetail],
@@ -86,7 +85,6 @@ export function AiSettingsScreen({ copy: t, language, models, mctsOptions, setti
                     <span className="radio-dot" />
                     <span className="model-copy">
                       <strong>{model.display_name}</strong>
-                      <small>{model.description?.[language] ?? model.architecture}</small>
                     </span>
                     {!model.available && <em>{model.model_path ? t.common.unavailable : t.ai.placeholder}</em>}
                   </label>

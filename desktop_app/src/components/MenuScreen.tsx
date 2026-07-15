@@ -22,9 +22,7 @@ export function MenuScreen(props: Props) {
         <div className="cube-mark" aria-hidden="true">
           <i /><i /><i /><i />
         </div>
-        <div className="eyebrow">{t.technologyTag}</div>
         <h1>Connect4 3D <span>CubeSprite</span></h1>
-        <p>{t.tagline}</p>
         <small>{t.version}</small>
       </section>
 

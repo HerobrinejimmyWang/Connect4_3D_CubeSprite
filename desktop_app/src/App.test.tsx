@@ -36,12 +36,20 @@ describe("CubeSprite app shell", () => {
     render(<App backend={new FakeBackend()} />);
 
     expect(await screen.findByRole("button", { name: "玩家 vs 玩家" })).toBeVisible();
+    expect(screen.queryByText("离线 · 本地 AI · 6 × 5 × 5")).not.toBeInTheDocument();
+    expect(screen.queryByText("在六层立方棋盘上，连成属于你的四子路线。")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "EN" }));
     expect(screen.getByRole("button", { name: "Player vs Player" })).toBeVisible();
+    expect(screen.queryByText("OFFLINE · LOCAL AI · 6 × 5 × 5")).not.toBeInTheDocument();
+    expect(screen.queryByText("Build your line of four across a six-floor cube.")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Instructions" }));
     expect(screen.getByRole("heading", { name: "Instructions" })).toBeVisible();
     expect(screen.getByText(/six floors, F1–F6/i)).toBeVisible();
+    const instructions = screen.getByRole("region", { name: "Instructions" });
+    expect(instructions).toHaveClass("instruction-list");
+    expect(within(instructions).getAllByRole("listitem")).toHaveLength(9);
+    expect(document.querySelectorAll(".instruction-card")).toHaveLength(0);
   });
 
   it("lets a PvAI blue player choose second and automatically asks the combat AI to open", async () => {
@@ -82,6 +90,8 @@ describe("CubeSprite app shell", () => {
     const columns = screen.getAllByRole("article");
     const combat = columns[0];
     const hint = columns[1];
+    expect(within(combat).getByText("v2.2_balance")).toBeVisible();
+    expect(within(combat).queryByText("均衡模型")).not.toBeInTheDocument();
     expect(within(combat).getByText("128")).toBeVisible();
     expect(within(hint).getByText("128")).toBeVisible();
     await user.click(within(combat).getByRole("button", { name: "combat MCTS plus" }));
