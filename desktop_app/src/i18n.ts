@@ -24,8 +24,6 @@ export interface Copy {
   common: {
     back: string;
     unavailable: string;
-    comingSoon: string;
-    soon: string;
     close: string;
   };
   ai: {
@@ -81,11 +79,38 @@ export interface Copy {
     winRate: string;
     exit: string;
     switch3d: string;
+    switch2d: string;
     legal: string;
     illegal: string;
     redRate: string;
     blueRate: string;
     preloadReady: string;
+    view3d: {
+      boardLabel: string;
+      loading: string;
+      observationTools: string;
+      openTools: string;
+      closeTools: string;
+      pieceDisplay: string;
+      showAll: string;
+      focusRed: string;
+      focusBlue: string;
+      columnGuides: string;
+      showColumnGuides: string;
+      layerSpacing: string;
+      standardSpacing: string;
+      expandedSpacing: string;
+      displayOnly: string;
+      camera: string;
+      isometric: string;
+      front: string;
+      top: string;
+      resetCamera: string;
+      controlsHint: string;
+      columnCoordinate: string;
+      unavailable: string;
+      return2d: string;
+    };
   };
   errors: {
     backend: string;
@@ -116,7 +141,7 @@ export const translations: Record<Language, Copy> = {
       blueSecondDetail: "你执蓝棋，AI 会自动先行",
       cancel: "取消",
     },
-    common: { back: "返回主菜单", unavailable: "暂不可用", comingSoon: "3D 棋盘将在后续版本开放", soon: "后续开放", close: "关闭" },
+    common: { back: "返回主菜单", unavailable: "暂不可用", close: "关闭" },
     ai: {
       title: "AI 设置",
       subtitle: "三种任务可独立选择模型和搜索参数，修改会立刻应用。",
@@ -182,11 +207,38 @@ export const translations: Record<Language, Copy> = {
       winRate: "胜率",
       exit: "退出对局",
       switch3d: "切换至 3D",
+      switch2d: "切换至 2D",
       legal: "合法落点",
       illegal: "暂不可落",
       redRate: "红方",
       blueRate: "蓝方",
       preloadReady: "提示已预加载",
+      view3d: {
+        boardLabel: "6 × 5 × 5 三维棋盘",
+        loading: "正在加载 3D 棋盘…",
+        observationTools: "观察工具",
+        openTools: "展开观察工具",
+        closeTools: "收起观察工具",
+        pieceDisplay: "棋子显示",
+        showAll: "全部棋子",
+        focusRed: "聚焦红方",
+        focusBlue: "聚焦蓝方",
+        columnGuides: "落子柱",
+        showColumnGuides: "显示 25 根落子柱",
+        layerSpacing: "层间距",
+        standardSpacing: "标准",
+        expandedSpacing: "展开",
+        displayOnly: "仅调整显示间距，不改变棋局位置",
+        camera: "观察视角",
+        isometric: "等距",
+        front: "正面",
+        top: "俯视",
+        resetCamera: "恢复默认视角",
+        controlsHint: "拖动旋转 · 滚轮缩放",
+        columnCoordinate: "落子柱坐标",
+        unavailable: "当前设备无法创建 3D 画布。",
+        return2d: "返回 2D 棋盘",
+      },
     },
     errors: { backend: "本地游戏引擎未能启动", generic: "操作失败，请重试。", modelUnavailable: "所选 AI 模型暂不可用。" },
   },
@@ -211,7 +263,7 @@ export const translations: Record<Language, Copy> = {
       blueSecondDetail: "Play blue while the AI opens",
       cancel: "Cancel",
     },
-    common: { back: "Back to main menu", unavailable: "Unavailable", comingSoon: "The 3D board is coming in a future release", soon: "Coming soon", close: "Close" },
+    common: { back: "Back to main menu", unavailable: "Unavailable", close: "Close" },
     ai: {
       title: "AI Settings",
       subtitle: "Choose models and search parameters independently for all three roles. Changes apply instantly.",
@@ -277,11 +329,38 @@ export const translations: Record<Language, Copy> = {
       winRate: "Win Rate",
       exit: "Exit",
       switch3d: "Switch to 3D",
+      switch2d: "Switch to 2D",
       legal: "Legal move",
       illegal: "Not playable",
       redRate: "Red",
       blueRate: "Blue",
       preloadReady: "Hint preloaded",
+      view3d: {
+        boardLabel: "6 × 5 × 5 three-dimensional board",
+        loading: "Loading the 3D board…",
+        observationTools: "Observation tools",
+        openTools: "Open observation tools",
+        closeTools: "Close observation tools",
+        pieceDisplay: "Piece display",
+        showAll: "All pieces",
+        focusRed: "Focus red",
+        focusBlue: "Focus blue",
+        columnGuides: "Column guides",
+        showColumnGuides: "Show all 25 column guides",
+        layerSpacing: "Layer spacing",
+        standardSpacing: "Standard",
+        expandedSpacing: "Expanded",
+        displayOnly: "Display spacing only; game coordinates stay unchanged",
+        camera: "Camera view",
+        isometric: "Isometric",
+        front: "Front",
+        top: "Top",
+        resetCamera: "Reset camera",
+        controlsHint: "Drag to rotate · Wheel to zoom",
+        columnCoordinate: "Column coordinate",
+        unavailable: "This device could not create the 3D canvas.",
+        return2d: "Return to the 2D board",
+      },
     },
     errors: { backend: "The local game engine could not start", generic: "The action failed. Please try again.", modelUnavailable: "The selected AI model is unavailable." },
   },

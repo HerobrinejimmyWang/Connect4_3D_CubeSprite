@@ -1,7 +1,23 @@
-import { useMemo } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 
 import type { Copy } from "../i18n";
-import type { GameState, HintResult, Move, WinRateResult } from "../types";
+import type {
+  BoardViewMode,
+  CameraCommand,
+  CameraPreset,
+  GameState,
+  HintResult,
+  LayerSpacing,
+  Move,
+  PieceFocus,
+  WinRateResult,
+} from "../types";
+import { ObservationDrawer } from "./ObservationDrawer";
+
+const Board3D = lazy(async () => {
+  const module = await import("./Board3D");
+  return { default: module.Board3D };
+});
 
 function moveKey(move: Pick<Move, "layer" | "row" | "col">): string {
   return `${move.layer}:${move.row}:${move.col}`;
@@ -81,20 +97,45 @@ interface Props {
   onHint: () => void;
   onWinRate: () => void;
   onExit: () => void;
-  onSwitch3d: () => void;
+}
+
+function WinRateCard({ copy: t, result }: { copy: Copy; result: WinRateResult | null }) {
+  if (!result) return null;
+  return (
+    <aside className="win-rate-card" aria-label={t.game.winRate}>
+      <div className="rate-labels">
+        <strong className="red-text">{t.game.redRate} {(result.red * 100).toFixed(1)}%</strong>
+        <strong className="blue-text">{t.game.blueRate} {(result.blue * 100).toFixed(1)}%</strong>
+      </div>
+      <div className="rate-track">
+        <div className="red-rate" style={{ width: `${result.red * 100}%` }} />
+        <div className="blue-rate" style={{ width: `${result.blue * 100}%` }} />
+        <i style={{ left: `${result.red * 100}%` }} />
+      </div>
+    </aside>
+  );
 }
 
 export function GameScreen(props: Props) {
   const { copy: t, state } = props;
+  const [viewMode, setViewMode] = useState<BoardViewMode>("2d");
+  const [drawerOpen, setDrawerOpen] = useState(true);
+  const [pieceFocus, setPieceFocus] = useState<PieceFocus>("all");
+  const [showColumnGuides, setShowColumnGuides] = useState(true);
+  const [layerSpacing, setLayerSpacing] = useState<LayerSpacing>("standard");
+  const [cameraCommand, setCameraCommand] = useState<CameraCommand>({ preset: "isometric", serial: 0 });
   const finished = state.status !== "playing";
   const aiTurn = state.mode === "pvai" && state.current_player !== state.human_player;
-  const boardLocked = props.mutationBusy || props.combatThinking || finished || aiTurn;
+  const moveLocked = props.mutationBusy || props.combatThinking || finished || aiTurn;
   const undoDisabled = props.mutationBusy || props.combatThinking || !state.can_undo;
   const statusText = finished
     ? state.winner === 1 ? t.game.redWins : state.winner === -1 ? t.game.blueWins : t.game.draw
     : state.current_player === 1 ? t.game.red : t.game.blue;
   const statusClass = state.winner === -1 || (!finished && state.current_player === -1) ? "blue-text" : state.winner === 0 ? "neutral-text" : "red-text";
   const thinkingText = props.combatThinking ? t.game.aiThinking : props.hintThinking ? t.game.hintThinking : props.winRateThinking ? t.game.winRateThinking : "";
+  const selectCamera = (preset: CameraPreset) => {
+    setCameraCommand((current) => ({ preset, serial: current.serial + 1 }));
+  };
 
   return (
     <main className="game-screen">
@@ -113,30 +154,53 @@ export function GameScreen(props: Props) {
         </div>
       </header>
 
-      <section className="game-workspace">
-        <div className="board-area">
-          <LayerBoards copy={t} state={state} hint={props.hint} locked={boardLocked} onMove={props.onMove} />
-          <div className="board-legend">
-            <span><i className="legend-cell legal" />{t.game.legal}</span>
-            <span><i className="legend-cell illegal" />{t.game.illegal}</span>
-            <span><i className="legend-piece red" />{t.game.red}</span>
-            <span><i className="legend-piece blue" />{t.game.blue}</span>
+      <section className={`game-workspace ${viewMode === "3d" ? "three-d-workspace" : ""}`}>
+        <div className={`board-view-layout ${viewMode === "3d" ? `three-d ${drawerOpen ? "drawer-open" : "drawer-closed"}` : "two-d"}`}>
+          <div className="board-canvas-pane">
+            {viewMode === "2d" ? (
+              <div className="board-area">
+                <LayerBoards copy={t} state={state} hint={props.hint} locked={moveLocked} onMove={props.onMove} />
+                <div className="board-legend">
+                  <span><i className="legend-cell legal" />{t.game.legal}</span>
+                  <span><i className="legend-cell illegal" />{t.game.illegal}</span>
+                  <span><i className="legend-piece red" />{t.game.red}</span>
+                  <span><i className="legend-piece blue" />{t.game.blue}</span>
+                </div>
+              </div>
+            ) : (
+              <Suspense fallback={<div className="board-3d-loading">{t.game.view3d.loading}</div>}>
+                <Board3D
+                  copy={t}
+                  state={state}
+                  hint={props.hint}
+                  moveLocked={moveLocked}
+                  pieceFocus={pieceFocus}
+                  showColumnGuides={showColumnGuides}
+                  layerSpacing={layerSpacing}
+                  cameraCommand={cameraCommand}
+                  onMove={props.onMove}
+                  onFallbackTo2d={() => setViewMode("2d")}
+                />
+              </Suspense>
+            )}
+            <WinRateCard copy={t} result={props.winRate} />
           </div>
+          {viewMode === "3d" && (
+            <ObservationDrawer
+              copy={t}
+              open={drawerOpen}
+              pieceFocus={pieceFocus}
+              showColumnGuides={showColumnGuides}
+              layerSpacing={layerSpacing}
+              onToggleOpen={() => setDrawerOpen((open) => !open)}
+              onPieceFocus={setPieceFocus}
+              onShowColumnGuides={setShowColumnGuides}
+              onLayerSpacing={setLayerSpacing}
+              onCameraPreset={selectCamera}
+              onResetCamera={() => selectCamera("isometric")}
+            />
+          )}
         </div>
-
-        {props.winRate && (
-          <aside className="win-rate-card" aria-label={t.game.winRate}>
-            <div className="rate-labels">
-              <strong className="red-text">{t.game.redRate} {(props.winRate.red * 100).toFixed(1)}%</strong>
-              <strong className="blue-text">{t.game.blueRate} {(props.winRate.blue * 100).toFixed(1)}%</strong>
-            </div>
-            <div className="rate-track">
-              <div className="red-rate" style={{ width: `${props.winRate.red * 100}%` }} />
-              <div className="blue-rate" style={{ width: `${props.winRate.blue * 100}%` }} />
-              <i style={{ left: `${props.winRate.red * 100}%` }} />
-            </div>
-          </aside>
-        )}
       </section>
 
       <footer className="game-functions">
@@ -147,7 +211,13 @@ export function GameScreen(props: Props) {
           <button aria-label={t.game.winRate} className={props.winRateThinking ? "working" : ""} disabled={finished || props.winRateThinking || props.combatThinking} onClick={props.onWinRate}><span aria-hidden="true">▰</span>{t.game.winRate}</button>
         </div>
         <div className="function-group edge-functions">
-          <button aria-label={t.game.switch3d} className="placeholder-button" onClick={props.onSwitch3d}><span aria-hidden="true">◇</span>{t.game.switch3d}<small>{t.common.soon}</small></button>
+          <button
+            aria-label={viewMode === "2d" ? t.game.switch3d : t.game.switch2d}
+            className="view-toggle-button"
+            onClick={() => setViewMode((mode) => mode === "2d" ? "3d" : "2d")}
+          >
+            <span aria-hidden="true">◇</span>{viewMode === "2d" ? t.game.switch3d : t.game.switch2d}
+          </button>
           <button aria-label={t.game.exit} className="exit-button" onClick={props.onExit}><span aria-hidden="true">⌂</span>{t.game.exit}</button>
         </div>
       </footer>

@@ -3,6 +3,15 @@ export type Screen = "loading" | "menu" | "ai-settings" | "settings" | "instruct
 export type Player = 1 | -1;
 export type GameMode = "pvp" | "pvai";
 export type AiRole = "combat" | "hint" | "winRate";
+export type BoardViewMode = "2d" | "3d";
+export type PieceFocus = "all" | "red" | "blue";
+export type LayerSpacing = "standard" | "expanded";
+export type CameraPreset = "isometric" | "front" | "top";
+
+export interface CameraCommand {
+  preset: CameraPreset;
+  serial: number;
+}
 
 export interface Move {
   action: number;

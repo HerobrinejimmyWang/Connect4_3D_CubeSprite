@@ -330,7 +330,7 @@ export function App({ backend = sidecarBackend }: AppProps) {
     if (screen === "settings") return <SettingsScreen copy={t} preloadHint={preloadHint} onPreloadHint={setPreloadHint} onBack={() => navigate("menu")} />;
     if (screen === "instructions") return <InstructionsScreen copy={t} onBack={() => navigate("menu")} />;
     if (screen === "game" && game) {
-      return <GameScreen copy={t} state={game} combatThinking={combatThinking} hintThinking={hintThinking} winRateThinking={winRateThinking} mutationBusy={mutationBusy} hint={visibleHint} hintPreloaded={preloadHint && hintPreloaded} winRate={winRate} onMove={(move) => void handleMove(move)} onUndo={() => void mutateGame("game.undo", false)} onRestart={() => void mutateGame("game.restart", true)} onHint={requestVisibleHint} onWinRate={() => void requestWinRate()} onExit={exitGame} onSwitch3d={() => showToast(t.common.comingSoon)} />;
+      return <GameScreen copy={t} state={game} combatThinking={combatThinking} hintThinking={hintThinking} winRateThinking={winRateThinking} mutationBusy={mutationBusy} hint={visibleHint} hintPreloaded={preloadHint && hintPreloaded} winRate={winRate} onMove={(move) => void handleMove(move)} onUndo={() => void mutateGame("game.undo", false)} onRestart={() => void mutateGame("game.restart", true)} onHint={requestVisibleHint} onWinRate={() => void requestWinRate()} onExit={exitGame} />;
     }
     return null;
   }, [aiSettings, combatThinking, exitGame, game, handleMove, hintPreloaded, hintThinking, initError, language, menuBusy, mctsOptions, models, mutateGame, mutationBusy, navigate, preloadHint, requestVisibleHint, requestWinRate, screen, showToast, sideChoiceOpen, startGame, t, updateAi, visibleHint, winRate, winRateThinking]);
