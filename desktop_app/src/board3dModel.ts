@@ -1,4 +1,4 @@
-import type { LayerSpacing, Move, PieceFocus, Player } from "./types";
+import type { GameState, LayerSpacing, Move, PieceFocus, Player, SliceSelection } from "./types";
 
 export const BOARD_SIZE = 5;
 export const MAX_LAYERS = 6;
@@ -11,6 +11,13 @@ export interface ColumnGuide {
   row: number;
   col: number;
   key: string;
+}
+
+export interface SliceCell {
+  layer: number;
+  row: number;
+  col: number;
+  value: number;
 }
 
 export type PieceRenderMode = "solid" | "outline" | "winning";
@@ -64,6 +71,50 @@ export function pieceRenderMode(player: Player, focus: PieceFocus, winning: bool
   if (focus === "all") return "solid";
   const focusedPlayer: Player = focus === "red" ? 1 : -1;
   return player === focusedPlayer ? "solid" : "outline";
+}
+
+export function sliceSelectionLabel(selection: SliceSelection): string {
+  validateSliceSelection(selection);
+  const prefix = selection.axis === "col" ? "C" : selection.axis === "row" ? "R" : "F";
+  return `${prefix}${selection.index + 1}`;
+}
+
+export function moveMatchesSlice(
+  move: Pick<Move, "layer" | "row" | "col">,
+  selection: SliceSelection,
+): boolean {
+  validateSliceSelection(selection);
+  return move[selection.axis] === selection.index;
+}
+
+export function sliceCells(board: GameState["board"], selection: SliceSelection): SliceCell[] {
+  validateSliceSelection(selection);
+  const cells: SliceCell[] = [];
+
+  if (selection.axis === "layer") {
+    for (let row = 0; row < BOARD_SIZE; row += 1) {
+      for (let col = 0; col < BOARD_SIZE; col += 1) {
+        cells.push({ layer: selection.index, row, col, value: board[selection.index]?.[row]?.[col] ?? 0 });
+      }
+    }
+    return cells;
+  }
+
+  for (let layer = MAX_LAYERS - 1; layer >= 0; layer -= 1) {
+    for (let offset = 0; offset < BOARD_SIZE; offset += 1) {
+      const row = selection.axis === "row" ? selection.index : offset;
+      const col = selection.axis === "col" ? selection.index : offset;
+      cells.push({ layer, row, col, value: board[layer]?.[row]?.[col] ?? 0 });
+    }
+  }
+  return cells;
+}
+
+function validateSliceSelection(selection: SliceSelection): void {
+  const limit = selection.axis === "layer" ? MAX_LAYERS : BOARD_SIZE;
+  if (!Number.isInteger(selection.index) || selection.index < 0 || selection.index >= limit) {
+    throw new RangeError(`Invalid ${selection.axis} slice index: ${selection.index}`);
+  }
 }
 
 export function isIntentionalBoardClick(delta: number): boolean {

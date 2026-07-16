@@ -7,6 +7,12 @@ export type BoardViewMode = "2d" | "3d";
 export type PieceFocus = "all" | "red" | "blue";
 export type LayerSpacing = "standard" | "expanded";
 export type CameraPreset = "isometric" | "front" | "top";
+export type SliceAxis = "col" | "row" | "layer";
+
+export interface SliceSelection {
+  axis: SliceAxis;
+  index: number;
+}
 
 export interface CameraCommand {
   preset: CameraPreset;

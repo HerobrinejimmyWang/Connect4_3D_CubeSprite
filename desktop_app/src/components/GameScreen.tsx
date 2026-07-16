@@ -10,6 +10,7 @@ import type {
   LayerSpacing,
   Move,
   PieceFocus,
+  SliceSelection,
   WinRateResult,
 } from "../types";
 import { ObservationDrawer } from "./ObservationDrawer";
@@ -122,6 +123,8 @@ export function GameScreen(props: Props) {
   const [drawerOpen, setDrawerOpen] = useState(true);
   const [pieceFocus, setPieceFocus] = useState<PieceFocus>("all");
   const [showColumnGuides, setShowColumnGuides] = useState(true);
+  const [slicePickerEnabled, setSlicePickerEnabled] = useState(false);
+  const [sliceSelection, setSliceSelection] = useState<SliceSelection | null>(null);
   const [layerSpacing, setLayerSpacing] = useState<LayerSpacing>("standard");
   const [cameraCommand, setCameraCommand] = useState<CameraCommand>({ preset: "isometric", serial: 0 });
   const finished = state.status !== "playing";
@@ -135,6 +138,10 @@ export function GameScreen(props: Props) {
   const thinkingText = props.combatThinking ? t.game.aiThinking : props.hintThinking ? t.game.hintThinking : props.winRateThinking ? t.game.winRateThinking : "";
   const selectCamera = (preset: CameraPreset) => {
     setCameraCommand((current) => ({ preset, serial: current.serial + 1 }));
+  };
+  const setSlicePicker = (enabled: boolean) => {
+    setSlicePickerEnabled(enabled);
+    if (!enabled) setSliceSelection(null);
   };
 
   return (
@@ -156,7 +163,7 @@ export function GameScreen(props: Props) {
 
       <section className={`game-workspace ${viewMode === "3d" ? "three-d-workspace" : ""}`}>
         <div className={`board-view-layout ${viewMode === "3d" ? `three-d ${drawerOpen ? "drawer-open" : "drawer-closed"}` : "two-d"}`}>
-          <div className="board-canvas-pane">
+          <div className={`board-canvas-pane ${sliceSelection ? "slice-active" : ""} ${props.winRate ? "has-win-rate" : ""}`}>
             {viewMode === "2d" ? (
               <div className="board-area">
                 <LayerBoards copy={t} state={state} hint={props.hint} locked={moveLocked} onMove={props.onMove} />
@@ -176,9 +183,13 @@ export function GameScreen(props: Props) {
                   moveLocked={moveLocked}
                   pieceFocus={pieceFocus}
                   showColumnGuides={showColumnGuides}
+                  slicePickerEnabled={slicePickerEnabled}
+                  sliceSelection={sliceSelection}
                   layerSpacing={layerSpacing}
                   cameraCommand={cameraCommand}
                   onMove={props.onMove}
+                  onSliceSelection={setSliceSelection}
+                  onClearSlice={() => setSliceSelection(null)}
                   onFallbackTo2d={() => setViewMode("2d")}
                 />
               </Suspense>
@@ -191,10 +202,14 @@ export function GameScreen(props: Props) {
               open={drawerOpen}
               pieceFocus={pieceFocus}
               showColumnGuides={showColumnGuides}
+              slicePickerEnabled={slicePickerEnabled}
+              sliceSelection={sliceSelection}
               layerSpacing={layerSpacing}
               onToggleOpen={() => setDrawerOpen((open) => !open)}
               onPieceFocus={setPieceFocus}
               onShowColumnGuides={setShowColumnGuides}
+              onSlicePickerEnabled={setSlicePicker}
+              onSliceSelection={setSliceSelection}
               onLayerSpacing={setLayerSpacing}
               onCameraPreset={selectCamera}
               onResetCamera={() => selectCamera("isometric")}

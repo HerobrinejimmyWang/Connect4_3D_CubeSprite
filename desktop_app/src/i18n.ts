@@ -108,6 +108,22 @@ export interface Copy {
       resetCamera: string;
       controlsHint: string;
       columnCoordinate: string;
+      sliceSelection: string;
+      enableSliceSelection: string;
+      sliceSelectionOff: string;
+      sliceSelectionHint: string;
+      boardEdgeSlice: string;
+      selectedSlice: string;
+      clearSlice: string;
+      columnSlice: string;
+      rowSlice: string;
+      layerSlice: string;
+      selectColumnSlice: string;
+      selectRowSlice: string;
+      selectLayerSlice: string;
+      sliceReadOnly: string;
+      sliceContextHint: string;
+      emptySliceCell: string;
       unavailable: string;
       return2d: string;
     };
@@ -236,6 +252,22 @@ export const translations: Record<Language, Copy> = {
         resetCamera: "恢复默认视角",
         controlsHint: "拖动旋转 · 滚轮缩放",
         columnCoordinate: "落子柱坐标",
+        sliceSelection: "截面选择",
+        enableSliceSelection: "启用坐标标签选取",
+        sliceSelectionOff: "默认关闭，避免旋转棋盘时误触标签。",
+        sliceSelectionHint: "点击棋盘边缘的 C、R 或 F 标签；也可使用下方按钮。",
+        boardEdgeSlice: "棋盘边缘截面标签",
+        selectedSlice: "当前截面",
+        clearSlice: "清除截面",
+        columnSlice: "列截面",
+        rowSlice: "行截面",
+        layerSlice: "层截面",
+        selectColumnSlice: "选择列截面",
+        selectRowSlice: "选择行截面",
+        selectLayerSlice: "选择层截面",
+        sliceReadOnly: "独立正视图",
+        sliceContextHint: "左侧保留空间位置，右侧只显示当前截面的棋子。",
+        emptySliceCell: "空位",
         unavailable: "当前设备无法创建 3D 画布。",
         return2d: "返回 2D 棋盘",
       },
@@ -358,6 +390,22 @@ export const translations: Record<Language, Copy> = {
         resetCamera: "Reset camera",
         controlsHint: "Drag to rotate · Wheel to zoom",
         columnCoordinate: "Column coordinate",
+        sliceSelection: "Slice inspection",
+        enableSliceSelection: "Enable coordinate-label selection",
+        sliceSelectionOff: "Off by default to prevent accidental selection while rotating.",
+        sliceSelectionHint: "Click a C, R, or F label around the board, or use the buttons below.",
+        boardEdgeSlice: "Board-edge slice label",
+        selectedSlice: "Selected slice",
+        clearSlice: "Clear slice",
+        columnSlice: "Column slice",
+        rowSlice: "Row slice",
+        layerSlice: "Floor slice",
+        selectColumnSlice: "Select column slice",
+        selectRowSlice: "Select row slice",
+        selectLayerSlice: "Select floor slice",
+        sliceReadOnly: "Face-on inspection",
+        sliceContextHint: "The left view keeps spatial context; the right view contains only this slice.",
+        emptySliceCell: "Empty",
         unavailable: "This device could not create the 3D canvas.",
         return2d: "Return to the 2D board",
       },

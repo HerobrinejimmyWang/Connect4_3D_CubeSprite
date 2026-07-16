@@ -6,7 +6,10 @@ import {
   findLegalMoveForColumn,
   isIntentionalBoardClick,
   layerGap,
+  moveMatchesSlice,
   pieceRenderMode,
+  sliceCells,
+  sliceSelectionLabel,
 } from "./board3dModel";
 import type { Move } from "./types";
 
@@ -57,5 +60,34 @@ describe("3D board model", () => {
     expect(isIntentionalBoardClick(4)).toBe(true);
     expect(isIntentionalBoardClick(4.01)).toBe(false);
     expect(isIntentionalBoardClick(Number.NaN)).toBe(false);
+  });
+
+  it("extracts column, row, and layer slices in their face-on display order", () => {
+    const board = Array.from({ length: 6 }, (_, layer) => (
+      Array.from({ length: 5 }, (_, row) => Array.from({ length: 5 }, (_, col) => layer * 100 + row * 10 + col))
+    ));
+
+    const column = sliceCells(board, { axis: "col", index: 2 });
+    expect(column).toHaveLength(30);
+    expect(column[0]).toMatchObject({ layer: 5, row: 0, col: 2, value: 502 });
+    expect(column[29]).toMatchObject({ layer: 0, row: 4, col: 2, value: 42 });
+
+    const row = sliceCells(board, { axis: "row", index: 3 });
+    expect(row[0]).toMatchObject({ layer: 5, row: 3, col: 0, value: 530 });
+    expect(row[29]).toMatchObject({ layer: 0, row: 3, col: 4, value: 34 });
+
+    const layer = sliceCells(board, { axis: "layer", index: 4 });
+    expect(layer).toHaveLength(25);
+    expect(layer[0]).toMatchObject({ layer: 4, row: 0, col: 0, value: 400 });
+    expect(layer[24]).toMatchObject({ layer: 4, row: 4, col: 4, value: 444 });
+  });
+
+  it("labels and filters slices with zero-based board indices", () => {
+    expect(sliceSelectionLabel({ axis: "col", index: 2 })).toBe("C3");
+    expect(sliceSelectionLabel({ axis: "row", index: 0 })).toBe("R1");
+    expect(sliceSelectionLabel({ axis: "layer", index: 5 })).toBe("F6");
+    expect(moveMatchesSlice({ layer: 2, row: 4, col: 1 }, { axis: "layer", index: 2 })).toBe(true);
+    expect(moveMatchesSlice({ layer: 2, row: 4, col: 1 }, { axis: "col", index: 2 })).toBe(false);
+    expect(() => sliceSelectionLabel({ axis: "layer", index: 6 })).toThrow(RangeError);
   });
 });

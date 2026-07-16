@@ -4,7 +4,7 @@ import { vi } from "vitest";
 
 import { translations } from "../i18n";
 import { emptyState } from "../test/fixtures";
-import type { CameraCommand, GameState, LayerSpacing, Move, PieceFocus } from "../types";
+import type { CameraCommand, GameState, LayerSpacing, Move, PieceFocus, SliceSelection } from "../types";
 import { GameScreen } from "./GameScreen";
 
 interface CanvasStubProps {
@@ -12,24 +12,32 @@ interface CanvasStubProps {
   moveLocked: boolean;
   pieceFocus: PieceFocus;
   showColumnGuides: boolean;
+  slicePickerEnabled: boolean;
+  sliceSelection: SliceSelection | null;
   layerSpacing: LayerSpacing;
   cameraCommand: CameraCommand;
   onMove: (move: Move) => void;
+  onSliceSelection: (selection: SliceSelection) => void;
 }
 
 vi.mock("./Board3DCanvas", () => ({
   Board3DCanvas: (props: CanvasStubProps) => (
-    <button
-      type="button"
+    <div
       data-testid="board-3d-canvas"
       data-focus={props.pieceFocus}
       data-guides={String(props.showColumnGuides)}
+      data-slice-picker={String(props.slicePickerEnabled)}
+      data-slice={props.sliceSelection ? `${props.sliceSelection.axis}:${props.sliceSelection.index}` : "none"}
       data-spacing={props.layerSpacing}
       data-camera={props.cameraCommand.preset}
-      aria-label="3D legal column"
-      disabled={props.moveLocked}
-      onClick={() => props.state.legal_moves[0] && props.onMove(props.state.legal_moves[0])}
-    />
+    >
+      <button
+        type="button"
+        aria-label="3D legal column"
+        disabled={props.moveLocked}
+        onClick={() => props.state.legal_moves[0] && props.onMove(props.state.legal_moves[0])}
+      />
+    </div>
   ),
 }));
 
@@ -106,6 +114,52 @@ it("locks only 3D move submission while AI thinking and keeps observation contro
   expect(await screen.findByRole("button", { name: "3D legal column" })).toBeDisabled();
   expect(screen.getByRole("radio", { name: translations.zh.game.view3d.focusBlue })).toBeEnabled();
   expect(screen.getByRole("switch", { name: translations.zh.game.view3d.showColumnGuides })).toBeEnabled();
+});
+
+it("keeps slice labels protected until enabled and clears the selection when disabled", async () => {
+  const user = userEvent.setup();
+  const onMove = vi.fn();
+  renderGame({ onMove });
+  await user.click(screen.getByRole("button", { name: translations.zh.game.switch3d }));
+  const scene = await screen.findByTestId("board-3d-canvas");
+  const sliceSwitch = screen.getByRole("switch", { name: translations.zh.game.view3d.enableSliceSelection });
+
+  expect(sliceSwitch).not.toBeChecked();
+  expect(scene).toHaveAttribute("data-slice-picker", "false");
+  const edgeLabel = `${translations.zh.game.view3d.boardEdgeSlice}: C3`;
+  expect(screen.queryByRole("button", { name: edgeLabel })).not.toBeInTheDocument();
+
+  await user.click(sliceSwitch);
+  expect(scene).toHaveAttribute("data-slice-picker", "true");
+  await user.click(screen.getByRole("button", { name: edgeLabel }));
+  expect(scene).toHaveAttribute("data-slice", "col:2");
+  expect(screen.getByLabelText(`${translations.zh.game.view3d.selectedSlice}: C3`)).toBeVisible();
+  expect(onMove).not.toHaveBeenCalled();
+
+  await user.click(sliceSwitch);
+  expect(scene).toHaveAttribute("data-slice-picker", "false");
+  expect(scene).toHaveAttribute("data-slice", "none");
+  expect(screen.queryByLabelText(`${translations.zh.game.view3d.selectedSlice}: C3`)).not.toBeInTheDocument();
+});
+
+it("selects C, R, and F slices from accessible drawer buttons independently of column guides", async () => {
+  const user = userEvent.setup();
+  renderGame();
+  await user.click(screen.getByRole("button", { name: translations.zh.game.switch3d }));
+  const scene = await screen.findByTestId("board-3d-canvas");
+
+  await user.click(screen.getByRole("switch", { name: translations.zh.game.view3d.showColumnGuides }));
+  await user.click(screen.getByRole("switch", { name: translations.zh.game.view3d.enableSliceSelection }));
+  await user.click(screen.getByRole("button", { name: `${translations.zh.game.view3d.selectColumnSlice} C3` }));
+  expect(scene).toHaveAttribute("data-guides", "false");
+  expect(scene).toHaveAttribute("data-slice", "col:2");
+
+  await user.click(screen.getByRole("button", { name: `${translations.zh.game.view3d.selectRowSlice} R1` }));
+  expect(scene).toHaveAttribute("data-slice", "row:0");
+
+  await user.click(screen.getByRole("button", { name: `${translations.zh.game.view3d.selectLayerSlice} F6` }));
+  expect(scene).toHaveAttribute("data-slice", "layer:5");
+  expect(screen.getByRole("button", { name: `${translations.zh.game.view3d.selectLayerSlice} F6` })).toHaveAttribute("aria-pressed", "true");
 });
 
 it("submits the exact backend-provided legal move selected in 3D", async () => {
