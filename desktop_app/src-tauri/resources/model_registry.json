@@ -5,34 +5,38 @@
     {
       "id": "cubesprite_v3",
       "display_name": "CubeSprite V3",
-      "model_path": null,
-      "architecture": "cubesprite-v3-placeholder",
+      "model_path": "models/cubesprite_v3.onnx",
+      "architecture": "gravity_resnet_v1",
       "board_layers": 6,
       "board_size": 5,
       "input_channels": 2,
       "action_dim": 150,
+      "artifact_sha256": "c6394b1ddcc7393fba5c30a83cffa5e21787be2d3ff1cd0c6848a7f4cdc95b76",
+      "source_iteration": 192,
       "defaults": { "mcts_sims": 128, "temperature": 1.0 },
       "description": {
-        "zh": "CubeSprite V3 预留模型位，当前版本尚未提供权重。",
-        "en": "Reserved for CubeSprite V3; weights are not included in this release."
+        "zh": "CubeSprite V3 预览模型，使用重力感知策略网络。",
+        "en": "Preview CubeSprite V3 model using a gravity-aware policy network."
       },
-      "placeholder": true
+      "placeholder": false
     },
     {
       "id": "cubesprite_v3_mini",
       "display_name": "CubeSprite V3 mini",
-      "model_path": null,
-      "architecture": "cubesprite-v3-mini-placeholder",
+      "model_path": "models/cubesprite_v3_mini.onnx",
+      "architecture": "gravity_resnet_v1",
       "board_layers": 6,
       "board_size": 5,
       "input_channels": 2,
       "action_dim": 150,
+      "artifact_sha256": "c991f73b241d67e7c2eea42812645e8335f952ba682b941f1113b63f5db1a94a",
+      "source_iteration": 208,
       "defaults": { "mcts_sims": 128, "temperature": 1.0 },
       "description": {
-        "zh": "CubeSprite V3 mini 预留模型位，当前版本尚未提供权重。",
-        "en": "Reserved for CubeSprite V3 mini; weights are not included in this release."
+        "zh": "CubeSprite V3 mini 预览模型，使用轻量重力感知策略网络。",
+        "en": "Preview CubeSprite V3 mini model using a compact gravity-aware policy network."
       },
-      "placeholder": true
+      "placeholder": false
     },
     {
       "id": "v2.2_balance",
@@ -43,6 +47,8 @@
       "board_size": 5,
       "input_channels": 2,
       "action_dim": 150,
+      "artifact_sha256": "bb8cc0c6042276dfa3954e67b71f1fd43f603f9d6d9a0492412726cc41d30712",
+      "source_iteration": null,
       "defaults": { "mcts_sims": 128, "temperature": 1.0 },
       "description": {
         "zh": "当前 6×5×5 平衡模型，原生输出 150 个合法动作平面。",
@@ -59,6 +65,8 @@
       "board_size": 5,
       "input_channels": 1,
       "action_dim": 200,
+      "artifact_sha256": "d2b761e40bdccc40e8745589605dc46951cfb240ff357439a98c11035892bfa1",
+      "source_iteration": null,
       "defaults": { "mcts_sims": 128, "temperature": 1.0 },
       "description": {
         "zh": "旧版高强度模型适配到固定六层规则：输入补零到 8 层，200 维策略裁剪为前 150 维并重新归一化。",

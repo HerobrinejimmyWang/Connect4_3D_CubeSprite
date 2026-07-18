@@ -14,12 +14,25 @@ CubeSprite `0.1.0` 是固定 `6 × 5 × 5、连四` 规则的离线 Windows 桌�
 
 | 模型 | 状态 | 推理适配 |
 |---|---|---|
-| CubeSprite V3 | 占位 | 当前无权重，界面显示但禁用 |
-| CubeSprite V3 mini | 占位 | 当前无权重，界面显示但禁用 |
+| CubeSprite V3 | Preview 可用 | `iter_0192` 重力感知残差网络，原生 `2 × 6 × 5 × 5` 输入、150 动作 |
+| CubeSprite V3 mini | Preview 可用 | `iter_0208` 轻量重力感知残差网络，原生 `2 × 6 × 5 × 5` 输入、150 动作 |
 | v2.2 Balance | 可用 | 原生 `2 × 6 × 5 × 5` 输入、150 动作 |
 | v2.1 High | 可用 | 六层棋盘补零为旧版八层单通道输入，200 动作裁为前 150 动作后重新归一化 |
 
-ONNX 发布资源使用 Git LFS。首次检出后运行 `git lfs pull`。如需从本机参考 checkpoint 重新生成，脚本只读 `tmp_built_app/`，并在临时文件通过 ONNX checker、ONNX Runtime 和 PyTorch 数值比对后原子替换目标文件。
+ONNX 发布资源使用 Git LFS。首次检出后运行 `git lfs pull`。注册表记录每个
+模型资源的 SHA-256，sidecar 在首次加载前再次核验。如需从本机参考
+checkpoint 重新生成，脚本只读 `tmp_built_app/`，并在临时文件通过 ONNX
+checker、ONNX Runtime 和 PyTorch 数值比对后原子替换目标文件。
+
+## 对局回放
+
+对局界面可以把当前步数之前的完整棋局保存到本机。主菜单“回放模式”支持
+打开、删除、导入和导出回放；播放器支持逐步浏览、自动播放、2D/3D
+观察、从任意未终局位置继续对战，以及按当前 AI 设置计算完整胜率曲线。
+
+回放与胜率分析是两个独立文件：可分享的回放只包含规则版本、落子序列和
+终局状态；分析旁车文件记录模型文件哈希、MCTS 配置、执行时间和逐步胜率。
+详细格式见 [REPLAY_PROTOCOL.md](REPLAY_PROTOCOL.md)。
 
 ## Conda 构建环境
 

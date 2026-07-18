@@ -50,6 +50,7 @@ function renderGame(overrides: Partial<React.ComponentProps<typeof GameScreen>> 
     combatThinking: false,
     hintThinking: false,
     winRateThinking: false,
+    saveReplayThinking: false,
     mutationBusy: false,
     hint: null,
     hintPreloaded: false,
@@ -59,6 +60,7 @@ function renderGame(overrides: Partial<React.ComponentProps<typeof GameScreen>> 
     onRestart: noop,
     onHint: noop,
     onWinRate: noop,
+    onSaveReplay: noop,
     onExit: noop,
     ...overrides,
   };
@@ -171,4 +173,16 @@ it("submits the exact backend-provided legal move selected in 3D", async () => {
   await user.click(await screen.findByRole("button", { name: "3D legal column" }));
 
   expect(onMove).toHaveBeenCalledWith(move);
+});
+
+it("places save replay immediately before the view toggle and delegates the snapshot action", async () => {
+  const user = userEvent.setup();
+  const onSaveReplay = vi.fn();
+  renderGame({ onSaveReplay });
+
+  const save = screen.getByRole("button", { name: translations.zh.game.saveReplay });
+  const switch3d = screen.getByRole("button", { name: translations.zh.game.switch3d });
+  expect(save.nextElementSibling).toBe(switch3d);
+  await user.click(save);
+  expect(onSaveReplay).toHaveBeenCalledOnce();
 });

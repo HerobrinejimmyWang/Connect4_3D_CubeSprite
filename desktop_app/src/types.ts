@@ -1,7 +1,10 @@
 export type Language = "zh" | "en";
-export type Screen = "loading" | "menu" | "ai-settings" | "settings" | "instructions" | "game";
+export type Screen = "loading" | "menu" | "ai-settings" | "settings" | "instructions" | "game" | "replay";
+export type MenuPanel = "side" | "replays" | null;
+export type AutoplayInterval = 2000 | 1000 | 500 | 250;
 export type Player = 1 | -1;
 export type GameMode = "pvp" | "pvai";
+export type GameStateMode = GameMode | "replay";
 export type AiRole = "combat" | "hint" | "winRate";
 export type BoardViewMode = "2d" | "3d";
 export type PieceFocus = "all" | "red" | "blue";
@@ -30,7 +33,7 @@ export interface Move {
 export interface GameState {
   session_id: string;
   revision: number;
-  mode: GameMode;
+  mode: GameStateMode;
   human_player: Player;
   board: number[][][];
   current_player: Player;
@@ -52,6 +55,8 @@ export interface ModelInfo {
   display_name: string;
   model_path: string | null;
   architecture: string;
+  artifact_sha256: string;
+  source_iteration: number | null;
   default_mcts_sims: number;
   default_temperature: number;
   description: Record<Language, string>;
@@ -87,6 +92,91 @@ export interface WinRateResult {
   red: number;
   blue: number;
   estimate: string;
+}
+
+export type ReplayStatus = "playing" | "unfinished" | "won" | "draw";
+
+export interface ReplaySummary {
+  id: string;
+  name: string;
+  saved_at: string;
+  move_count: number;
+  status: ReplayStatus;
+  winner: Player | 0 | null;
+  fingerprint: string;
+}
+
+export interface ReplayMove extends Move {
+  ply: number;
+  player: Player;
+}
+
+export interface ReplayDocument extends ReplaySummary {
+  format: string;
+  protocol_version: number;
+  rules: {
+    format: "connect4-3d-gravity";
+    version: number;
+    board_layers: number;
+    board_size: number;
+    connect_n: number;
+    gravity: "layer_ascending";
+    starting_player: 1;
+  };
+  moves: ReplayMove[];
+}
+
+export interface ReplayFrame extends GameState {
+  mode: "replay";
+  replay_id: string;
+  replay_step: number;
+  replay_total_steps: number;
+}
+
+export interface WinRateAnalysisPoint {
+  step: number;
+  red: number;
+  blue: number;
+  estimate: string;
+}
+
+export interface WinRateAnalysis {
+  format: string;
+  protocol_version: number;
+  replay_id: string;
+  replay_fingerprint: string;
+  model: {
+    id: string;
+    display_name: string;
+    architecture: string;
+    artifact_sha256: string;
+    source_iteration: number | null;
+  };
+  config: AiConfig;
+  request_generation: number;
+  started_at: string;
+  completed_at: string;
+  duration_ms: number;
+  points: WinRateAnalysisPoint[];
+}
+
+export interface ReplayOpenResult {
+  replay: ReplayDocument;
+  frames: ReplayFrame[];
+  analysis: WinRateAnalysis | null;
+}
+
+export interface ReplayListResult {
+  replays: ReplaySummary[];
+}
+
+export interface ReplayMutationResult {
+  replay: ReplaySummary;
+}
+
+export interface ReplayExportResult {
+  filename: string;
+  content: string;
 }
 
 export interface BackendApi {

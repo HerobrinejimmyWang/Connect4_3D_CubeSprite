@@ -141,6 +141,23 @@ class ControllerTests(unittest.TestCase):
 
 
 class RegistryAndModelTests(unittest.TestCase):
+    def test_gravity_full_board_mask_fallback_matches_boolean_where(self):
+        model = GravityPolicyValueNet(num_channels=8, num_res_blocks=1, backbone_type="layer2d")
+        board_channels = torch.zeros((1, 2, 6, 5, 5), dtype=torch.float32)
+        board_channels[:, 0] = 1
+        valid = board_channels.sum(dim=1).sum(dim=1).flatten(1) < 6
+        any_valid = valid.any(dim=1, keepdim=True)
+        expected = torch.where(any_valid, valid, torch.ones_like(valid))
+        actual = valid | ~any_valid
+        torch.testing.assert_close(actual, expected)
+
+        model.eval()
+        with torch.inference_mode():
+            column_log_policy, value = model.forward_columns(board_channels)
+        self.assertTrue(torch.isfinite(column_log_policy).all())
+        self.assertTrue(torch.isfinite(value).all())
+        torch.testing.assert_close(column_log_policy.exp().sum(dim=1), torch.ones(1))
+
     def test_registry_only_scans_explicit_roots_and_skips_temporary_files(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

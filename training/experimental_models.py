@@ -179,7 +179,10 @@ class GravityPolicyValueNet(nn.Module):
         logits = self.policy_head(feature_map).flatten(1)
         valid = column_valid_mask(board_channels).flatten(1)
         any_valid = valid.any(dim=1, keepdim=True)
-        safe_valid = torch.where(any_valid, valid, torch.ones_like(valid))
+        # Boolean-valued Where is not implemented by the CPU ONNX Runtime
+        # provider. This expression is exactly equivalent: preserve `valid`
+        # when at least one column is legal, otherwise make every column safe.
+        safe_valid = valid | ~any_valid
         masked_logits = logits.masked_fill(~safe_valid, _safe_illegal_logit(logits))
         column_log_policy = F.log_softmax(masked_logits, dim=1)
         pooled = torch.cat((feature_map.mean(dim=(2, 3)), feature_map.amax(dim=(2, 3))), dim=1)

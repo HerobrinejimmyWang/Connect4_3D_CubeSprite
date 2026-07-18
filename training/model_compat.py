@@ -100,6 +100,8 @@ def extract_state_dict_and_metadata(checkpoint):
 
 
 def detect_architecture(state_dict):
+    if "stem.weight" in state_dict and "policy_head.weight" in state_dict:
+        return "gravity_resnet_v1"
     if any(key.startswith("res_blocks.") for key in state_dict):
         return "modern"
     if any(re.match(r"res\d+\.conv1\.weight", key) for key in state_dict):
@@ -135,7 +137,63 @@ def infer_board_config_from_action_dim(action_dim):
     raise ValueError(f"无法根据动作维度 {action_dim} 推断棋盘配置。")
 
 
-def infer_model_config(state_dict):
+def infer_model_config(state_dict, requested_config=None):
+    requested_config = requested_config or {}
+    architecture = detect_architecture(state_dict)
+    if architecture == "gravity_resnet_v1":
+        stem_weight = state_dict["stem.weight"]
+        if stem_weight.ndim == 4:
+            backbone_type = "layer2d"
+            expected_stem_channels = 14
+        elif stem_weight.ndim == 5:
+            backbone_type = "factorized3d"
+            expected_stem_channels = 2
+        else:
+            raise ValueError(f"Gravity stem has unsupported rank {stem_weight.ndim}.")
+        if int(stem_weight.shape[1]) != expected_stem_channels:
+            raise ValueError(
+                f"Gravity {backbone_type} stem expects {expected_stem_channels} channels, "
+                f"got {int(stem_weight.shape[1])}."
+            )
+
+        block_indices = [
+            int(match.group(1))
+            for key in state_dict
+            if (match := re.match(r"blocks\.(\d+)\.", key))
+        ]
+        global_indices = [
+            int(match.group(1))
+            for key in state_dict
+            if (match := re.match(r"global_blocks\.(\d+)\.", key))
+        ]
+        config = {
+            "board_size": 5,
+            "board_layers": 6,
+            "num_channels": int(stem_weight.shape[0]),
+            "input_channels": 2,
+            "num_res_blocks": max(block_indices) + 1 if block_indices else 0,
+            "architecture": architecture,
+            "backbone_type": backbone_type,
+            "global_context_blocks": max(global_indices) + 1 if global_indices else 0,
+            "policy_space": "columns25",
+            "normalization": "group_norm",
+            "action_dim": 150,
+        }
+        for key, inferred in config.items():
+            if key not in requested_config:
+                continue
+            requested = requested_config[key]
+            if isinstance(inferred, int):
+                matches = int(requested) == inferred
+            else:
+                matches = str(requested) == inferred
+            if not matches:
+                raise ValueError(
+                    f"Checkpoint model_config {key}={requested!r} does not match "
+                    f"the inferred value {inferred!r}."
+                )
+        return config
+
     action_dim = int(state_dict["prob_fc.bias"].shape[0])
     board_size, board_layers = infer_board_config_from_action_dim(action_dim)
     return {
@@ -144,14 +202,18 @@ def infer_model_config(state_dict):
         "num_channels": int(state_dict["conv1.weight"].shape[0]),
         "input_channels": int(state_dict["conv1.weight"].shape[1]),
         "num_res_blocks": infer_res_block_count(state_dict),
-        "architecture": detect_architecture(state_dict),
+        "architecture": architecture,
+        "action_dim": action_dim,
     }
 
 
 def load_compatible_model(model_path, device="cpu"):
     checkpoint = load_checkpoint_payload(model_path)
     state_dict, metadata = extract_state_dict_and_metadata(checkpoint)
-    config = infer_model_config(state_dict)
+    embedded_config = metadata.get("student_model_config") or metadata.get("model_config") or {}
+    if not isinstance(embedded_config, dict):
+        embedded_config = {}
+    config = infer_model_config(state_dict, requested_config=embedded_config)
     model = build_model_from_state_dict(state_dict, config, device=device)
     metadata.update(
         {

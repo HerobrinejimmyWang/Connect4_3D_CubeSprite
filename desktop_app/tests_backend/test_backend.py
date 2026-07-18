@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import io
 import json
 import os
@@ -29,6 +30,7 @@ from cubesprite_backend.main import process_request
 from cubesprite_backend.model_runtime import ModelRegistry, ModelRegistryError, ModelUnavailableError, OnnxPredictor
 from cubesprite_backend.search import NumpyMCTS
 from cubesprite_backend.service import CubeSpriteService, ServiceError, find_winning_line
+from desktop_app.scripts.export_models import verify_source_sha256
 
 
 class UniformPredictor:
@@ -50,10 +52,8 @@ class FakeModels:
         self.requested = []
 
     def get(self, model_id):
-        if model_id in {"v2.2_balance", "v2.1_high"}:
+        if model_id in {"cubesprite_v3", "cubesprite_v3_mini", "v2.2_balance", "v2.1_high"}:
             return SimpleNamespace(id=model_id, display_name=model_id, placeholder=False)
-        if model_id.startswith("cubesprite"):
-            return SimpleNamespace(id=model_id, display_name=model_id, placeholder=True)
         raise ModelUnavailableError(f"Unknown model id: {model_id}")
 
     def predictor(self, model_id):
@@ -73,17 +73,55 @@ def move(service, state, layer, row, col):
     return service.handle("game.move", {**token(state), "layer": layer, "row": row, "col": col})
 
 
+class ExportSourceTests(unittest.TestCase):
+    def test_source_hash_guard_accepts_exact_file_and_rejects_replacement(self):
+        with tempfile.TemporaryDirectory() as temp:
+            checkpoint = Path(temp) / "best_state.pth.tar"
+            checkpoint.write_bytes(b"expected checkpoint")
+            expected = hashlib.sha256(checkpoint.read_bytes()).hexdigest()
+            self.assertEqual(verify_source_sha256(checkpoint, expected.upper()), expected)
+
+            checkpoint.write_bytes(b"replaced checkpoint")
+            with self.assertRaisesRegex(ValueError, "hash mismatch"):
+                verify_source_sha256(checkpoint, expected)
+
+
 class ManifestAndAdapterTests(unittest.TestCase):
     def test_authoritative_manifest_has_four_clean_bilingual_entries(self):
         models = ModelRegistry(RESOURCE_DIR).list_models()
         self.assertEqual([item["id"] for item in models], [
             "cubesprite_v3", "cubesprite_v3_mini", "v2.2_balance", "v2.1_high"
         ])
-        self.assertFalse(models[0]["available"])
-        self.assertEqual(models[0]["unavailable_reason"], "model_placeholder")
+        self.assertTrue(models[0]["available"])
+        self.assertTrue(models[1]["available"])
+        self.assertEqual(models[0]["architecture"], "gravity_resnet_v1")
+        self.assertEqual(models[1]["architecture"], "gravity_resnet_v1")
         self.assertEqual(models[3]["architecture"], "legacy-v21-adapted-6-layer")
         self.assertEqual((models[3]["board_layers"], models[3]["action_dim"]), (8, 200))
+        expected_identities = {
+            "cubesprite_v3": (
+                "c6394b1ddcc7393fba5c30a83cffa5e21787be2d3ff1cd0c6848a7f4cdc95b76",
+                192,
+            ),
+            "cubesprite_v3_mini": (
+                "c991f73b241d67e7c2eea42812645e8335f952ba682b941f1113b63f5db1a94a",
+                208,
+            ),
+            "v2.2_balance": (
+                "bb8cc0c6042276dfa3954e67b71f1fd43f603f9d6d9a0492412726cc41d30712",
+                None,
+            ),
+            "v2.1_high": (
+                "d2b761e40bdccc40e8745589605dc46951cfb240ff357439a98c11035892bfa1",
+                None,
+            ),
+        }
         for item in models:
+            expected_hash, expected_iteration = expected_identities[item["id"]]
+            self.assertEqual(item["artifact_sha256"], expected_hash)
+            self.assertEqual(item["source_iteration"], expected_iteration)
+            artifact = RESOURCE_DIR / item["model_path"]
+            self.assertEqual(hashlib.sha256(artifact.read_bytes()).hexdigest(), expected_hash)
             text = item["display_name"] + item["description"]["zh"] + item["description"]["en"]
             for mojibake in ("Ã", "é¢", "�"):
                 self.assertNotIn(mojibake, text)
@@ -133,6 +171,7 @@ class ManifestAndAdapterTests(unittest.TestCase):
             "id": "bad", "display_name": "Bad", "model_path": "../escape.onnx",
             "architecture": "modern-v22", "board_layers": 6, "board_size": 5,
             "input_channels": 2, "action_dim": 150,
+            "artifact_sha256": "0" * 64, "source_iteration": None,
             "defaults": {"mcts_sims": 128, "temperature": 1.0},
             "description": {"zh": "坏", "en": "Bad"},
             "placeholder": False,
@@ -150,14 +189,38 @@ class ManifestAndAdapterTests(unittest.TestCase):
             registry_file.write_text(json.dumps({"models": [dict(safe, action_dim=149)]}), encoding="utf-8")
             with self.assertRaises(ModelRegistryError):
                 ModelRegistry(root)
+            for bad_hash in ("0" * 63, "A" * 64, "not-a-digest"):
+                registry_file.write_text(
+                    json.dumps({"models": [dict(safe, artifact_sha256=bad_hash)]}),
+                    encoding="utf-8",
+                )
+                with self.subTest(bad_hash=bad_hash), self.assertRaisesRegex(
+                    ModelRegistryError, "artifact_sha256"
+                ):
+                    ModelRegistry(root)
+            for bad_iteration in (0, -1, True, "192"):
+                registry_file.write_text(
+                    json.dumps({"models": [dict(safe, source_iteration=bad_iteration)]}),
+                    encoding="utf-8",
+                )
+                with self.subTest(bad_iteration=bad_iteration), self.assertRaisesRegex(
+                    ModelRegistryError, "source_iteration"
+                ):
+                    ModelRegistry(root)
 
     def test_real_onnx_models_when_exported(self):
         models_dir = RESOURCE_DIR / "models"
-        if not all((models_dir / name).is_file() for name in ("v2.2_balance.onnx", "v2.1_high.onnx")):
+        filenames = (
+            "cubesprite_v3.onnx",
+            "cubesprite_v3_mini.onnx",
+            "v2.2_balance.onnx",
+            "v2.1_high.onnx",
+        )
+        if not all((models_dir / name).is_file() for name in filenames):
             self.skipTest("Run export_models.py to create ONNX resources.")
         registry = ModelRegistry(RESOURCE_DIR)
         board = np.zeros((6, 5, 5), dtype=np.int8)
-        for model_id in ("v2.2_balance", "v2.1_high"):
+        for model_id in ("cubesprite_v3", "cubesprite_v3_mini", "v2.2_balance", "v2.1_high"):
             policy, value = registry.predictor(model_id).predict(board)
             self.assertEqual(policy.shape, (150,))
             self.assertAlmostEqual(float(policy.sum()), 1.0, places=6)
@@ -168,6 +231,7 @@ class ManifestAndAdapterTests(unittest.TestCase):
             "id": "broken", "display_name": "Broken", "model_path": "models/broken.onnx",
             "architecture": "modern-v22", "board_layers": 6, "board_size": 5,
             "input_channels": 2, "action_dim": 150,
+            "artifact_sha256": "0" * 64, "source_iteration": None,
             "defaults": {"mcts_sims": 128, "temperature": 1.0},
             "description": {"zh": "损坏", "en": "Broken"},
             "placeholder": False,
@@ -177,6 +241,7 @@ class ManifestAndAdapterTests(unittest.TestCase):
             (root / "models").mkdir()
             path = root / "models" / "broken.onnx"
             path.write_bytes(b"not an onnx model")
+            model["artifact_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
             (root / "model_registry.json").write_text(json.dumps({"models": [model]}), encoding="utf-8")
             registry = ModelRegistry(root)
             with self.assertRaises(ModelUnavailableError):
@@ -195,6 +260,33 @@ class ManifestAndAdapterTests(unittest.TestCase):
             with mock.patch("cubesprite_backend.model_runtime.ort.InferenceSession", return_value=fake_session):
                 with self.assertRaisesRegex(ValueError, "policy"):
                     OnnxPredictor(spec, path)
+
+    def test_model_artifact_replacement_is_rejected_before_onnx_loading(self):
+        original = b"original model artifact"
+        model = {
+            "id": "guarded", "display_name": "Guarded", "model_path": "models/guarded.onnx",
+            "architecture": "modern-v22", "board_layers": 6, "board_size": 5,
+            "input_channels": 2, "action_dim": 150,
+            "artifact_sha256": hashlib.sha256(original).hexdigest(), "source_iteration": 7,
+            "defaults": {"mcts_sims": 128, "temperature": 1.0},
+            "description": {"zh": "受保护", "en": "Guarded"},
+            "placeholder": False,
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            models_dir = root / "models"
+            models_dir.mkdir()
+            artifact = models_dir / "guarded.onnx"
+            artifact.write_bytes(b"replacement model artifact")
+            (root / "model_registry.json").write_text(json.dumps({"models": [model]}), encoding="utf-8")
+            registry = ModelRegistry(root)
+            with mock.patch("cubesprite_backend.model_runtime.ort.InferenceSession") as load:
+                with self.assertRaisesRegex(ModelUnavailableError, "SHA-256 mismatch"):
+                    registry.predictor("guarded")
+                load.assert_not_called()
+            listed = registry.list_models()[0]
+            self.assertFalse(listed["available"])
+            self.assertIn("artifact SHA-256 mismatch", listed["unavailable_reason"])
 
 
 class ServiceStateTests(unittest.TestCase):
@@ -273,9 +365,11 @@ class ServiceStateTests(unittest.TestCase):
         self.assertFalse(result["settings"]["preload_hint"])
         state = self.service.handle("game.new", {"mode": "pvp"})
         self.assertEqual(self.service.handle("settings.get", {})["roles"]["combat"]["model_id"], "v2.1_high")
-        with self.assertRaises(ServiceError) as caught:
-            self.service.handle("settings.update", {**token(state), "roles": {"combat": {"model_id": "cubesprite_v3"}}})
-        self.assertEqual(caught.exception.code, "MODEL_UNAVAILABLE")
+        updated = self.service.handle(
+            "settings.update",
+            {**token(state), "roles": {"combat": {"model_id": "cubesprite_v3"}}},
+        )
+        self.assertEqual(updated["settings"]["roles"]["combat"]["model_id"], "cubesprite_v3")
 
     def test_hint_and_win_rate_use_independent_roles(self):
         state = self.service.snapshot()

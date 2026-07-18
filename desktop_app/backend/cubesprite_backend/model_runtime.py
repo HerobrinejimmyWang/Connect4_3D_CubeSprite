@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import re
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,6 +16,7 @@ import onnxruntime as ort
 PRODUCT_BOARD_LAYERS = 6
 PRODUCT_BOARD_SIZE = 5
 PRODUCT_ACTION_DIM = PRODUCT_BOARD_LAYERS * PRODUCT_BOARD_SIZE * PRODUCT_BOARD_SIZE
+_SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
 
 class ModelRegistryError(ValueError):
@@ -34,6 +37,8 @@ class ModelSpec:
     board_size: int
     input_channels: int
     action_dim: int
+    artifact_sha256: str
+    source_iteration: int | None
     defaults: dict[str, Any]
     description: dict[str, str]
     placeholder: bool = False
@@ -56,9 +61,19 @@ class ModelSpec:
             raise ModelRegistryError(f"Invalid model manifest entry: {exc}") from exc
         if not spec.id or not spec.display_name:
             raise ModelRegistryError("Model id and display_name must not be empty.")
+        if not isinstance(spec.artifact_sha256, str) or _SHA256_PATTERN.fullmatch(spec.artifact_sha256) is None:
+            raise ModelRegistryError(
+                f"Model {spec.id} artifact_sha256 must be a canonical lowercase SHA-256 digest."
+            )
+        if spec.source_iteration is not None and (
+            isinstance(spec.source_iteration, bool)
+            or not isinstance(spec.source_iteration, int)
+            or spec.source_iteration <= 0
+        ):
+            raise ModelRegistryError(f"Model {spec.id} source_iteration must be a positive integer or null.")
         if spec.board_size != PRODUCT_BOARD_SIZE:
             raise ModelRegistryError(f"Model {spec.id} has unsupported board_size={spec.board_size}.")
-        if spec.architecture == "modern-v22":
+        if spec.architecture in {"modern-v22", "gravity_resnet_v1"}:
             expected = (6, 2, 150)
         elif spec.architecture == "legacy-v21-adapted-6-layer":
             expected = (8, 1, 200)
@@ -121,6 +136,8 @@ class ModelRegistry:
                     "board_size": spec.board_size,
                     "input_channels": spec.input_channels,
                     "action_dim": spec.action_dim,
+                    "artifact_sha256": spec.artifact_sha256,
+                    "source_iteration": spec.source_iteration,
                     "defaults": dict(spec.defaults),
                     "default_mcts_sims": spec.default_mcts_sims,
                     "default_temperature": spec.default_temperature,
@@ -178,6 +195,7 @@ class ModelRegistry:
 class OnnxPredictor:
     def __init__(self, spec: ModelSpec, path: Path):
         self.spec = spec
+        self._verify_artifact_sha256(path)
         options = ort.SessionOptions()
         options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
         options.intra_op_num_threads = max(1, min(8, (os.cpu_count() or 4) // 2))
@@ -196,6 +214,21 @@ class OnnxPredictor:
         self.policy_output_name = policy_output.name
         self.value_output_name = value_output.name
         self._run_lock = threading.Lock()
+
+    def _verify_artifact_sha256(self, path: Path) -> None:
+        digest = hashlib.sha256()
+        try:
+            with path.open("rb") as handle:
+                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                    digest.update(chunk)
+        except OSError as exc:
+            raise ValueError(f"Cannot read ONNX artifact for {self.spec.id}: {exc}") from exc
+        actual = digest.hexdigest()
+        if actual != self.spec.artifact_sha256:
+            raise ValueError(
+                f"ONNX artifact SHA-256 mismatch for {self.spec.id}: "
+                f"expected {self.spec.artifact_sha256}, found {actual}."
+            )
 
     def predict(self, canonical_board: np.ndarray) -> tuple[np.ndarray, float]:
         encoded = self._encode(canonical_board)

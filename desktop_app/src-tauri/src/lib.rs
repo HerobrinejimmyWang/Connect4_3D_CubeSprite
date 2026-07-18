@@ -1,4 +1,4 @@
-use std::{ffi::OsString, path::PathBuf, sync::Mutex};
+use std::{ffi::OsString, fs, path::PathBuf, sync::Mutex};
 
 use tauri::{Emitter, Manager, RunEvent, State, WindowEvent};
 use tauri_plugin_shell::{
@@ -22,6 +22,28 @@ fn state_lock_error() -> String {
     "The AI sidecar state lock is unavailable".to_owned()
 }
 
+fn is_current_sidecar(state: &SidecarState, pid: u32) -> bool {
+    match state.child.lock() {
+        Ok(current) => current.as_ref().map(|managed| managed.pid) == Some(pid),
+        // A poisoned lifecycle lock already makes the managed sidecar
+        // unusable, so surface its events instead of hiding diagnostics.
+        Err(_) => true,
+    }
+}
+
+fn clear_current_sidecar(state: &SidecarState, pid: u32) -> bool {
+    match state.child.lock() {
+        Ok(mut current) if current.as_ref().map(|managed| managed.pid) == Some(pid) => {
+            current.take();
+            true
+        }
+        Ok(_) => false,
+        // Surface the termination so frontend requests do not remain pending
+        // when the lifecycle lock itself is unusable.
+        Err(_) => true,
+    }
+}
+
 fn resource_directory(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let bundled = app
         .path()
@@ -42,6 +64,16 @@ fn resource_directory(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     }
 }
 
+fn application_data_directory(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let directory = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("Unable to locate the application data directory: {error}"))?;
+    fs::create_dir_all(&directory)
+        .map_err(|error| format!("Unable to prepare the application data directory: {error}"))?;
+    Ok(directory)
+}
+
 #[tauri::command]
 fn start_sidecar(app: tauri::AppHandle, state: State<'_, SidecarState>) -> Result<u32, String> {
     let mut slot = state.child.lock().map_err(|_| state_lock_error())?;
@@ -50,9 +82,12 @@ fn start_sidecar(app: tauri::AppHandle, state: State<'_, SidecarState>) -> Resul
     }
 
     let resource_dir = resource_directory(&app)?;
+    let data_dir = application_data_directory(&app)?;
     let args = [
         OsString::from("--resource-dir"),
         resource_dir.into_os_string(),
+        OsString::from("--data-dir"),
+        data_dir.into_os_string(),
     ];
     let command = app
         .shell()
@@ -71,24 +106,30 @@ fn start_sidecar(app: tauri::AppHandle, state: State<'_, SidecarState>) -> Resul
         while let Some(event) = events.recv().await {
             match event {
                 CommandEvent::Stdout(bytes) => {
-                    let line = String::from_utf8_lossy(&bytes).into_owned();
-                    let _ = event_app.emit("sidecar-stdout", line);
+                    let state = event_app.state::<SidecarState>();
+                    if is_current_sidecar(&state, pid) {
+                        let line = String::from_utf8_lossy(&bytes).into_owned();
+                        let _ = event_app.emit("sidecar-stdout", line);
+                    }
                 }
                 CommandEvent::Stderr(bytes) => {
-                    let line = String::from_utf8_lossy(&bytes).into_owned();
-                    let _ = event_app.emit("sidecar-stderr", line);
+                    let state = event_app.state::<SidecarState>();
+                    if is_current_sidecar(&state, pid) {
+                        let line = String::from_utf8_lossy(&bytes).into_owned();
+                        let _ = event_app.emit("sidecar-stderr", line);
+                    }
                 }
                 CommandEvent::Error(message) => {
-                    let _ = event_app.emit("sidecar-stderr", message);
+                    let state = event_app.state::<SidecarState>();
+                    if is_current_sidecar(&state, pid) {
+                        let _ = event_app.emit("sidecar-stderr", message);
+                    }
                 }
                 CommandEvent::Terminated(payload) => {
                     let state = event_app.state::<SidecarState>();
-                    if let Ok(mut current) = state.child.lock() {
-                        if current.as_ref().map(|managed| managed.pid) == Some(pid) {
-                            current.take();
-                        }
+                    if clear_current_sidecar(&state, pid) {
+                        let _ = event_app.emit("sidecar-exit", payload);
                     }
-                    let _ = event_app.emit("sidecar-exit", payload);
                     break;
                 }
                 _ => {}

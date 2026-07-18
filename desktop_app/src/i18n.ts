@@ -11,6 +11,8 @@ export interface Copy {
     pvpDetail: string;
     pvai: string;
     pvaiDetail: string;
+    replay: string;
+    replayDetail: string;
     aiSettings: string;
     settings: string;
     instructions: string;
@@ -48,6 +50,8 @@ export interface Copy {
     preloadOn: string;
     preloadOff: string;
     preloadDetail: string;
+    autoplaySpeed: string;
+    autoplaySpeedDetail: string;
     future: string;
   };
   instructions: {
@@ -72,11 +76,13 @@ export interface Copy {
     aiThinking: string;
     hintThinking: string;
     winRateThinking: string;
+    saveReplayThinking: string;
     floor: string;
     undo: string;
     restart: string;
     hint: string;
     winRate: string;
+    saveReplay: string;
     exit: string;
     switch3d: string;
     switch2d: string;
@@ -128,10 +134,63 @@ export interface Copy {
       return2d: string;
     };
   };
+  replay: {
+    library: string;
+    loading: string;
+    empty: string;
+    steps: string;
+    unfinished: string;
+    enter: string;
+    delete: string;
+    deleteConfirm: string;
+    export: string;
+    exported: string;
+    import: string;
+    importing: string;
+    saved: string;
+    imported: string;
+    deleted: string;
+    fileTooLarge: string;
+    invalidUtf8: string;
+    progress: string;
+    nowPlaying: string;
+    previous: string;
+    next: string;
+    autoplay: string;
+    pause: string;
+    fromStart: string;
+    continueFromHere: string;
+    monitor: string;
+    calculate: string;
+    exit: string;
+    analysisThinking: string;
+    expandMonitor: string;
+    collapseMonitor: string;
+    noAnalysis: string;
+    noAnalysisDetail: string;
+    currentRate: string;
+    chartLabel: string;
+    analysisModel: string;
+    analysisArtifact: string;
+    analysisConfig: string;
+    analysisTime: string;
+    analysisDuration: string;
+    stepLabel: string;
+    continueTitle: string;
+    continueDetail: string;
+    continuePvp: string;
+    continuePvpDetail: string;
+    continueRed: string;
+    continueRedDetail: string;
+    continueBlue: string;
+    continueBlueDetail: string;
+    continuing: string;
+  };
   errors: {
     backend: string;
     generic: string;
     modelUnavailable: string;
+    replayChanged: string;
   };
 }
 
@@ -147,6 +206,8 @@ export const translations: Record<Language, Copy> = {
       pvpDetail: "两位玩家在同一台电脑上轮流落子",
       pvai: "玩家 vs AI",
       pvaiDetail: "挑战本地运行的 CubeSprite AI",
+      replay: "对局回放",
+      replayDetail: "查看、导入并继续已保存的棋局",
       aiSettings: "AI 设置",
       settings: "设置",
       instructions: "游戏说明",
@@ -180,6 +241,8 @@ export const translations: Record<Language, Copy> = {
       preloadOn: "已开启",
       preloadOff: "已关闭",
       preloadDetail: "棋盘变化后在后台提前计算提示；点击“获取提示”时可直接显示已完成的结果。",
+      autoplaySpeed: "回放自动播放速度",
+      autoplaySpeedDetail: "设置自动播放时每一步之间的时间间隔。",
       future: "更多设置将在后续版本加入。",
     },
     instructions: {
@@ -216,11 +279,13 @@ export const translations: Record<Language, Copy> = {
       aiThinking: "AI 正在思考…",
       hintThinking: "正在计算提示…",
       winRateThinking: "正在估算胜率…",
+      saveReplayThinking: "正在保存回放…",
       floor: "F",
       undo: "悔棋",
       restart: "重新开始",
       hint: "获取提示",
       winRate: "胜率",
+      saveReplay: "保存回放",
       exit: "退出对局",
       switch3d: "切换至 3D",
       switch2d: "切换至 2D",
@@ -272,7 +337,59 @@ export const translations: Record<Language, Copy> = {
         return2d: "返回 2D 棋盘",
       },
     },
-    errors: { backend: "本地游戏引擎未能启动", generic: "操作失败，请重试。", modelUnavailable: "所选 AI 模型暂不可用。" },
+    replay: {
+      library: "回放列表",
+      loading: "正在读取本地回放…",
+      empty: "还没有保存或导入的回放。",
+      steps: "步",
+      unfinished: "未结束",
+      enter: "进入",
+      delete: "删除",
+      deleteConfirm: "确定删除“{name}”吗？此操作无法撤销。",
+      export: "导出",
+      exported: "已导出回放：{name}",
+      import: "Import 导入回放",
+      importing: "正在导入…",
+      saved: "已保存回放：{name}",
+      imported: "已导入回放：{name}",
+      deleted: "已删除回放：{name}",
+      fileTooLarge: "回放文件不能超过 512 KiB。",
+      invalidUtf8: "回放文件必须是严格有效的 UTF-8 文本。",
+      progress: "回放进度",
+      nowPlaying: "当前回放",
+      previous: "上一步",
+      next: "下一步",
+      autoplay: "自动播放",
+      pause: "暂停播放",
+      fromStart: "从头开始",
+      continueFromHere: "从这里继续",
+      monitor: "胜率监控",
+      calculate: "胜率计算",
+      exit: "退出回放",
+      analysisThinking: "正在后台计算全局胜率…",
+      expandMonitor: "展开胜率监控",
+      collapseMonitor: "折叠胜率监控",
+      noAnalysis: "暂无数据",
+      noAnalysisDetail: "请使用下方“胜率计算”按钮生成全局胜率曲线。",
+      currentRate: "当前步",
+      chartLabel: "红蓝双方胜率随回放步数变化的曲线",
+      analysisModel: "计算模型",
+      analysisArtifact: "模型构建",
+      analysisConfig: "计算配置",
+      analysisTime: "完成时间",
+      analysisDuration: "分析耗时",
+      stepLabel: "第 {step} 步",
+      continueTitle: "选择继续模式",
+      continueDetail: "将当前回放位置复制为一局新的实时对局；原回放文件不会被修改。",
+      continuePvp: "玩家 vs 玩家",
+      continuePvpDetail: "双方在本机继续残局",
+      continueRed: "执红对抗 AI",
+      continueRedDetail: "你控制红方，AI 控制蓝方",
+      continueBlue: "执蓝对抗 AI",
+      continueBlueDetail: "你控制蓝方，AI 控制红方",
+      continuing: "正在创建新的对局…",
+    },
+    errors: { backend: "本地游戏引擎未能启动", generic: "操作失败，请重试。", modelUnavailable: "所选 AI 模型暂不可用。", replayChanged: "回放内容已变化，请返回列表后重新打开。" },
   },
   en: {
     appName: "Connect4 3D CubeSprite",
@@ -285,6 +402,8 @@ export const translations: Record<Language, Copy> = {
       pvpDetail: "Take turns on the same computer",
       pvai: "Player vs AI",
       pvaiDetail: "Challenge the locally running CubeSprite AI",
+      replay: "Replay",
+      replayDetail: "Review, import, and continue saved games",
       aiSettings: "AI Settings",
       settings: "Settings",
       instructions: "Instructions",
@@ -318,6 +437,8 @@ export const translations: Record<Language, Copy> = {
       preloadOn: "On",
       preloadOff: "Off",
       preloadDetail: "Compute a hint in the background after every board change so a ready result appears immediately when requested.",
+      autoplaySpeed: "Replay autoplay speed",
+      autoplaySpeedDetail: "Choose the delay between moves during autoplay.",
       future: "More settings will arrive in future versions.",
     },
     instructions: {
@@ -354,11 +475,13 @@ export const translations: Record<Language, Copy> = {
       aiThinking: "AI is thinking…",
       hintThinking: "Computing hint…",
       winRateThinking: "Estimating win rate…",
+      saveReplayThinking: "Saving replay…",
       floor: "F",
       undo: "Undo",
       restart: "Restart",
       hint: "Get Hint",
       winRate: "Win Rate",
+      saveReplay: "Save Replay",
       exit: "Exit",
       switch3d: "Switch to 3D",
       switch2d: "Switch to 2D",
@@ -410,6 +533,58 @@ export const translations: Record<Language, Copy> = {
         return2d: "Return to the 2D board",
       },
     },
-    errors: { backend: "The local game engine could not start", generic: "The action failed. Please try again.", modelUnavailable: "The selected AI model is unavailable." },
+    replay: {
+      library: "Replay library",
+      loading: "Loading local replays…",
+      empty: "No saved or imported replays yet.",
+      steps: "steps",
+      unfinished: "Unfinished",
+      enter: "Open",
+      delete: "Delete",
+      deleteConfirm: "Delete “{name}”? This cannot be undone.",
+      export: "Export",
+      exported: "Replay exported: {name}",
+      import: "Import replay",
+      importing: "Importing…",
+      saved: "Replay saved: {name}",
+      imported: "Replay imported: {name}",
+      deleted: "Replay deleted: {name}",
+      fileTooLarge: "Replay files must not exceed 512 KiB.",
+      invalidUtf8: "Replay files must contain strictly valid UTF-8 text.",
+      progress: "Replay progress",
+      nowPlaying: "Now playing",
+      previous: "Previous",
+      next: "Next",
+      autoplay: "Autoplay",
+      pause: "Pause",
+      fromStart: "From Start",
+      continueFromHere: "Continue Here",
+      monitor: "Win Rate Monitor",
+      calculate: "Calculate Win Rates",
+      exit: "Exit Replay",
+      analysisThinking: "Calculating the full win-rate curve in the background…",
+      expandMonitor: "Expand win rate monitor",
+      collapseMonitor: "Collapse win rate monitor",
+      noAnalysis: "No data",
+      noAnalysisDetail: "Use “Calculate Win Rates” below to generate the full curve.",
+      currentRate: "Current step",
+      chartLabel: "Red and blue win rates across replay steps",
+      analysisModel: "Model",
+      analysisArtifact: "Model build",
+      analysisConfig: "Configuration",
+      analysisTime: "Completed",
+      analysisDuration: "Duration",
+      stepLabel: "Step {step}",
+      continueTitle: "Choose continuation mode",
+      continueDetail: "Copy this replay position into a new live game. The replay file will not be changed.",
+      continuePvp: "Player vs Player",
+      continuePvpDetail: "Continue locally with two players",
+      continueRed: "Play Red vs AI",
+      continueRedDetail: "You control red; AI controls blue",
+      continueBlue: "Play Blue vs AI",
+      continueBlueDetail: "You control blue; AI controls red",
+      continuing: "Creating the new game…",
+    },
+    errors: { backend: "The local game engine could not start", generic: "The action failed. Please try again.", modelUnavailable: "The selected AI model is unavailable.", replayChanged: "The replay changed. Return to the library and open it again." },
   },
 };

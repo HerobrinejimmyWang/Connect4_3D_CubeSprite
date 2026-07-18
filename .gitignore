@@ -16,6 +16,7 @@ tmp_built_app/
 desktop_app/node_modules/
 desktop_app/dist/
 desktop_app/coverage/
+desktop_app/.playwright-cli/
 desktop_app/.sidecar-build/
 desktop_app/src-tauri/target/
 desktop_app/src-tauri/gen/

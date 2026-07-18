@@ -22,7 +22,16 @@ interface EventEnvelope {
 interface PendingRequest {
   resolve: (result: unknown) => void;
   reject: (error: Error) => void;
-  timeout: ReturnType<typeof setTimeout>;
+  timeout: ReturnType<typeof setTimeout> | null;
+}
+
+export const DEFAULT_REQUEST_TIMEOUT_MS = 15 * 60 * 1000;
+export const REPLAY_ANALYSIS_TIMEOUT_MS = null;
+
+export function requestTimeoutMs(command: string): number | null {
+  return command === "replay.analyze"
+    ? REPLAY_ANALYSIS_TIMEOUT_MS
+    : DEFAULT_REQUEST_TIMEOUT_MS;
 }
 
 export class BackendRequestError extends Error {
@@ -60,8 +69,13 @@ export class TauriSidecarBackend implements BackendApi {
   private started = false;
   private buffer = "";
   private terminalError: Error | null = null;
+  private lifecycleTail: Promise<void> = Promise.resolve();
 
-  async start(): Promise<InitializationResult> {
+  start(): Promise<InitializationResult> {
+    return this.runLifecycle(() => this.startUnlocked());
+  }
+
+  private async startUnlocked(): Promise<InitializationResult> {
     if (!this.started) {
       this.terminalError = null;
       await this.attachListeners();
@@ -83,10 +97,13 @@ export class TauriSidecarBackend implements BackendApi {
     const id = this.nextId++;
     const line = JSON.stringify({ v: 1, type: "request", id, command, params });
     const result = new Promise<T>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error(`Backend request timed out: ${command}`));
-      }, 15 * 60 * 1000);
+      const timeoutMs = requestTimeoutMs(command);
+      const timeout = timeoutMs === null
+        ? null
+        : setTimeout(() => {
+          this.pending.delete(id);
+          reject(new Error(`Backend request timed out: ${command}`));
+        }, timeoutMs);
       this.pending.set(id, {
         resolve: resolve as (result: unknown) => void,
         reject,
@@ -98,7 +115,7 @@ export class TauriSidecarBackend implements BackendApi {
     } catch (error) {
       const pending = this.pending.get(id);
       if (pending) {
-        clearTimeout(pending.timeout);
+        if (pending.timeout !== null) clearTimeout(pending.timeout);
         this.pending.delete(id);
         pending.reject(this.terminalError ?? (error instanceof Error ? error : new Error(String(error))));
       }
@@ -106,18 +123,31 @@ export class TauriSidecarBackend implements BackendApi {
     return result;
   }
 
-  async close(): Promise<void> {
-    if (this.started) {
-      try {
-        await invoke("stop_sidecar");
-      } catch (error) {
-        console.error("Unable to stop CubeSprite backend cleanly", error);
-      } finally {
-        this.started = false;
-      }
+  close(): Promise<void> {
+    return this.runLifecycle(() => this.closeUnlocked());
+  }
+
+  private async closeUnlocked(): Promise<void> {
+    try {
+      // A fatal startup event marks the protocol as stopped before Rust has
+      // necessarily observed process termination. Always clear Rust's slot so
+      // a retry cannot accidentally reuse a dying sidecar.
+      await invoke("stop_sidecar");
+    } catch (error) {
+      console.error("Unable to stop CubeSprite backend cleanly", error);
     }
+    this.started = false;
     this.rejectAll(new Error("CubeSprite backend stopped."));
     await this.detachListeners();
+  }
+
+  private runLifecycle<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.lifecycleTail.then(operation, operation);
+    this.lifecycleTail = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
   }
 
   private async attachListeners(): Promise<void> {
@@ -172,7 +202,7 @@ export class TauriSidecarBackend implements BackendApi {
       if (response.id === null) continue;
       const pending = this.pending.get(response.id);
       if (!pending) continue;
-      clearTimeout(pending.timeout);
+      if (pending.timeout !== null) clearTimeout(pending.timeout);
       this.pending.delete(response.id);
       if (response.ok) pending.resolve(response.result);
       else pending.reject(new BackendRequestError(response.error ?? { code: "UNKNOWN", message: "Unknown backend error" }));
@@ -181,7 +211,7 @@ export class TauriSidecarBackend implements BackendApi {
 
   private rejectAll(error: Error): void {
     for (const pending of this.pending.values()) {
-      clearTimeout(pending.timeout);
+      if (pending.timeout !== null) clearTimeout(pending.timeout);
       pending.reject(error);
     }
     this.pending.clear();

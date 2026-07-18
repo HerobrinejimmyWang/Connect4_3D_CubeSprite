@@ -85,12 +85,22 @@ def resolve_resource_dir(value):
     return Path(__file__).resolve().parents[2] / "src-tauri" / "resources"
 
 
+def resolve_data_dir(value):
+    if not value:
+        return None
+    return Path(value).expanduser().resolve()
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Connect4 3D CubeSprite backend")
     parser.add_argument("--resource-dir", default=os.environ.get("CUBESPRITE_RESOURCE_DIR"))
+    parser.add_argument("--data-dir", default=os.environ.get("CUBESPRITE_DATA_DIR"))
     args = parser.parse_args(argv)
     try:
-        service = CubeSpriteService(resolve_resource_dir(args.resource_dir))
+        service = CubeSpriteService(
+            resolve_resource_dir(args.resource_dir),
+            data_dir=resolve_data_dir(args.data_dir),
+        )
     except ServiceError as exc:
         write_message(
             {
@@ -109,7 +119,10 @@ def main(argv=None):
             "data": {"backend_version": __version__, "protocol_version": 1},
         }
     )
-    with ThreadPoolExecutor(max_workers=4, thread_name_prefix="cubesprite") as executor:
+    with (
+        ThreadPoolExecutor(max_workers=4, thread_name_prefix="cubesprite") as executor,
+        ThreadPoolExecutor(max_workers=1, thread_name_prefix="cubesprite-analysis") as analysis_executor,
+    ):
         for raw_line in sys.stdin:
             raw_line = raw_line.strip()
             if not raw_line:
@@ -144,8 +157,13 @@ def main(argv=None):
                 and not isinstance(request_id, bool)
                 and request_id != ""
             )
+            request_executor = (
+                analysis_executor
+                if isinstance(request, dict) and request.get("command") == "replay.analyze"
+                else executor
+            )
             if not track_request_id:
-                executor.submit(process_request, service, request)
+                request_executor.submit(process_request, service, request)
                 continue
             with PENDING_LOCK:
                 duplicate = request_id in PENDING_IDS
@@ -162,7 +180,7 @@ def main(argv=None):
                     }
                 )
                 continue
-            future = executor.submit(process_request, service, request)
+            future = request_executor.submit(process_request, service, request)
 
             def clear_pending(_future, pending_id=request_id):
                 with PENDING_LOCK:
