@@ -1,6 +1,6 @@
 # Connect4 3D CubeSprite v0.1.0
 
-Status: **release materials in preparation**
+Status: **release candidate — awaiting GitHub Release publication**
 
 This directory collects the introduction, model notes, presentation, benchmark
 evidence, and showcase sources for the first semantic-versioned CubeSprite
@@ -9,6 +9,7 @@ desktop release.
 ## Contents
 
 - `introducing.txt` — author's working introduction and change summary.
+- `RELEASE_NOTES.md` — prepared bilingual GitHub Release description.
 - `MODEL_TRAINING_HISTORY.md` — author-owned model lineage and training history.
 - `demo.pptx` — presentation source.
 - `demo/` — local showcase clips; ignored by Git and intended for release-asset
@@ -31,18 +32,18 @@ as a Beta test build in both its filename and GitHub Release description.
 
 ## Release checklist
 
-- [ ] Finish and review the model training history.
-- [ ] Finish the showcase video and presentation.
+- [x] Finish and review the model training history.
+- [x] Finish the showcase video and presentation.
 - [x] Confirm the four bundled model names, iterations, and SHA-256 hashes.
 - [x] Package the four weights-only `.pth` state dictionaries without optimizer,
       trainer, evaluation, or other checkpoint state.
 - [ ] Review model provenance and third-party license notices.
 - [x] Run frontend type checking and the complete frontend test suite.
-- [ ] Run both backend test suites.
+- [x] Run both backend test suites.
 - [ ] Build the Python sidecar from a clean environment.
-- [ ] Build and install the NSIS package on a clean Windows account or machine.
+- [x] Build and install the NSIS package for user-flow testing.
 - [x] Build the Android Beta APK and smoke-test it on a supported Android device.
-- [ ] Smoke-test new game, settings, AI settings, hints, 3D view, and replay.
+- [x] Smoke-test new game, settings, AI settings, hints, 3D view, and replay.
 - [ ] Confirm the application works without a development environment.
 - [x] Record final installer size and SHA-256.
 - [ ] Create the `v0.1.0` Git tag from the exact release commit.
