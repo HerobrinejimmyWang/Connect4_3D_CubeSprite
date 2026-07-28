@@ -42,6 +42,18 @@ The first prepared release is [v0.1.0](release/v0.1.0/README.md).
 | v2.2 Balance | Stable full-size teacher | Warm-started from v2.2 Large data and trained with four-thread, 512-simulation self-play |
 | v2.1 High | Adapted legacy model | Traditional four-block 3D AlphaZero model trained for about 50 iterations on CPU |
 
+### Model evaluation
+
+![Model ability comparison](release/v0.1.0/images/model-abilities.png)
+
+![CPU response latency](release/v0.1.0/images/cpu-latency.png)
+
+These charts summarize the prepared evaluation results for the bundled models.
+Strength and response time depend on the selected MCTS budget, position,
+hardware, and runtime configuration; see the versioned
+[test results](release/v0.1.0/test_results/) for the underlying benchmark
+artifacts.
+
 The bundled ONNX files are tracked with Git LFS and verified against SHA-256
 hashes in the model registry before loading. A detailed, author-written account
 of the model lineage, approximate training history, limitations, and remaining
