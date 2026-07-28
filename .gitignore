@@ -42,6 +42,7 @@ release/**/*.mkv
 release/**/*.webm
 release/**/*.exe
 release/**/*.msi
+release/**/*.apk
 release/**/*.zip
 release/**/*.7z
 release/**/*.log
