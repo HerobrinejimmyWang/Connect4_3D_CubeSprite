@@ -8,7 +8,6 @@ desktop release.
 
 ## Contents
 
-- `introducing.txt` — author's working introduction and change summary.
 - `RELEASE_NOTES.md` — prepared bilingual GitHub Release description.
 - `MODEL_TRAINING_HISTORY.md` — author-owned model lineage and training history.
 - `demo.pptx` — presentation source.
