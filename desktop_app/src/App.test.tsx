@@ -68,6 +68,19 @@ class DeferredContinueBackend extends FakeBackend {
   }
 }
 
+class TacticalHintBackend extends FakeBackend {
+  override async request<T>(command: string, params: Record<string, unknown> = {}): Promise<T> {
+    if (command !== "analysis.tactical_hint") return super.request<T>(command, params);
+    this.calls.push({ command, params });
+    return {
+      for_revision: this.state.revision,
+      move: this.state.legal_moves[0],
+      value: 1,
+      kind: "win",
+    } as T;
+  }
+}
+
 class DeferredMoveBackend extends FakeBackend {
   resolveMove: ((state: GameState) => void) | null = null;
 
@@ -126,7 +139,8 @@ describe("CubeSprite app shell", () => {
     expect(backend.calls.some((call) => call.command === "game.new" && call.params.human_player === -1)).toBe(true);
     const aiCall = backend.calls.find((call) => call.command === "game.ai_move");
     expect(aiCall?.params).toMatchObject({ expected_revision: 2 });
-    expect(aiCall?.params.ai).toMatchObject({ model_id: "v2.2_balance", mcts_sims: 128, temperature: 1 });
+    expect(aiCall?.params.ai).toMatchObject({ model_id: "v2.2_balance", mcts_sims: 256, temperature: 0.4 });
+    expect(aiCall?.params.forced_tactics).toBe(true);
   });
 
   it("only sends a backend move for a legal board cell", async () => {
@@ -154,12 +168,69 @@ describe("CubeSprite app shell", () => {
     const hint = columns[1];
     expect(within(combat).getByText("v2.2_balance")).toBeVisible();
     expect(within(combat).queryByText("均衡模型")).not.toBeInTheDocument();
-    expect(within(combat).getByText("128")).toBeVisible();
-    expect(within(hint).getByText("128")).toBeVisible();
-    await user.click(within(combat).getByRole("button", { name: "combat MCTS plus" }));
     expect(within(combat).getByText("256")).toBeVisible();
-    expect(within(hint).getByText("128")).toBeVisible();
+    expect(within(hint).getByText("256")).toBeVisible();
+    await user.click(within(combat).getByRole("button", { name: "combat MCTS plus" }));
+    expect(within(combat).getByText("512")).toBeVisible();
+    expect(within(hint).getByText("256")).toBeVisible();
   });
+
+  it("can disable the combat AI forced tactical bypass", async () => {
+    const user = userEvent.setup();
+    const backend = new FakeBackend();
+    render(<App backend={backend} />);
+    await user.click(await screen.findByRole("button", { name: "AI 设置" }));
+    const toggle = screen.getByRole("switch", { name: "强制战术落子" });
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+    const columns = document.querySelector(".ai-columns");
+    const forcedSetting = document.querySelector(".ai-forced-setting");
+    expect(
+      columns && forcedSetting
+        ? columns.compareDocumentPosition(forcedSetting) & Node.DOCUMENT_POSITION_FOLLOWING
+        : 0,
+    ).toBeTruthy();
+    await user.click(toggle);
+    await user.click(screen.getByRole("button", { name: /返回主菜单/ }));
+    await user.click(screen.getByRole("button", { name: "玩家 vs AI" }));
+    await user.click(screen.getByRole("button", { name: /蓝方 · 后手/ }));
+    const aiCall = backend.calls.find((call) => call.command === "game.ai_move");
+    expect(aiCall?.params.forced_tactics).toBe(false);
+  });
+
+  it("reveals an immediate tactical hint on a human turn when assistance is set to zero seconds", async () => {
+    const user = userEvent.setup();
+    const backend = new TacticalHintBackend();
+    render(<App backend={backend} />);
+    await user.click(await screen.findByRole("button", { name: "设置" }));
+    const group = screen.getByRole("radiogroup", { name: "辅助判断" });
+    await user.click(within(group).getByRole("radio", { name: "0 秒" }));
+    await user.click(screen.getByRole("button", { name: /返回主菜单/ }));
+    await user.click(screen.getByRole("button", { name: "玩家 vs 玩家" }));
+
+    await waitFor(() => expect(document.querySelector(".tactical-hint-ready")).toHaveTextContent("发现一步必胜位置，已为你高亮。"));
+    expect(backend.calls.some((call) => call.command === "analysis.tactical_hint")).toBe(true);
+    expect(document.querySelector(".hint-cell")).toBeInTheDocument();
+  });
+
+  it("waits five seconds before checking the unchanged human position", async () => {
+    const user = userEvent.setup();
+    const backend = new TacticalHintBackend();
+    render(<App backend={backend} />);
+    await user.click(await screen.findByRole("button", { name: "设置" }));
+    const group = screen.getByRole("radiogroup", { name: "辅助判断" });
+    await user.click(within(group).getByRole("radio", { name: "5 秒" }));
+    await user.click(screen.getByRole("button", { name: /返回主菜单/ }));
+    const startedAt = Date.now();
+    await user.click(screen.getByRole("button", { name: "玩家 vs 玩家" }));
+
+    expect(backend.calls.some((call) => call.command === "analysis.tactical_hint")).toBe(false);
+    await waitFor(
+      () => expect(backend.calls.some((call) => call.command === "analysis.tactical_hint")).toBe(true),
+      { timeout: 6000 },
+    );
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(4800);
+    expect(document.querySelector(".hint-cell")).toBeInTheDocument();
+  }, 8000);
 
   it("keeps the replay autoplay interval as an independent app setting", async () => {
     const user = userEvent.setup();
@@ -265,6 +336,33 @@ describe("CubeSprite app shell", () => {
     const progress = screen.getByText("回放进度").parentElement!;
     expect(within(progress).getByText("0")).toBeVisible();
     expect(within(progress).getByText("/2")).toBeVisible();
+  });
+
+  it("uses the selected hint AI for a read-only replay recommendation", async () => {
+    const user = userEvent.setup();
+    const backend = new FakeBackend();
+    render(<App backend={backend} />);
+    await user.click(await screen.findByRole("button", { name: "AI 设置" }));
+    const hintRole = screen.getAllByRole("article")[1];
+    await user.click(within(hintRole).getByRole("button", { name: "hint MCTS plus" }));
+    await user.click(screen.getByRole("button", { name: /返回主菜单/ }));
+    await user.click(screen.getByRole("button", { name: "对局回放" }));
+    await user.click(await screen.findByRole("button", { name: "进入 测试回放 01" }));
+
+    await user.click(screen.getByRole("button", { name: "回放提示" }));
+    await waitFor(() => expect(backend.calls.some((call) => call.command === "replay.hint")).toBe(true));
+    expect(backend.calls.find((call) => call.command === "replay.hint")?.params).toMatchObject({
+      id: "replay-1",
+      expected_fingerprint: "sha256:test-replay-1",
+      step: 0,
+      ai: {
+        model_id: "v2.2_balance",
+        mcts_sims: 512,
+        temperature: 0.4,
+      },
+    });
+    expect(document.querySelector(".hint-cell")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "F1, 1, 1: 合法落点" })).toBeDisabled();
   });
 
   it("does not enter a replay when its library panel was closed before open completed", async () => {
@@ -480,8 +578,8 @@ describe("CubeSprite app shell", () => {
     await waitFor(() => expect(backend.calls.some((call) => call.command === "replay.analyze")).toBe(true));
     expect(backend.calls.find((call) => call.command === "replay.analyze")?.params.ai).toMatchObject({
       model_id: "v2.2_balance",
-      mcts_sims: 256,
-      temperature: 1,
+      mcts_sims: 512,
+      temperature: 0.4,
     });
     expect(backend.calls.find((call) => call.command === "replay.analyze")?.params).toMatchObject({
       id: "replay-1",

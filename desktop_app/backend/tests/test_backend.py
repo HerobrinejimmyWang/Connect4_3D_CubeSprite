@@ -20,7 +20,7 @@ for import_root in (REPO_ROOT, BACKEND_ROOT):
 
 from connect4_core import GameRules  # noqa: E402
 from cubesprite_backend.model_runtime import ModelRegistry  # noqa: E402
-from cubesprite_backend.search import NumpyMCTS, SearchResult  # noqa: E402
+from cubesprite_backend.search import NumpyMCTS, SearchResult, find_forced_tactical_action  # noqa: E402
 from cubesprite_backend.service import CubeSpriteService, ServiceError, find_winning_line  # noqa: E402
 
 
@@ -34,12 +34,12 @@ class ModelRuntimeIntegrationTests(unittest.TestCase):
         models = {item["id"]: item for item in self.registry.list_models()}
         expected_identities = {
             "cubesprite_v3": (
-                "c6394b1ddcc7393fba5c30a83cffa5e21787be2d3ff1cd0c6848a7f4cdc95b76",
-                192,
+                "61f4619d4b46daba149667697fcc9ffbf28171cef9b03d1b659a07395403814e",
+                240,
             ),
             "cubesprite_v3_mini": (
-                "c991f73b241d67e7c2eea42812645e8335f952ba682b941f1113b63f5db1a94a",
-                208,
+                "31143a556257708b2363b3e280988c1bf00fb15df49b7bc842de015fd6a6b8a9",
+                260,
             ),
             "v2.2_balance": (
                 "bb8cc0c6042276dfa3954e67b71f1fd43f603f9d6d9a0492412726cc41d30712",
@@ -104,7 +104,7 @@ class ServiceStateTests(unittest.TestCase):
     def token(state: dict) -> dict:
         return {"session_id": state["session_id"], "expected_revision": state["revision"]}
 
-    def fake_search(self, board: np.ndarray, _player: int, _ai: dict) -> SearchResult:
+    def fake_search(self, board: np.ndarray, _player: int, _ai: dict, **_kwargs) -> SearchResult:
         action = int(np.flatnonzero(self.service.game.get_valid_moves(board) > 0)[0])
         policy = np.zeros(self.service.game.get_action_size(), dtype=float)
         policy[action] = 1.0
@@ -206,6 +206,45 @@ class ServiceStateTests(unittest.TestCase):
                     {(cell["layer"], cell["row"], cell["col"]) for cell in actual},
                     set(expected),
                 )
+
+    def test_tactical_hint_reports_immediate_win_without_model_search(self) -> None:
+        state = self.service.handle("game.new", {"mode": "pvp", "human_player": 1})
+        self.service.board[0, 4, 2:5] = 1
+        action = self.service.game.coords_to_action(0, 4, 1)
+        self.assertEqual(
+            find_forced_tactical_action(self.service.game, self.service.board, 1),
+            (action, "win"),
+        )
+        result = self.service.handle("analysis.tactical_hint", self.token(state))
+        self.assertEqual(result["kind"], "win")
+        self.assertEqual(result["move"]["action"], action)
+
+    def test_combat_forced_tactics_defaults_on_and_can_be_disabled(self) -> None:
+        state = self.service.handle("game.new", {"mode": "pvai", "human_player": -1})
+        seen: list[bool] = []
+
+        def capture_search(board, player, ai, *, forced_tactics=True):
+            seen.append(forced_tactics)
+            return self.fake_search(board, player, ai)
+
+        self.service._search = capture_search
+        state = self.service.handle("game.ai_move", self.token(state))
+        self.assertEqual(seen, [True])
+
+        state = self.service.handle("game.restart", self.token(state))
+        self.service.handle("game.ai_move", self.token(state) | {"forced_tactics": False})
+        self.assertEqual(seen, [True, False])
+
+    def test_temperature_range_stops_at_two(self) -> None:
+        valid = self.service._validate_ai_config(
+            {"model_id": "v2.2_balance", "mcts_sims": 256, "temperature": 2.0}
+        )
+        self.assertEqual(valid["temperature"], 2.0)
+        with self.assertRaises(ServiceError) as raised:
+            self.service._validate_ai_config(
+                {"model_id": "v2.2_balance", "mcts_sims": 256, "temperature": 2.1}
+            )
+        self.assertEqual(raised.exception.code, "INVALID_TEMPERATURE")
 
 
 class JsonProtocolTests(unittest.TestCase):

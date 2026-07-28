@@ -23,12 +23,12 @@ from .replay_store import (
     find_winning_line,
     replay_summary,
 )
-from .search import NumpyMCTS
+from .search import NumpyMCTS, find_forced_tactical_action
 
 
 MCTS_OPTIONS = {32, 64, 128, 256, 512, 1024}
 AI_ROLES = ("combat", "hint", "win_rate")
-DEFAULT_AI = {"model_id": "v2.2_balance", "mcts_sims": 128, "temperature": 1.0}
+DEFAULT_AI = {"model_id": "v2.2_balance", "mcts_sims": 256, "temperature": 0.4}
 
 
 class ServiceError(RuntimeError):
@@ -106,6 +106,7 @@ class CubeSpriteService:
             "game.undo": self._cmd_undo,
             "game.restart": self._cmd_restart,
             "analysis.hint": self._cmd_hint,
+            "analysis.tactical_hint": self._cmd_tactical_hint,
             "analysis.win_rate": self._cmd_win_rate,
             "replay.list": self._cmd_replay_list,
             "replay.save": self._cmd_replay_save,
@@ -113,6 +114,7 @@ class CubeSpriteService:
             "replay.delete": self._cmd_replay_delete,
             "replay.export": self._cmd_replay_export,
             "replay.import": self._cmd_replay_import,
+            "replay.hint": self._cmd_replay_hint,
             "replay.analyze": self._cmd_replay_analyze,
             "replay.continue": self._cmd_replay_continue,
         }
@@ -235,7 +237,10 @@ class CubeSpriteService:
 
     def _cmd_ai_move(self, params: dict[str, Any]) -> dict[str, Any]:
         board, player, revision, session_id, ai = self._capture_analysis(params, "combat", require_ai_turn=True)
-        result = self._search(board, player, ai)
+        forced_tactics = params.get("forced_tactics", True)
+        if not isinstance(forced_tactics, bool):
+            raise ServiceError("INVALID_FORCED_TACTICS", "forced_tactics must be a boolean.")
+        result = self._search(board, player, ai, forced_tactics=forced_tactics)
         with self._lock:
             self._assert_fresh(session_id, revision)
             self._apply_action(result.action, player)
@@ -253,6 +258,29 @@ class CubeSpriteService:
             "for_revision": revision,
             "move": {"action": result.action, "layer": layer, "row": row, "col": col},
             "value": result.value,
+        }
+
+    def _cmd_tactical_hint(self, params: dict[str, Any]) -> dict[str, Any] | None:
+        with self._lock:
+            self._check_revision(params, required=True)
+            if self.status != "playing":
+                raise ServiceError("GAME_FINISHED", "The game has already ended.")
+            board = self.board.copy()
+            player = self.current_player
+            revision = self._revision_counter
+            session_id = self.session_id
+        forced = find_forced_tactical_action(self.game, board, player)
+        self._assert_fresh(session_id, revision)
+        if forced is None:
+            return None
+        action, kind = forced
+        layer, row, col = self.game.action_to_coords(action)
+        return {
+            "session_id": session_id,
+            "for_revision": revision,
+            "move": {"action": action, "layer": layer, "row": row, "col": col},
+            "value": 1.0 if kind == "win" else 0.0,
+            "kind": kind,
         }
 
     def _cmd_win_rate(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -317,6 +345,40 @@ class CubeSpriteService:
                     "replay.import requires content (and optional filename) or a selected file path.",
                 )
             return {"replay": replay_summary(replay)}
+
+    def _cmd_replay_hint(self, params: dict[str, Any]) -> dict[str, Any]:
+        step = self._as_int(params.get("step", 0), "step")
+        with self._lock:
+            replay = self._load_expected_replay(params)
+            if not 0 <= step <= replay["move_count"]:
+                raise ServiceError("INVALID_REPLAY_STEP", f"Replay step must be between 0 and {replay['move_count']}.")
+            frame = build_replay_frames(replay, self.game)[step]
+            if frame["status"] != "playing":
+                raise ServiceError("GAME_FINISHED", "Cannot calculate a hint for a terminal replay position.")
+            ai = dict(self.settings["roles"]["hint"])
+            override = params.get("ai")
+            if override is not None:
+                if not isinstance(override, dict):
+                    raise ServiceError("INVALID_AI_SETTINGS", "ai must be a JSON object.")
+                ai.update(override)
+            ai = self._validate_ai_config(ai)
+            board = np.asarray(frame["board"], dtype=np.int8)
+            player = int(frame["current_player"])
+
+        result = self._search(board, player, ai)
+        with self._lock:
+            current = self.replays.load_replay(replay["id"])
+            if current["fingerprint"] != replay["fingerprint"]:
+                raise ServiceError("STALE_REPLAY", "The replay changed while hint analysis was running.")
+        layer, row, col = self.game.action_to_coords(result.action)
+        return {
+            "replay_id": replay["id"],
+            "replay_fingerprint": replay["fingerprint"],
+            "for_step": step,
+            "for_revision": step,
+            "move": {"action": result.action, "layer": layer, "row": row, "col": col},
+            "value": result.value,
+        }
 
     def _cmd_replay_analyze(self, params: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
@@ -539,7 +601,14 @@ class CubeSpriteService:
             ai = self._validate_ai_config(ai)
             return self.board.copy(), self.current_player, self._revision_counter, self.session_id, ai
 
-    def _search(self, board: np.ndarray, player: int, ai: dict[str, Any]):
+    def _search(
+        self,
+        board: np.ndarray,
+        player: int,
+        ai: dict[str, Any],
+        *,
+        forced_tactics: bool = True,
+    ):
         try:
             predictor = self.models.predictor(ai["model_id"])
         except (ModelUnavailableError, ModelRegistryError, OSError) as exc:
@@ -550,6 +619,7 @@ class CubeSpriteService:
                 predictor,
                 simulations=ai["mcts_sims"],
                 temperature=ai["temperature"],
+                forced_tactics=forced_tactics,
             ).run(board, player)
         except ServiceError:
             raise
@@ -568,15 +638,15 @@ class CubeSpriteService:
             raise ServiceError("MODEL_UNAVAILABLE", str(exc)) from exc
         if getattr(spec, "placeholder", False):
             raise ServiceError("MODEL_UNAVAILABLE", f"Model {spec.display_name} is a future placeholder.")
-        simulations = self._as_int(config.get("mcts_sims", 128), "mcts_sims")
+        simulations = self._as_int(config.get("mcts_sims", 256), "mcts_sims")
         if simulations not in MCTS_OPTIONS:
             raise ServiceError("INVALID_MCTS", f"MCTS simulations must be one of {sorted(MCTS_OPTIONS)}")
         try:
-            temperature = float(config.get("temperature", 1.0))
+            temperature = float(config.get("temperature", 0.4))
         except (TypeError, ValueError) as exc:
-            raise ServiceError("INVALID_TEMPERATURE", "temperature must be a number from 0 to 5.") from exc
-        if not np.isfinite(temperature) or not 0.0 <= temperature <= 5.0:
-            raise ServiceError("INVALID_TEMPERATURE", "temperature must be a number from 0 to 5.")
+            raise ServiceError("INVALID_TEMPERATURE", "temperature must be a number from 0 to 2.") from exc
+        if not np.isfinite(temperature) or not 0.0 <= temperature <= 2.0:
+            raise ServiceError("INVALID_TEMPERATURE", "temperature must be a number from 0 to 2.")
         # The UI uses a 0.1 step; normalize floating-point noise at the protocol boundary.
         temperature = round(temperature, 1)
         return {"model_id": model_id, "mcts_sims": simulations, "temperature": temperature}

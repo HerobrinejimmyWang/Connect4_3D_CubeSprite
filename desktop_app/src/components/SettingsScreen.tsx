@@ -1,11 +1,13 @@
 import type { Copy } from "../i18n";
-import type { AutoplayInterval } from "../types";
+import type { AutoplayInterval, TacticalHintDelay } from "../types";
 import { PageShell } from "./PageShell";
 
 interface Props {
   copy: Copy;
   preloadHint: boolean;
   onPreloadHint: (enabled: boolean) => void;
+  tacticalHintDelay: TacticalHintDelay;
+  onTacticalHintDelay: (delay: TacticalHintDelay) => void;
   autoplayIntervalMs: AutoplayInterval;
   onAutoplayInterval: (interval: AutoplayInterval) => void;
   onBack: () => void;
@@ -18,7 +20,18 @@ const AUTOPLAY_OPTIONS: Array<{ value: AutoplayInterval; label: string }> = [
   { value: 250, label: "0.25 s" },
 ];
 
-export function SettingsScreen({ copy: t, preloadHint, onPreloadHint, autoplayIntervalMs, onAutoplayInterval, onBack }: Props) {
+const TACTICAL_HINT_OPTIONS: TacticalHintDelay[] = ["off", 0, 5000];
+
+export function SettingsScreen({
+  copy: t,
+  preloadHint,
+  onPreloadHint,
+  tacticalHintDelay,
+  onTacticalHintDelay,
+  autoplayIntervalMs,
+  onAutoplayInterval,
+  onBack,
+}: Props) {
   return (
     <PageShell copy={t} title={t.settings.title} subtitle={t.settings.subtitle} onBack={onBack}>
       <div className="settings-stack">
@@ -38,6 +51,33 @@ export function SettingsScreen({ copy: t, preloadHint, onPreloadHint, autoplayIn
           <span />
           <b>{preloadHint ? t.settings.preloadOn : t.settings.preloadOff}</b>
         </button>
+      </div>
+      <div className="settings-card tactical-hint-setting">
+        <div className="settings-icon" aria-hidden="true">◎</div>
+        <div className="settings-copy">
+          <h2>{t.settings.assistance}</h2>
+          <p>{t.settings.assistanceDetail}</p>
+        </div>
+        <div className="tactical-hint-options" role="radiogroup" aria-label={t.settings.assistance}>
+          {TACTICAL_HINT_OPTIONS.map((delay) => {
+            const label = delay === "off"
+              ? t.settings.assistanceOff
+              : delay === 0
+                ? t.settings.assistanceNow
+                : t.settings.assistanceAfter5;
+            return (
+              <button
+                key={String(delay)}
+                role="radio"
+                aria-checked={tacticalHintDelay === delay}
+                className={tacticalHintDelay === delay ? "selected" : ""}
+                onClick={() => onTacticalHintDelay(delay)}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
       </div>
       <div className="settings-card replay-speed-setting">
         <div className="settings-icon" aria-hidden="true">▶</div>

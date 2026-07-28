@@ -11,7 +11,9 @@ interface Props {
   models: ModelInfo[];
   mctsOptions: number[];
   settings: AiSettings;
+  forcedTactics: boolean;
   onChange: (role: AiRole, next: AiConfig) => void;
+  onForcedTacticsChange: (enabled: boolean) => void;
   onBack: () => void;
 }
 
@@ -21,7 +23,7 @@ function TemperatureControl({ value, onChange }: { value: number; onChange: (val
 
   const commit = (raw: string) => {
     const parsed = Number(raw);
-    const clamped = Number.isFinite(parsed) ? Math.min(5, Math.max(0, parsed)) : value;
+    const clamped = Number.isFinite(parsed) ? Math.min(2, Math.max(0, parsed)) : value;
     onChange(Math.round(clamped * 10) / 10);
     setInput(clamped.toFixed(1));
   };
@@ -33,25 +35,34 @@ function TemperatureControl({ value, onChange }: { value: number; onChange: (val
         aria-label="Temperature"
         type="number"
         min="0"
-        max="5"
+        max="2"
         step="0.1"
         value={input}
         onChange={(event) => {
           setInput(event.target.value);
           const parsed = Number(event.target.value);
-          if (event.target.value !== "" && Number.isFinite(parsed) && parsed >= 0 && parsed <= 5) onChange(Math.round(parsed * 10) / 10);
+          if (event.target.value !== "" && Number.isFinite(parsed) && parsed >= 0 && parsed <= 2) onChange(Math.round(parsed * 10) / 10);
         }}
         onBlur={(event) => commit(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === "Enter") (event.currentTarget as HTMLInputElement).blur();
         }}
       />
-      <button disabled={value >= 5} onClick={() => onChange(Math.min(5, Math.round((value + 0.1) * 10) / 10))}>+</button>
+      <button disabled={value >= 2} onClick={() => onChange(Math.min(2, Math.round((value + 0.1) * 10) / 10))}>+</button>
     </div>
   );
 }
 
-export function AiSettingsScreen({ copy: t, models, mctsOptions, settings, onChange, onBack }: Props) {
+export function AiSettingsScreen({
+  copy: t,
+  models,
+  mctsOptions,
+  settings,
+  forcedTactics,
+  onChange,
+  onForcedTacticsChange,
+  onBack,
+}: Props) {
   const roleNames: Record<AiRole, [string, string]> = {
     combat: [t.ai.combat, t.ai.combatDetail],
     hint: [t.ai.hint, t.ai.hintDetail],
@@ -114,6 +125,24 @@ export function AiSettingsScreen({ copy: t, models, mctsOptions, settings, onCha
           );
         })}
       </div>
+      <section className="ai-forced-setting" aria-label={t.ai.forcedTactics}>
+        <div className="ai-assistance-card">
+          <div>
+            <h2>{t.ai.forcedTactics}</h2>
+            <p>{t.ai.forcedTacticsDetail}</p>
+          </div>
+          <button
+            aria-label={t.ai.forcedTactics}
+            aria-checked={forcedTactics}
+            className={`toggle-switch ${forcedTactics ? "on" : ""}`}
+            role="switch"
+            onClick={() => onForcedTacticsChange(!forcedTactics)}
+          >
+            <span />
+            <b>{forcedTactics ? t.ai.enabled : t.ai.disabled}</b>
+          </button>
+        </div>
+      </section>
       <p className="session-note"><span>●</span>{t.ai.currentSession}</p>
     </PageShell>
   );

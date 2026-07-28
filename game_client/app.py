@@ -31,7 +31,7 @@ class GameClientApp:
         self.selected_index = 0
         self.human_player = 1
         self.device_choice = "auto"
-        self.mcts_sims = 64
+        self.mcts_sims = 256
         self.scene = "launcher"
         self.controller = None
         self.ai_thread = None
@@ -274,7 +274,7 @@ class GameClientApp:
             self.selected_index = max(0, min(len(self.models) - 1, self.selected_index + int(delta)))
 
     def _cycle_sims(self):
-        choices = [16, 32, 64, 128]
+        choices = [32, 64, 128, 256, 512]
         self.mcts_sims = choices[(choices.index(self.mcts_sims) + 1) % len(choices)]
 
     def _back_to_launcher(self):

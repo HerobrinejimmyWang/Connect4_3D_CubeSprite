@@ -185,6 +185,39 @@ class ReplayServiceTests(unittest.TestCase):
         finally:
             reloaded_service.close()
 
+    def test_replay_hint_uses_selected_hint_ai_without_mutating_live_game(self) -> None:
+        state = self.play([(0, 0, 0), (0, 0, 1)])
+        summary = self.save(state, "Hint position")
+        live_before = self.service.handle("game.state", {})
+        calls = self.install_fake_search(0.35)
+
+        result = self.service.handle(
+            "replay.hint",
+            self.replay_ref(summary)
+            | {
+                "step": 1,
+                "ai": {
+                    "model_id": "v2.2_balance",
+                    "mcts_sims": 32,
+                    "temperature": 0.2,
+                },
+            },
+        )
+
+        self.assertEqual(result["replay_id"], summary["id"])
+        self.assertEqual(result["replay_fingerprint"], summary["fingerprint"])
+        self.assertEqual(result["for_step"], 1)
+        self.assertEqual(result["for_revision"], 1)
+        self.assertEqual(result["value"], 0.35)
+        self.assertEqual(calls, [(-1, {
+            "model_id": "v2.2_balance",
+            "mcts_sims": 32,
+            "temperature": 0.2,
+        })])
+        frame = self.service.handle("replay.open", self.replay_ref(summary))["frames"][1]
+        self.assertIn(result["move"], frame["legal_moves"])
+        self.assertEqual(self.service.handle("game.state", {}), live_before)
+
     def test_import_is_strict_idempotent_and_round_trips_after_delete(self) -> None:
         state = self.play([(0, 0, 0)])
         summary = self.save(state, "Portable")

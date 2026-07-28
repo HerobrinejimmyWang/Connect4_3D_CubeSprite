@@ -100,12 +100,12 @@ class ManifestAndAdapterTests(unittest.TestCase):
         self.assertEqual((models[3]["board_layers"], models[3]["action_dim"]), (8, 200))
         expected_identities = {
             "cubesprite_v3": (
-                "c6394b1ddcc7393fba5c30a83cffa5e21787be2d3ff1cd0c6848a7f4cdc95b76",
-                192,
+                "61f4619d4b46daba149667697fcc9ffbf28171cef9b03d1b659a07395403814e",
+                240,
             ),
             "cubesprite_v3_mini": (
-                "c991f73b241d67e7c2eea42812645e8335f952ba682b941f1113b63f5db1a94a",
-                208,
+                "31143a556257708b2363b3e280988c1bf00fb15df49b7bc842de015fd6a6b8a9",
+                260,
             ),
             "v2.2_balance": (
                 "bb8cc0c6042276dfa3954e67b71f1fd43f603f9d6d9a0492412726cc41d30712",
@@ -414,6 +414,16 @@ class SearchAndLineTests(unittest.TestCase):
         blocking[0, 1, :3] = -1
         result = NumpyMCTS(game, predictor, simulations=1, temperature=0).run(blocking, 1)
         self.assertEqual(game.action_to_coords(result.action), (0, 1, 3))
+        bypass_disabled = game.get_init_board()
+        bypass_disabled[0, 4, 2:5] = 1
+        result = NumpyMCTS(
+            game,
+            predictor,
+            simulations=1,
+            temperature=0,
+            forced_tactics=False,
+        ).run(bypass_disabled, 1)
+        self.assertNotEqual(game.action_to_coords(result.action), (0, 4, 1))
 
     def test_space_diagonal_line_is_reported(self):
         board = np.zeros((6, 5, 5), dtype=np.int8)

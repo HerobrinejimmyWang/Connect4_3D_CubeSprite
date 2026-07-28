@@ -90,7 +90,7 @@ class ModelSpec:
             raise ModelRegistryError(f"Model {spec.id} requires mcts_sims and temperature defaults.")
         if spec.default_mcts_sims not in {32, 64, 128, 256, 512, 1024}:
             raise ModelRegistryError(f"Model {spec.id} has an unsupported default MCTS count.")
-        if not 0.0 <= float(spec.default_temperature) <= 5.0:
+        if not 0.0 <= float(spec.default_temperature) <= 2.0:
             raise ModelRegistryError(f"Model {spec.id} has an invalid default temperature.")
         return spec
 

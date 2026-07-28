@@ -12,13 +12,39 @@ class SearchResult:
     value: float
 
 
+def find_forced_tactical_action(game, board, player):
+    """Return an immediate win or mandatory block without running MCTS."""
+    board = np.asarray(board, dtype=np.int8)
+    player = int(player)
+    valid_actions = np.flatnonzero(game.get_valid_moves(board) > 0)
+    for action in valid_actions:
+        next_board, _ = game.get_next_state(board, player, int(action))
+        if game.check_win(next_board, player):
+            return int(action), "win"
+    for action in valid_actions:
+        next_board, _ = game.get_next_state(board, -player, int(action))
+        if game.check_win(next_board, -player):
+            return int(action), "block"
+    return None
+
+
 class NumpyMCTS:
-    def __init__(self, game, predictor, simulations=128, cpuct=1.0, temperature=1.0, seed=None):
+    def __init__(
+        self,
+        game,
+        predictor,
+        simulations=256,
+        cpuct=1.0,
+        temperature=0.4,
+        seed=None,
+        forced_tactics=True,
+    ):
         self.game = game
         self.predictor = predictor
         self.simulations = max(1, int(simulations))
         self.cpuct = float(cpuct)
         self.temperature = max(0.0, float(temperature))
+        self.forced_tactics = bool(forced_tactics)
         self.rng = np.random.default_rng(seed)
         self.priors: dict[tuple[bytes, int], np.ndarray] = {}
         self.counts: dict[tuple[bytes, int], np.ndarray] = {}
@@ -29,9 +55,13 @@ class NumpyMCTS:
         valid = self.game.get_valid_moves(board).astype(bool)
         if not np.any(valid):
             raise ValueError("MCTS cannot search a position without legal moves.")
-        forced = self._forced_tactical_action(board, int(player))
+        forced = find_forced_tactical_action(self.game, board, int(player)) if self.forced_tactics else None
         if forced is not None:
-            forced_action, forced_value = forced
+            forced_action, kind = forced
+            if kind == "win":
+                forced_value = 1.0
+            else:
+                _, forced_value = self.predictor.predict(self.game.get_canonical_form(board, player))
             policy = np.zeros(self.game.get_action_size(), dtype=np.float64)
             policy[forced_action] = 1.0
             return SearchResult(int(forced_action), policy.tolist(), float(forced_value))
@@ -103,19 +133,6 @@ class NumpyMCTS:
         weights[valid] = np.power(np.maximum(counts[valid], 1e-12), exponent)
         total = float(weights.sum())
         return weights / total if total > 0 else valid.astype(np.float64) / max(1, int(valid.sum()))
-
-    def _forced_tactical_action(self, board, player):
-        valid_actions = np.flatnonzero(self.game.get_valid_moves(board) > 0)
-        for action in valid_actions:
-            next_board, _ = self.game.get_next_state(board, player, int(action))
-            if self.game.check_win(next_board, player):
-                return int(action), 1.0
-        for action in valid_actions:
-            next_board, _ = self.game.get_next_state(board, -player, int(action))
-            if self.game.check_win(next_board, -player):
-                _, value = self.predictor.predict(self.game.get_canonical_form(board, player))
-                return int(action), float(value)
-        return None
 
     @staticmethod
     def _key(board, player):

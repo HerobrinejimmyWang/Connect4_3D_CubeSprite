@@ -40,6 +40,10 @@ export interface Copy {
     model: string;
     mcts: string;
     temperature: string;
+    forcedTactics: string;
+    forcedTacticsDetail: string;
+    enabled: string;
+    disabled: string;
     currentSession: string;
     placeholder: string;
   };
@@ -50,6 +54,11 @@ export interface Copy {
     preloadOn: string;
     preloadOff: string;
     preloadDetail: string;
+    assistance: string;
+    assistanceDetail: string;
+    assistanceOff: string;
+    assistanceNow: string;
+    assistanceAfter5: string;
     autoplaySpeed: string;
     autoplaySpeedDetail: string;
     future: string;
@@ -91,6 +100,8 @@ export interface Copy {
     redRate: string;
     blueRate: string;
     preloadReady: string;
+    tacticalWinHint: string;
+    tacticalBlockHint: string;
     view3d: {
       boardLabel: string;
       loading: string;
@@ -162,6 +173,8 @@ export interface Copy {
     continueFromHere: string;
     monitor: string;
     calculate: string;
+    hint: string;
+    hintThinking: string;
     exit: string;
     analysisThinking: string;
     expandMonitor: string;
@@ -231,6 +244,10 @@ export const translations: Record<Language, Copy> = {
       model: "模型",
       mcts: "MCTS 模拟次数",
       temperature: "温度",
+      forcedTactics: "强制战术落子",
+      forcedTacticsDetail: "AI 检测到一步必胜或必须防守时，直接采用该落点并跳过 MCTS。",
+      enabled: "已开启",
+      disabled: "已关闭",
       currentSession: "设置仅在本次 App 运行期间保留，无需保存。",
       placeholder: "预占位",
     },
@@ -241,6 +258,11 @@ export const translations: Record<Language, Copy> = {
       preloadOn: "已开启",
       preloadOff: "已关闭",
       preloadDetail: "棋盘变化后在后台提前计算提示；点击“获取提示”时可直接显示已完成的结果。",
+      assistance: "辅助判断",
+      assistanceDetail: "轮到人类方时，仅在存在一步必胜或必须防守的位置时自动高亮提示。",
+      assistanceOff: "关闭",
+      assistanceNow: "0 秒",
+      assistanceAfter5: "5 秒",
       autoplaySpeed: "回放自动播放速度",
       autoplaySpeedDetail: "设置自动播放时每一步之间的时间间隔。",
       future: "更多设置将在后续版本加入。",
@@ -294,6 +316,8 @@ export const translations: Record<Language, Copy> = {
       redRate: "红方",
       blueRate: "蓝方",
       preloadReady: "提示已预加载",
+      tacticalWinHint: "发现一步必胜位置，已为你高亮。",
+      tacticalBlockHint: "对手下一步可能获胜，必须防守的位置已高亮。",
       view3d: {
         boardLabel: "6 × 5 × 5 三维棋盘",
         loading: "正在加载 3D 棋盘…",
@@ -365,6 +389,8 @@ export const translations: Record<Language, Copy> = {
       continueFromHere: "从这里继续",
       monitor: "胜率监控",
       calculate: "胜率计算",
+      hint: "回放提示",
+      hintThinking: "正在计算当前步推荐落点…",
       exit: "退出回放",
       analysisThinking: "正在后台计算全局胜率…",
       expandMonitor: "展开胜率监控",
@@ -427,6 +453,10 @@ export const translations: Record<Language, Copy> = {
       model: "Model",
       mcts: "MCTS simulations",
       temperature: "Temperature",
+      forcedTactics: "Forced tactical move",
+      forcedTacticsDetail: "When the AI finds an immediate win or mandatory block, play it directly and bypass MCTS.",
+      enabled: "On",
+      disabled: "Off",
       currentSession: "Settings last for this app session only. There is no save step.",
       placeholder: "Placeholder",
     },
@@ -437,6 +467,11 @@ export const translations: Record<Language, Copy> = {
       preloadOn: "On",
       preloadOff: "Off",
       preloadDetail: "Compute a hint in the background after every board change so a ready result appears immediately when requested.",
+      assistance: "Assisted judgement",
+      assistanceDetail: "On a human turn, highlight only an immediate win or mandatory block after the selected delay.",
+      assistanceOff: "Off",
+      assistanceNow: "0 s",
+      assistanceAfter5: "5 s",
       autoplaySpeed: "Replay autoplay speed",
       autoplaySpeedDetail: "Choose the delay between moves during autoplay.",
       future: "More settings will arrive in future versions.",
@@ -490,6 +525,8 @@ export const translations: Record<Language, Copy> = {
       redRate: "Red",
       blueRate: "Blue",
       preloadReady: "Hint preloaded",
+      tacticalWinHint: "An immediate winning move is highlighted.",
+      tacticalBlockHint: "The opponent can win next move; the mandatory block is highlighted.",
       view3d: {
         boardLabel: "6 × 5 × 5 three-dimensional board",
         loading: "Loading the 3D board…",
@@ -561,6 +598,8 @@ export const translations: Record<Language, Copy> = {
       continueFromHere: "Continue Here",
       monitor: "Win Rate Monitor",
       calculate: "Calculate Win Rates",
+      hint: "Replay Hint",
+      hintThinking: "Computing the recommended move for this step…",
       exit: "Exit Replay",
       analysisThinking: "Calculating the full win-rate curve in the background…",
       expandMonitor: "Expand win rate monitor",

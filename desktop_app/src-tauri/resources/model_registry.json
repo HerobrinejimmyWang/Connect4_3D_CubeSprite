@@ -1,78 +1,90 @@
 {
-  "manifest_version": 1,
-  "product_version": "0.1.0",
-  "models": [
-    {
-      "id": "cubesprite_v3",
-      "display_name": "CubeSprite V3",
-      "model_path": "models/cubesprite_v3.onnx",
-      "architecture": "gravity_resnet_v1",
-      "board_layers": 6,
-      "board_size": 5,
-      "input_channels": 2,
-      "action_dim": 150,
-      "artifact_sha256": "c6394b1ddcc7393fba5c30a83cffa5e21787be2d3ff1cd0c6848a7f4cdc95b76",
-      "source_iteration": 192,
-      "defaults": { "mcts_sims": 128, "temperature": 1.0 },
-      "description": {
-        "zh": "CubeSprite V3 预览模型，使用重力感知策略网络。",
-        "en": "Preview CubeSprite V3 model using a gravity-aware policy network."
-      },
-      "placeholder": false
-    },
-    {
-      "id": "cubesprite_v3_mini",
-      "display_name": "CubeSprite V3 mini",
-      "model_path": "models/cubesprite_v3_mini.onnx",
-      "architecture": "gravity_resnet_v1",
-      "board_layers": 6,
-      "board_size": 5,
-      "input_channels": 2,
-      "action_dim": 150,
-      "artifact_sha256": "c991f73b241d67e7c2eea42812645e8335f952ba682b941f1113b63f5db1a94a",
-      "source_iteration": 208,
-      "defaults": { "mcts_sims": 128, "temperature": 1.0 },
-      "description": {
-        "zh": "CubeSprite V3 mini 预览模型，使用轻量重力感知策略网络。",
-        "en": "Preview CubeSprite V3 mini model using a compact gravity-aware policy network."
-      },
-      "placeholder": false
-    },
-    {
-      "id": "v2.2_balance",
-      "display_name": "v2.2 Balance",
-      "model_path": "models/v2.2_balance.onnx",
-      "architecture": "modern-v22",
-      "board_layers": 6,
-      "board_size": 5,
-      "input_channels": 2,
-      "action_dim": 150,
-      "artifact_sha256": "bb8cc0c6042276dfa3954e67b71f1fd43f603f9d6d9a0492412726cc41d30712",
-      "source_iteration": null,
-      "defaults": { "mcts_sims": 128, "temperature": 1.0 },
-      "description": {
-        "zh": "当前 6×5×5 平衡模型，原生输出 150 个合法动作平面。",
-        "en": "Current balanced 6×5×5 model with a native 150-action policy."
-      },
-      "placeholder": false
-    },
-    {
-      "id": "v2.1_high",
-      "display_name": "v2.1 High",
-      "model_path": "models/v2.1_high.onnx",
-      "architecture": "legacy-v21-adapted-6-layer",
-      "board_layers": 8,
-      "board_size": 5,
-      "input_channels": 1,
-      "action_dim": 200,
-      "artifact_sha256": "d2b761e40bdccc40e8745589605dc46951cfb240ff357439a98c11035892bfa1",
-      "source_iteration": null,
-      "defaults": { "mcts_sims": 128, "temperature": 1.0 },
-      "description": {
-        "zh": "旧版高强度模型适配到固定六层规则：输入补零到 8 层，200 维策略裁剪为前 150 维并重新归一化。",
-        "en": "Legacy high-strength model adapted to six-layer play: inputs are zero-padded to 8 layers and its 200-action policy is cropped to 150 actions and renormalized."
-      },
-      "placeholder": false
-    }
-  ]
+    "manifest_version":  1,
+    "product_version":  "0.1.0",
+    "models":  [
+                   {
+                       "id":  "cubesprite_v3",
+                       "display_name":  "CubeSprite V3",
+                       "model_path":  "models/cubesprite_v3.onnx",
+                       "architecture":  "gravity_resnet_v1",
+                       "board_layers":  6,
+                       "board_size":  5,
+                       "input_channels":  2,
+                       "action_dim":  150,
+                       "artifact_sha256":  "61f4619d4b46daba149667697fcc9ffbf28171cef9b03d1b659a07395403814e",
+                       "source_iteration":  240,
+                       "defaults":  {
+                                        "mcts_sims":  256,
+                                        "temperature":  0.4
+                                    },
+                       "description":  {
+                                           "zh":  "CubeSprite V3 旗舰版，checkpoint iteration 240。",
+                                           "en":  "CubeSprite V3 flagship, checkpoint iteration 240."
+                                       },
+                       "placeholder":  false
+                   },
+                   {
+                       "id":  "cubesprite_v3_mini",
+                       "display_name":  "CubeSprite V3 mini",
+                       "model_path":  "models/cubesprite_v3_mini.onnx",
+                       "architecture":  "gravity_resnet_v1",
+                       "board_layers":  6,
+                       "board_size":  5,
+                       "input_channels":  2,
+                       "action_dim":  150,
+                       "artifact_sha256":  "31143a556257708b2363b3e280988c1bf00fb15df49b7bc842de015fd6a6b8a9",
+                       "source_iteration":  260,
+                       "defaults":  {
+                                        "mcts_sims":  256,
+                                        "temperature":  0.4
+                                    },
+                       "description":  {
+                                           "zh":  "CubeSprite V3 mini，checkpoint iteration 260。",
+                                           "en":  "CubeSprite V3 mini, checkpoint iteration 260."
+                                       },
+                       "placeholder":  false
+                   },
+                   {
+                       "id":  "v2.2_balance",
+                       "display_name":  "v2.2 Balance",
+                       "model_path":  "models/v2.2_balance.onnx",
+                       "architecture":  "modern-v22",
+                       "board_layers":  6,
+                       "board_size":  5,
+                       "input_channels":  2,
+                       "action_dim":  150,
+                       "artifact_sha256":  "bb8cc0c6042276dfa3954e67b71f1fd43f603f9d6d9a0492412726cc41d30712",
+                       "source_iteration":  null,
+                       "defaults":  {
+                                        "mcts_sims":  256,
+                                        "temperature":  0.4
+                                    },
+                       "description":  {
+                                           "zh":  "当前 6×5×5 平衡模型，原生输出 150 个合法动作平面。",
+                                           "en":  "Current balanced 6×5×5 model with a native 150-action policy."
+                                       },
+                       "placeholder":  false
+                   },
+                   {
+                       "id":  "v2.1_high",
+                       "display_name":  "v2.1 High",
+                       "model_path":  "models/v2.1_high.onnx",
+                       "architecture":  "legacy-v21-adapted-6-layer",
+                       "board_layers":  8,
+                       "board_size":  5,
+                       "input_channels":  1,
+                       "action_dim":  200,
+                       "artifact_sha256":  "d2b761e40bdccc40e8745589605dc46951cfb240ff357439a98c11035892bfa1",
+                       "source_iteration":  null,
+                       "defaults":  {
+                                        "mcts_sims":  256,
+                                        "temperature":  0.4
+                                    },
+                       "description":  {
+                                           "zh":  "旧版高强度模型适配到固定六层规则：输入补零到 8 层，200 维策略裁剪为前 150 维并重新归一化。",
+                                           "en":  "Legacy high-strength model adapted to six-layer play: inputs are zero-padded to 8 layers and its 200-action policy is cropped to 150 actions and renormalized."
+                                       },
+                       "placeholder":  false
+                   }
+               ]
 }

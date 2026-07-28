@@ -486,10 +486,10 @@ def validate_analysis(payload: Any, replay: dict[str, Any]) -> dict[str, Any]:
             "INVALID_ANALYSIS",
             f"analysis.config.mcts_sims must be one of {sorted(ANALYSIS_MCTS_OPTIONS)}.",
         )
-    if not 0.0 <= temperature <= 5.0:
+    if not 0.0 <= temperature <= 2.0:
         raise ReplayStoreError(
             "INVALID_ANALYSIS",
-            "analysis.config.temperature must be between 0 and 5.",
+            "analysis.config.temperature must be between 0 and 2.",
         )
     started_at = _normalize_timestamp(payload["started_at"], "started_at")
     completed_at = _normalize_timestamp(payload["completed_at"], "completed_at")

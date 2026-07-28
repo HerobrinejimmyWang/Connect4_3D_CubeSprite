@@ -167,6 +167,13 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--cyan); outl
 .back-button:hover { border-color: rgba(80, 215, 220, .45); transform: translateX(-3px); }
 
 /* AI settings */
+.ai-forced-setting { margin-top: 16px; }
+.ai-assistance-card { min-height: 118px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 22px; padding: 22px; border: 1px solid var(--line); border-radius: 15px; background: rgba(12, 31, 50, .88); }
+.ai-assistance-card h2 { margin: 0 0 7px; font-size: 18px; }
+.ai-assistance-card p { max-width: 560px; margin: 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
+.tactical-hint-options { display: grid; grid-template-columns: repeat(3, minmax(60px, 1fr)); gap: 6px; }
+.tactical-hint-options button { min-height: 39px; padding: 0 12px; border: 1px solid #31495f; border-radius: 7px; background: #081724; color: #8fa5b8; cursor: pointer; white-space: nowrap; }
+.tactical-hint-options button.selected { border-color: rgba(80,215,220,.65); background: rgba(80,215,220,.12); color: var(--cyan); }
 .ai-columns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 .ai-role { position: relative; min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 15px; background: linear-gradient(145deg, rgba(16, 37, 58, .92), rgba(9, 24, 41, .92)); box-shadow: 0 17px 45px rgba(0,0,0,.16); }
 .ai-role::before { content: ""; position: absolute; left: 0; top: 0; width: 100%; height: 2px; background: var(--cyan); opacity: .8; }
@@ -257,6 +264,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--cyan); outl
 .thinking-dots i:nth-child(2) { animation-delay: .15s; }.thinking-dots i:nth-child(3) { animation-delay: .3s; }
 @keyframes dots { 50% { transform: translateY(-4px); opacity: .45; } }
 .preload-ready { grid-column: 3; grid-row: 1; justify-self: end; color: #62c69c; font-size: 15px; margin-right: 16px; }
+.tactical-hint-ready { grid-column: 3; grid-row: 1; justify-self: end; max-width: 100%; padding: 0 16px; color: var(--gold); font-size: 14px; line-height: 1.35; text-align: right; }
 
 .game-workspace { position: relative; min-height: 555px; display: grid; place-items: center; padding: 20px 0 12px; }
 .game-workspace.three-d-workspace { min-height: 0; padding: 10px 0 8px; }

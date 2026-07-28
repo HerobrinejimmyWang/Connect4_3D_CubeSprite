@@ -2,6 +2,7 @@ export type Language = "zh" | "en";
 export type Screen = "loading" | "menu" | "ai-settings" | "settings" | "instructions" | "game" | "replay";
 export type MenuPanel = "side" | "replays" | null;
 export type AutoplayInterval = 2000 | 1000 | 500 | 250;
+export type TacticalHintDelay = "off" | 0 | 5000;
 export type Player = 1 | -1;
 export type GameMode = "pvp" | "pvai";
 export type GameStateMode = GameMode | "replay";
@@ -85,6 +86,13 @@ export interface HintResult {
   for_revision: number;
   move: Move;
   value: number;
+  kind?: "win" | "block";
+}
+
+export interface ReplayHintResult extends HintResult {
+  replay_id: string;
+  replay_fingerprint: string;
+  for_step: number;
 }
 
 export interface WinRateResult {

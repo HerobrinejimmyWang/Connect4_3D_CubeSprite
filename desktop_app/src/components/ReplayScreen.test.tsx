@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -26,6 +26,17 @@ function renderReplay(overrides: Partial<React.ComponentProps<typeof ReplayScree
     autoplayIntervalMs: 1000,
     analysisThinking: false,
     continueBusy: false,
+    onHint: async (step) => {
+      const opened = replayOpen();
+      return {
+        replay_id: opened.replay.id,
+        replay_fingerprint: opened.replay.fingerprint,
+        for_step: step,
+        for_revision: step,
+        move: opened.frames[step].legal_moves[0],
+        value: 0.1,
+      };
+    },
     onAnalyze: noop,
     onContinue: noop,
     onExit: noop,
@@ -66,6 +77,28 @@ describe("ReplayScreen", () => {
     expect(await screen.findByRole("button", { name: "Replay 3D legal column" })).toBeDisabled();
     expect(screen.getByRole("button", { name: translations.zh.game.switch2d })).toBeVisible();
     expect(screen.getByRole("radio", { name: translations.zh.game.view3d.focusRed })).toBeEnabled();
+  });
+
+  it("requests a hint for the current replay step, highlights it, and keeps moves disabled", async () => {
+    const user = userEvent.setup();
+    const opened = replayOpen();
+    const onHint = vi.fn(async (step: number) => ({
+      replay_id: opened.replay.id,
+      replay_fingerprint: opened.replay.fingerprint,
+      for_step: step,
+      for_revision: step,
+      move: opened.frames[step].legal_moves[0],
+      value: 0.25,
+    }));
+    renderReplay({ replay: opened, onHint });
+
+    await user.click(screen.getByRole("button", { name: translations.zh.replay.hint }));
+    expect(onHint).toHaveBeenCalledWith(0);
+    await waitFor(() => expect(document.querySelector(".hint-cell")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "F1, 1, 1: 合法落点" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: translations.zh.replay.next }));
+    expect(document.querySelector(".hint-cell")).not.toBeInTheDocument();
   });
 
   it("autoplays at the configured interval and stops at the saved limit", () => {

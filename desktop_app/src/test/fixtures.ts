@@ -45,11 +45,11 @@ export const initialization: InitializationResult = {
       display_name: "CubeSprite V3",
       model_path: "models/cubesprite_v3.onnx",
       architecture: "gravity_resnet_v1",
-      artifact_sha256: "c6394b1ddcc7393fba5c30a83cffa5e21787be2d3ff1cd0c6848a7f4cdc95b76",
-      source_iteration: 192,
-      default_mcts_sims: 128,
-      default_temperature: 1,
-      description: { zh: "CubeSprite V3 预览模型", en: "CubeSprite V3 preview model" },
+      artifact_sha256: "61f4619d4b46daba149667697fcc9ffbf28171cef9b03d1b659a07395403814e",
+      source_iteration: 240,
+      default_mcts_sims: 256,
+      default_temperature: 0.4,
+      description: { zh: "CubeSprite V3 旗舰版", en: "CubeSprite V3 flagship" },
       available: true,
       unavailable_reason: null,
     },
@@ -58,11 +58,11 @@ export const initialization: InitializationResult = {
       display_name: "CubeSprite V3 mini",
       model_path: "models/cubesprite_v3_mini.onnx",
       architecture: "gravity_resnet_v1",
-      artifact_sha256: "c991f73b241d67e7c2eea42812645e8335f952ba682b941f1113b63f5db1a94a",
-      source_iteration: 208,
-      default_mcts_sims: 128,
-      default_temperature: 1,
-      description: { zh: "CubeSprite V3 mini 预览模型", en: "CubeSprite V3 mini preview model" },
+      artifact_sha256: "31143a556257708b2363b3e280988c1bf00fb15df49b7bc842de015fd6a6b8a9",
+      source_iteration: 260,
+      default_mcts_sims: 256,
+      default_temperature: 0.4,
+      description: { zh: "CubeSprite V3 mini", en: "CubeSprite V3 mini" },
       available: true,
       unavailable_reason: null,
     },
@@ -73,8 +73,8 @@ export const initialization: InitializationResult = {
       architecture: "modern",
       artifact_sha256: "bb8cc0c6042276dfa3954e67b71f1fd43f603f9d6d9a0492412726cc41d30712",
       source_iteration: null,
-      default_mcts_sims: 128,
-      default_temperature: 1,
+      default_mcts_sims: 256,
+      default_temperature: 0.4,
       description: { zh: "均衡模型", en: "Balanced model" },
       available: true,
       unavailable_reason: null,
@@ -86,8 +86,8 @@ export const initialization: InitializationResult = {
       architecture: "legacy-v21",
       artifact_sha256: "d2b761e40bdccc40e8745589605dc46951cfb240ff357439a98c11035892bfa1",
       source_iteration: null,
-      default_mcts_sims: 128,
-      default_temperature: 1,
+      default_mcts_sims: 256,
+      default_temperature: 0.4,
       description: { zh: "旧版模型", en: "Legacy model" },
       available: true,
       unavailable_reason: null,
@@ -236,6 +236,7 @@ export class FakeBackend implements BackendApi {
     }
     if (command === "game.restart" || command === "game.undo") return this.state as T;
     if (command === "analysis.hint") return { for_revision: this.state.revision, move: this.state.legal_moves[0], value: 0.1 } as T;
+    if (command === "analysis.tactical_hint") return null as T;
     if (command === "analysis.win_rate") return { for_revision: this.state.revision, red: 0.6, blue: 0.4, estimate: "model_mcts" } as T;
     if (command === "replay.list") return { replays: this.replays } as T;
     if (command === "replay.save") {
@@ -249,6 +250,18 @@ export class FakeBackend implements BackendApi {
       return { replay } as T;
     }
     if (command === "replay.open") return replayOpen() as T;
+    if (command === "replay.hint") {
+      const opened = replayOpen();
+      const step = params.step as number;
+      return {
+        replay_id: opened.replay.id,
+        replay_fingerprint: opened.replay.fingerprint,
+        for_step: step,
+        for_revision: step,
+        move: opened.frames[step].legal_moves[0],
+        value: 0.1,
+      } as T;
+    }
     if (command === "replay.export") {
       return { filename: "test-replay.c4replay.json", content: JSON.stringify(replayOpen().replay, null, 2) } as T;
     }

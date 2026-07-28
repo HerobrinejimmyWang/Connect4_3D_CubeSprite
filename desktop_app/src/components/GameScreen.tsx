@@ -44,6 +44,11 @@ export function GameScreen(props: Props) {
         : props.saveReplayThinking
           ? t.game.saveReplayThinking
           : "";
+  const tacticalHintText = props.hint?.kind === "win"
+    ? t.game.tacticalWinHint
+    : props.hint?.kind === "block"
+      ? t.game.tacticalBlockHint
+      : "";
 
   return (
     <main className="game-screen">
@@ -58,7 +63,11 @@ export function GameScreen(props: Props) {
           <div className={`thinking-state ${thinkingText ? "visible" : ""}`} aria-live="polite">
             {thinkingText && <><span className="thinking-dots"><i /><i /><i /></span>{thinkingText}</>}
           </div>
-          {props.hintPreloaded && !thinkingText && state.status === "playing" && <div className="preload-ready">✓ {t.game.preloadReady}</div>}
+          {tacticalHintText && !thinkingText && state.status === "playing"
+            ? <div className="tactical-hint-ready">✦ {tacticalHintText}</div>
+            : props.hintPreloaded && !thinkingText && state.status === "playing"
+              ? <div className="preload-ready">✓ {t.game.preloadReady}</div>
+              : null}
         </div>
       </header>
 

@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { Copy } from "../i18n";
-import type { BoardViewMode, GameMode, Player, ReplayOpenResult } from "../types";
+import type { BoardViewMode, GameMode, Player, ReplayHintResult, ReplayOpenResult } from "../types";
 import { BoardWorkspace } from "./BoardWorkspace";
 import { ContinueGameDialog } from "./ContinueGameDialog";
 import { WinRateMonitor } from "./WinRateMonitor";
@@ -12,6 +12,7 @@ interface Props {
   autoplayIntervalMs: number;
   analysisThinking: boolean;
   continueBusy: boolean;
+  onHint: (step: number) => Promise<ReplayHintResult>;
   onAnalyze: () => void;
   onContinue: (step: number, mode: GameMode, humanPlayer?: Player) => void;
   onExit: () => void;
@@ -25,6 +26,9 @@ export function ReplayScreen(props: Props) {
   const [viewMode, setViewMode] = useState<BoardViewMode>("2d");
   const [monitorOpen, setMonitorOpen] = useState(Boolean(replay.analysis));
   const [continueOpen, setContinueOpen] = useState(false);
+  const [hint, setHint] = useState<ReplayHintResult | null>(null);
+  const [hintThinking, setHintThinking] = useState(false);
+  const hintToken = useRef(0);
 
   useEffect(() => {
     setCursor(0);
@@ -32,11 +36,20 @@ export function ReplayScreen(props: Props) {
     setViewMode("2d");
     setMonitorOpen(Boolean(replay.analysis));
     setContinueOpen(false);
+    setHint(null);
+    setHintThinking(false);
+    hintToken.current += 1;
   }, [replay.replay.id]);
 
   useEffect(() => {
     if (replay.analysis) setMonitorOpen(true);
   }, [replay.analysis]);
+
+  useEffect(() => {
+    setHint(null);
+    setHintThinking(false);
+    hintToken.current += 1;
+  }, [cursor]);
 
   useEffect(() => {
     if (!autoplay) return;
@@ -59,7 +72,26 @@ export function ReplayScreen(props: Props) {
 
   const stepTo = (step: number) => {
     setAutoplay(false);
+    setHint(null);
+    setHintThinking(false);
+    hintToken.current += 1;
     setCursor(Math.max(0, Math.min(maxSteps, step)));
+  };
+
+  const requestHint = async () => {
+    if (finished || hintThinking) return;
+    setAutoplay(false);
+    const token = ++hintToken.current;
+    setHint(null);
+    setHintThinking(true);
+    try {
+      const result = await props.onHint(cursor);
+      if (token === hintToken.current && result.for_step === cursor) setHint(result);
+    } catch {
+      // App owns user-facing error reporting.
+    } finally {
+      if (token === hintToken.current) setHintThinking(false);
+    }
   };
 
   const functionLabel = useMemo(
@@ -81,8 +113,8 @@ export function ReplayScreen(props: Props) {
             <small>{t.replay.nowPlaying}</small>
             <strong>{replay.replay.name}</strong>
           </div>
-          <div className={`thinking-state ${props.analysisThinking ? "visible" : ""}`} aria-live="polite">
-            {props.analysisThinking && <><span className="thinking-dots"><i /><i /><i /></span>{t.replay.analysisThinking}</>}
+          <div className={`thinking-state ${hintThinking || props.analysisThinking ? "visible" : ""}`} aria-live="polite">
+            {(hintThinking || props.analysisThinking) && <><span className="thinking-dots"><i /><i /><i /></span>{hintThinking ? t.replay.hintThinking : t.replay.analysisThinking}</>}
           </div>
         </div>
       </header>
@@ -92,6 +124,7 @@ export function ReplayScreen(props: Props) {
           copy={t}
           state={frame}
           viewMode={viewMode}
+          hint={hint}
           locked
           onViewModeChange={setViewMode}
         />
@@ -119,6 +152,14 @@ export function ReplayScreen(props: Props) {
             <span aria-hidden="true">{autoplay ? "Ⅱ" : "▶"}</span>{functionLabel}
           </button>
           <button aria-label={t.replay.fromStart} disabled={cursor === 0} onClick={() => stepTo(0)}><span aria-hidden="true">↤</span>{t.replay.fromStart}</button>
+          <button
+            aria-label={t.replay.hint}
+            className={hintThinking ? "working" : ""}
+            disabled={finished || hintThinking}
+            onClick={() => void requestHint()}
+          >
+            <span aria-hidden="true">✦</span>{t.replay.hint}
+          </button>
         </div>
         <div className="function-group edge-functions">
           <button

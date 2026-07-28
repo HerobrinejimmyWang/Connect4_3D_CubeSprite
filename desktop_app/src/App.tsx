@@ -27,17 +27,19 @@ import type {
   ReplayListResult,
   ReplayMutationResult,
   ReplayExportResult,
+  ReplayHintResult,
   ReplayOpenResult,
   ReplaySummary,
   Screen,
+  TacticalHintDelay,
   WinRateAnalysis,
   WinRateResult,
 } from "./types";
 
 const DEFAULT_AI: AiSettings = {
-  combat: { model_id: "v2.2_balance", mcts_sims: 128, temperature: 1.0 },
-  hint: { model_id: "v2.2_balance", mcts_sims: 128, temperature: 1.0 },
-  winRate: { model_id: "v2.2_balance", mcts_sims: 128, temperature: 1.0 },
+  combat: { model_id: "v2.2_balance", mcts_sims: 256, temperature: 0.4 },
+  hint: { model_id: "v2.2_balance", mcts_sims: 256, temperature: 0.4 },
+  winRate: { model_id: "v2.2_balance", mcts_sims: 256, temperature: 0.4 },
 };
 
 function analysisKey(state: GameState, config: AiConfig): string {
@@ -96,6 +98,8 @@ export function App({ backend = sidecarBackend }: AppProps) {
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [mctsOptions, setMctsOptions] = useState([32, 64, 128, 256, 512, 1024]);
   const [aiSettings, setAiSettings] = useState<AiSettings>(DEFAULT_AI);
+  const [forcedTactics, setForcedTactics] = useState(true);
+  const [tacticalHintDelay, setTacticalHintDelay] = useState<TacticalHintDelay>("off");
   const [preloadHint, setPreloadHint] = useState(false);
   const [autoplayIntervalMs, setAutoplayIntervalMs] = useState<AutoplayInterval>(1000);
   const [activeMenuPanel, setActiveMenuPanel] = useState<MenuPanel>(null);
@@ -216,6 +220,7 @@ export function App({ backend = sidecarBackend }: AppProps) {
         session_id: position.session_id,
         expected_revision: position.revision,
         ai: aiSettings.combat,
+        forced_tactics: forcedTactics,
       });
       if (token === combatToken.current && screenRef.current === "game") commitState(next);
     } catch (error) {
@@ -223,7 +228,7 @@ export function App({ backend = sidecarBackend }: AppProps) {
     } finally {
       if (token === combatToken.current) setCombatThinking(false);
     }
-  }, [aiSettings.combat, backend, commitState, reportError]);
+  }, [aiSettings.combat, backend, commitState, forcedTactics, reportError]);
 
   const startGame = useCallback(async (mode: GameMode, humanPlayer: Player = 1) => {
     if (gameStartBusy.current) return;
@@ -404,6 +409,30 @@ export function App({ backend = sidecarBackend }: AppProps) {
     }
   }, [aiSettings.winRate, backend, commitReplay, language, replayAnalysisThinking, reportError]);
 
+  const requestReplayHint = useCallback(async (step: number): Promise<ReplayHintResult> => {
+    const opened = activeReplayRef.current;
+    if (!opened) throw new Error("No replay is open.");
+    try {
+      const result = await backend.request<ReplayHintResult>("replay.hint", {
+        id: opened.replay.id,
+        expected_fingerprint: opened.replay.fingerprint,
+        step,
+        ai: aiSettings.hint,
+      });
+      if (
+        result.replay_id !== opened.replay.id
+        || result.replay_fingerprint !== opened.replay.fingerprint
+        || result.for_step !== step
+      ) {
+        throw new Error(translations[language].errors.replayChanged);
+      }
+      return result;
+    } catch (error) {
+      reportError(error);
+      throw error;
+    }
+  }, [aiSettings.hint, backend, language, reportError]);
+
   const continueReplay = useCallback(async (step: number, mode: GameMode, humanPlayer: Player = 1) => {
     const opened = activeReplayRef.current;
     if (!opened || replayContinueBusy) return;
@@ -555,6 +584,39 @@ export function App({ backend = sidecarBackend }: AppProps) {
     });
   }, [game, getHint, preloadHint, screen]);
 
+  useEffect(() => {
+    if (tacticalHintDelay === "off") {
+      setVisibleHint((current) => current?.kind ? null : current);
+      return;
+    }
+    const position = game;
+    const isHumanTurn = position?.mode !== "pvai" || position.current_player === position.human_player;
+    if (screen !== "game" || !position || position.status !== "playing" || !isHumanTurn) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      void backend.request<HintResult | null>("analysis.tactical_hint", {
+        session_id: position.session_id,
+        expected_revision: position.revision,
+      }).then((result) => {
+        if (cancelled || !result) return;
+        const current = gameRef.current;
+        if (
+          current?.session_id === position.session_id
+          && current.revision === position.revision
+          && screenRef.current === "game"
+        ) {
+          setVisibleHint(result);
+        }
+      }).catch((error) => {
+        if (!cancelled && !isStaleError(error)) reportError(error);
+      });
+    }, tacticalHintDelay);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [backend, game, reportError, screen, tacticalHintDelay]);
+
   const requestVisibleHint = useCallback(() => {
     const position = gameRef.current;
     if (!position) return;
@@ -644,17 +706,43 @@ export function App({ backend = sidecarBackend }: AppProps) {
         />
       );
     }
-    if (screen === "ai-settings") return <AiSettingsScreen copy={t} models={models} mctsOptions={mctsOptions} settings={aiSettings} onChange={updateAi} onBack={() => navigate("menu")} />;
-    if (screen === "settings") return <SettingsScreen copy={t} preloadHint={preloadHint} onPreloadHint={setPreloadHint} autoplayIntervalMs={autoplayIntervalMs} onAutoplayInterval={setAutoplayIntervalMs} onBack={() => navigate("menu")} />;
+    if (screen === "ai-settings") {
+      return (
+        <AiSettingsScreen
+          copy={t}
+          models={models}
+          mctsOptions={mctsOptions}
+          settings={aiSettings}
+          forcedTactics={forcedTactics}
+          onChange={updateAi}
+          onForcedTacticsChange={setForcedTactics}
+          onBack={() => navigate("menu")}
+        />
+      );
+    }
+    if (screen === "settings") {
+      return (
+        <SettingsScreen
+          copy={t}
+          preloadHint={preloadHint}
+          onPreloadHint={setPreloadHint}
+          tacticalHintDelay={tacticalHintDelay}
+          onTacticalHintDelay={setTacticalHintDelay}
+          autoplayIntervalMs={autoplayIntervalMs}
+          onAutoplayInterval={setAutoplayIntervalMs}
+          onBack={() => navigate("menu")}
+        />
+      );
+    }
     if (screen === "instructions") return <InstructionsScreen copy={t} onBack={() => navigate("menu")} />;
     if (screen === "game" && game) {
       return <GameScreen copy={t} state={game} combatThinking={combatThinking} hintThinking={hintThinking} winRateThinking={winRateThinking} saveReplayThinking={saveReplayThinking} mutationBusy={mutationBusy} hint={visibleHint} hintPreloaded={preloadHint && hintPreloaded} winRate={winRate} onMove={(move) => void handleMove(move)} onUndo={() => void mutateGame("game.undo", false)} onRestart={() => void mutateGame("game.restart", true)} onHint={requestVisibleHint} onWinRate={() => void requestWinRate()} onSaveReplay={() => void saveReplay()} onExit={exitGame} />;
     }
     if (screen === "replay" && activeReplay) {
-      return <ReplayScreen key={activeReplay.replay.id} copy={t} replay={activeReplay} autoplayIntervalMs={autoplayIntervalMs} analysisThinking={replayAnalysisThinking} continueBusy={replayContinueBusy} onAnalyze={() => void analyzeReplay()} onContinue={(step, mode, humanPlayer) => void continueReplay(step, mode, humanPlayer)} onExit={exitReplay} />;
+      return <ReplayScreen key={activeReplay.replay.id} copy={t} replay={activeReplay} autoplayIntervalMs={autoplayIntervalMs} analysisThinking={replayAnalysisThinking} continueBusy={replayContinueBusy} onHint={requestReplayHint} onAnalyze={() => void analyzeReplay()} onContinue={(step, mode, humanPlayer) => void continueReplay(step, mode, humanPlayer)} onExit={exitReplay} />;
     }
     return null;
-  }, [activeMenuPanel, activeReplay, aiSettings, analyzeReplay, autoplayIntervalMs, closeMenuPanel, combatThinking, continueReplay, deleteReplay, exitGame, exitReplay, exportReplay, game, handleMove, hintPreloaded, hintThinking, importReplay, initError, menuBusy, mctsOptions, models, mutateGame, mutationBusy, navigate, openPvaiPanel, openReplay, openReplayPanel, preloadHint, replayAnalysisThinking, replayContinueBusy, replayDeleteBusyId, replayExportBusyId, replayImportBusy, replayListBusy, replays, requestVisibleHint, requestWinRate, saveReplay, saveReplayThinking, screen, startGame, t, updateAi, visibleHint, winRate, winRateThinking]);
+  }, [activeMenuPanel, activeReplay, aiSettings, analyzeReplay, autoplayIntervalMs, closeMenuPanel, combatThinking, continueReplay, deleteReplay, exitGame, exitReplay, exportReplay, forcedTactics, game, handleMove, hintPreloaded, hintThinking, importReplay, initError, menuBusy, mctsOptions, models, mutateGame, mutationBusy, navigate, openPvaiPanel, openReplay, openReplayPanel, preloadHint, replayAnalysisThinking, replayContinueBusy, replayDeleteBusyId, replayExportBusyId, replayImportBusy, replayListBusy, replays, requestReplayHint, requestVisibleHint, requestWinRate, saveReplay, saveReplayThinking, screen, startGame, t, tacticalHintDelay, updateAi, visibleHint, winRate, winRateThinking]);
 
   return (
     <div className="app-frame">
