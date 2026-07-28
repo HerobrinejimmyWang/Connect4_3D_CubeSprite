@@ -12,7 +12,6 @@ interface Props {
   winRateThinking: boolean;
   saveReplayThinking: boolean;
   replayEnabled?: boolean;
-  mobileLayout?: boolean;
   mutationBusy: boolean;
   hint: HintResult | null;
   hintPreloaded: boolean;
@@ -80,7 +79,6 @@ export function GameScreen(props: Props) {
         hint={props.hint}
         winRate={props.winRate}
         locked={moveLocked}
-        mobileLayout={props.mobileLayout === true}
         onMove={props.onMove}
         onViewModeChange={setViewMode}
       />
