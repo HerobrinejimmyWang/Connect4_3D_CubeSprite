@@ -4,11 +4,12 @@ import { vi } from "vitest";
 
 import { translations } from "../i18n";
 import { emptyState } from "../test/fixtures";
-import type { CameraCommand, GameState, LayerSpacing, Move, PieceFocus, SliceSelection } from "../types";
+import type { CameraCommand, GameState, HintResult, LayerSpacing, Move, PieceFocus, SliceSelection } from "../types";
 import { GameScreen } from "./GameScreen";
 
 interface CanvasStubProps {
   state: GameState;
+  hint: HintResult | null;
   moveLocked: boolean;
   compactLayout: boolean;
   showCoordinateLabels: boolean;
@@ -34,6 +35,7 @@ vi.mock("./Board3DCanvas", () => ({
       data-slice={props.sliceSelection ? `${props.sliceSelection.axis}:${props.sliceSelection.index}` : "none"}
       data-spacing={props.layerSpacing}
       data-camera={props.cameraCommand.preset}
+      data-hint={props.hint ? `${props.hint.move.layer}:${props.hint.move.row}:${props.hint.move.col}` : "none"}
     >
       <button
         type="button"
@@ -93,11 +95,22 @@ it("switches between the same 2D and 3D game state without a coming-soon placeho
   expect(screen.getByLabelText("6 × 5 × 5 board")).toBeVisible();
 });
 
+it("keeps the desktop 2D view in the original six-layer layout without mobile controls", () => {
+  renderGame();
+
+  const board = screen.getByLabelText("6 × 5 × 5 board");
+  expect(board).not.toHaveClass("sliding-four");
+  expect(board).not.toHaveAttribute("data-window-start");
+  expect(screen.getByLabelText("F1")).toBeVisible();
+  expect(screen.getByLabelText("F6")).toBeVisible();
+  expect(screen.queryByRole("radiogroup", { name: translations.zh.game.view2d.layout })).not.toBeInTheDocument();
+});
+
 it("defaults to consecutive four-layer windows and keeps the original layer index when moving", async () => {
   const user = userEvent.setup();
   const move: Move = { action: 112, layer: 4, row: 2, col: 2 };
   const onMove = vi.fn();
-  renderGame({ state: emptyState({ legal_moves: [move] }), onMove });
+  renderGame({ state: emptyState({ legal_moves: [move] }), mobileLayout: true, onMove });
 
   const board = screen.getByLabelText("6 × 5 × 5 board");
   expect(board).toHaveClass("sliding-four");
@@ -136,7 +149,7 @@ it("defaults to consecutive four-layer windows and keeps the original layer inde
 it("swipes by one layer without submitting the cell under the released pointer", () => {
   const move: Move = { action: 27, layer: 1, row: 0, col: 2 };
   const onMove = vi.fn();
-  renderGame({ state: emptyState({ legal_moves: [move] }), onMove });
+  renderGame({ state: emptyState({ legal_moves: [move] }), mobileLayout: true, onMove });
 
   const board = screen.getByLabelText("6 × 5 × 5 board");
   const pointerEvent = (type: string, clientX: number, clientY: number) => {
@@ -171,6 +184,7 @@ it("follows a winning line before an out-of-window last move or hint", async () 
       winning_line: winningLine,
       last_move: { action: 125, layer: 5, row: 0, col: 0, player: 1 },
     }),
+    mobileLayout: true,
     hint: { for_revision: 9, move: { action: 0, layer: 0, row: 0, col: 0 }, value: 0.2 },
   });
 
@@ -187,6 +201,7 @@ it("follows an out-of-window hint when higher-priority markers are already visib
       revision: 4,
       last_move: { action: 0, layer: 0, row: 0, col: 0, player: 1 },
     }),
+    mobileLayout: true,
     hint: { for_revision: 4, move: { action: 125, layer: 5, row: 0, col: 0 }, value: 0.1 },
   });
 
@@ -202,6 +217,7 @@ it("follows a new last move once without fighting later manual window navigation
       revision: 3,
       last_move: { action: 125, layer: 5, row: 0, col: 0, player: -1 },
     }),
+    mobileLayout: true,
     hint: { for_revision: 3, move: { action: 0, layer: 0, row: 0, col: 0 }, value: -0.1 },
   });
 
@@ -236,7 +252,7 @@ it("starts the compact landscape 3D view with a clear board and collapsed tools"
 
   try {
     const user = userEvent.setup();
-    renderGame();
+    renderGame({ mobileLayout: true });
     await user.click(screen.getByRole("button", { name: translations.zh.game.switch3d }));
 
     const scene = await screen.findByTestId("board-3d-canvas");
@@ -253,6 +269,20 @@ it("starts the compact landscape 3D view with a clear board and collapsed tools"
   } finally {
     window.matchMedia = originalMatchMedia;
   }
+});
+
+it("passes the selected hint into the desktop 3D view unchanged", async () => {
+  const user = userEvent.setup();
+  renderGame({
+    hint: {
+      for_revision: 1,
+      move: { action: 67, layer: 2, row: 3, col: 2 },
+      value: 0.75,
+    },
+  });
+
+  await user.click(screen.getByRole("button", { name: translations.zh.game.switch3d }));
+  expect(await screen.findByTestId("board-3d-canvas")).toHaveAttribute("data-hint", "2:3:2");
 });
 
 it("keeps all observation controls live and passes them to the 3D scene", async () => {
