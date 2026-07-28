@@ -6,6 +6,7 @@ interface Props {
   copy: Copy;
   activePanel: MenuPanel;
   busy: boolean;
+  replayEnabled?: boolean;
   replays: ReplaySummary[];
   replayListBusy: boolean;
   replayImportBusy: boolean;
@@ -49,11 +50,13 @@ export function MenuScreen(props: Props) {
             <span><strong>{t.menu.pvai}</strong><small>{t.menu.pvaiDetail}</small></span>
             <b aria-hidden="true">›</b>
           </button>
-          <button className="menu-card replay-accent" aria-label={t.menu.replay} disabled={props.busy} onClick={props.onOpenReplays} aria-expanded={props.activePanel === "replays"}>
-            <span className="menu-icon">▶</span>
-            <span><strong>{t.menu.replay}</strong><small>{t.menu.replayDetail}</small></span>
-            <b aria-hidden="true">›</b>
-          </button>
+          {props.replayEnabled !== false && (
+            <button className="menu-card replay-accent" aria-label={t.menu.replay} disabled={props.busy} onClick={props.onOpenReplays} aria-expanded={props.activePanel === "replays"}>
+              <span className="menu-icon">▶</span>
+              <span><strong>{t.menu.replay}</strong><small>{t.menu.replayDetail}</small></span>
+              <b aria-hidden="true">›</b>
+            </button>
+          )}
           <div className="secondary-menu">
             <button aria-label={t.menu.aiSettings} disabled={props.busy} onClick={props.onAiSettings}><span aria-hidden="true">⌁</span>{t.menu.aiSettings}</button>
             <button aria-label={t.menu.settings} disabled={props.busy} onClick={props.onSettings}><span aria-hidden="true">⚙</span>{t.menu.settings}</button>
@@ -76,7 +79,7 @@ export function MenuScreen(props: Props) {
           </button>
           {props.busy && <div className="mini-loader"><i /> <span>{t.loadingDetail}</span></div>}
         </aside>}
-        {props.activePanel === "replays" && (
+        {props.replayEnabled !== false && props.activePanel === "replays" && (
           <ReplayLibraryPanel
             copy={t}
             replays={props.replays}

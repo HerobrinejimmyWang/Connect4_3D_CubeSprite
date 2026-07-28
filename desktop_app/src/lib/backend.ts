@@ -25,6 +25,12 @@ interface PendingRequest {
   timeout: ReturnType<typeof setTimeout> | null;
 }
 
+interface MobileResponseEnvelope {
+  ok: boolean;
+  result?: unknown;
+  error?: BackendErrorShape;
+}
+
 export const DEFAULT_REQUEST_TIMEOUT_MS = 15 * 60 * 1000;
 export const REPLAY_ANALYSIS_TIMEOUT_MS = null;
 
@@ -224,3 +230,67 @@ export class TauriSidecarBackend implements BackendApi {
 }
 
 export const sidecarBackend = new TauriSidecarBackend();
+
+export class TauriMobileBackend implements BackendApi {
+  private started = false;
+  private lifecycleTail: Promise<void> = Promise.resolve();
+
+  start(): Promise<InitializationResult> {
+    return this.runLifecycle(async () => {
+      const result = await this.invokeRequest<InitializationResult>("system.initialize", {});
+      this.started = true;
+      return result;
+    });
+  }
+
+  async request<T>(command: string, params: Record<string, unknown> = {}): Promise<T> {
+    if (!this.started) throw new Error("CubeSprite mobile backend has not started.");
+    return this.invokeRequest<T>(command, params);
+  }
+
+  close(): Promise<void> {
+    return this.runLifecycle(async () => {
+      try {
+        await invoke("plugin:cubesprite-mobile|close");
+      } catch (error) {
+        console.error("Unable to close CubeSprite mobile backend cleanly", error);
+      } finally {
+        this.started = false;
+      }
+    });
+  }
+
+  private async invokeRequest<T>(command: string, params: Record<string, unknown>): Promise<T> {
+    const response = await invoke<MobileResponseEnvelope>("plugin:cubesprite-mobile|request", {
+      command,
+      params,
+    });
+    if (!response || typeof response !== "object" || typeof response.ok !== "boolean") {
+      throw new Error("CubeSprite mobile backend returned an invalid response.");
+    }
+    if (!response.ok) {
+      throw new BackendRequestError(response.error ?? {
+        code: "UNKNOWN",
+        message: "Unknown mobile backend error",
+      });
+    }
+    return response.result as T;
+  }
+
+  private runLifecycle<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.lifecycleTail.then(operation, operation);
+    this.lifecycleTail = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  }
+}
+
+export function backendForPlatform(platform: string | undefined): BackendApi {
+  return platform === "android"
+    ? new TauriMobileBackend()
+    : sidecarBackend;
+}
+
+export const appBackend = backendForPlatform(import.meta.env.TAURI_ENV_PLATFORM);

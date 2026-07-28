@@ -91,6 +91,15 @@ export interface Copy {
     redRate: string;
     blueRate: string;
     preloadReady: string;
+    view2d: {
+      layout: string;
+      slidingFour: string;
+      allSix: string;
+      previousWindow: string;
+      nextWindow: string;
+      showingLayers: string;
+      swipeHint: string;
+    };
     view3d: {
       boardLabel: string;
       loading: string;
@@ -294,6 +303,15 @@ export const translations: Record<Language, Copy> = {
       redRate: "红方",
       blueRate: "蓝方",
       preloadReady: "提示已预加载",
+      view2d: {
+        layout: "2D 层视图",
+        slidingFour: "连续四层",
+        allSix: "全部六层",
+        previousWindow: "查看前一组连续四层",
+        nextWindow: "查看后一组连续四层",
+        showingLayers: "当前显示",
+        swipeHint: "左右滑动可逐层观察",
+      },
       view3d: {
         boardLabel: "6 × 5 × 5 三维棋盘",
         loading: "正在加载 3D 棋盘…",
@@ -490,6 +508,15 @@ export const translations: Record<Language, Copy> = {
       redRate: "Red",
       blueRate: "Blue",
       preloadReady: "Hint preloaded",
+      view2d: {
+        layout: "2D layer view",
+        slidingFour: "Four-layer window",
+        allSix: "All six layers",
+        previousWindow: "Show the previous four-layer window",
+        nextWindow: "Show the next four-layer window",
+        showingLayers: "Showing",
+        swipeHint: "Swipe horizontally to inspect adjacent layers",
+      },
       view3d: {
         boardLabel: "6 × 5 × 5 three-dimensional board",
         loading: "Loading the 3D board…",

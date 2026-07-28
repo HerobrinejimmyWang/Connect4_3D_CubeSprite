@@ -17,7 +17,12 @@ tauri-build = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = { version = "2", features = [] }
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-shell = "2"
+
+[target.'cfg(target_os = "android")'.dependencies]
+tauri-plugin-cubesprite-mobile = { path = "plugins/cubesprite-mobile" }
 
 [profile.release]
 codegen-units = 1

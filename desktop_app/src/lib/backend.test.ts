@@ -13,8 +13,11 @@ import {
   BackendRequestError,
   DEFAULT_REQUEST_TIMEOUT_MS,
   REPLAY_ANALYSIS_TIMEOUT_MS,
+  TauriMobileBackend,
   TauriSidecarBackend,
+  backendForPlatform,
   requestTimeoutMs,
+  sidecarBackend,
 } from "./backend";
 
 beforeEach(() => {
@@ -146,5 +149,73 @@ describe("Tauri JSONL sidecar client", () => {
 
     await expect(restarting).resolves.toMatchObject({ protocol_version: 1 });
     await backend.close();
+  });
+});
+
+describe("Tauri Android plugin client", () => {
+  it("selects the native backend for an Android bundle", () => {
+    expect(backendForPlatform("android")).toBeInstanceOf(TauriMobileBackend);
+    expect(backendForPlatform("windows")).toBe(sidecarBackend);
+    expect(backendForPlatform(undefined)).toBe(sidecarBackend);
+  });
+
+  it("initializes through one native plugin request and unwraps the result", async () => {
+    const initialized = {
+      backend_version: "0.1.0-android",
+      protocol_version: 1,
+      board: { layers: 6, size: 5, connect_n: 4 },
+      mcts_options: [32, 64, 128, 256, 512],
+      models: [],
+      capabilities: { replay: false },
+      state: {},
+    };
+    tauri.invoke.mockResolvedValue({ ok: true, result: initialized });
+    const backend = new TauriMobileBackend();
+
+    await expect(backend.start()).resolves.toEqual(initialized);
+    expect(tauri.invoke).toHaveBeenCalledWith("plugin:cubesprite-mobile|request", {
+      command: "system.initialize",
+      params: {},
+    });
+
+    tauri.invoke.mockResolvedValue({ ok: true, result: { pong: true } });
+    await expect(backend.request("system.ping")).resolves.toEqual({ pong: true });
+    expect(tauri.invoke).toHaveBeenLastCalledWith("plugin:cubesprite-mobile|request", {
+      command: "system.ping",
+      params: {},
+    });
+  });
+
+  it("maps a native business error envelope to BackendRequestError", async () => {
+    tauri.invoke
+      .mockResolvedValueOnce({ ok: true, result: { protocol_version: 1 } })
+      .mockResolvedValueOnce({
+        ok: false,
+        error: {
+          code: "STALE_REVISION",
+          message: "state changed",
+          details: { expected: 2 },
+        },
+      });
+    const backend = new TauriMobileBackend();
+    await backend.start();
+
+    await expect(backend.request("game.move", {})).rejects.toMatchObject({
+      code: "STALE_REVISION",
+      message: "state changed",
+      details: { expected: 2 },
+    } satisfies Partial<BackendRequestError>);
+  });
+
+  it("closes the native backend through the plugin", async () => {
+    tauri.invoke.mockResolvedValue({ ok: true, result: {} });
+    const backend = new TauriMobileBackend();
+    await backend.start();
+    await backend.close();
+
+    expect(tauri.invoke).toHaveBeenCalledWith("plugin:cubesprite-mobile|close");
+    await expect(backend.request("game.state")).rejects.toThrow(
+      "CubeSprite mobile backend has not started.",
+    );
   });
 });

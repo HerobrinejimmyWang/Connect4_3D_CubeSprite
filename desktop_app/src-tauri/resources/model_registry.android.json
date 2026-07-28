@@ -1,0 +1,40 @@
+{
+  "manifest_version": 1,
+  "product_version": "0.1.0-android",
+  "models": [
+    {
+      "id": "cubesprite_v3_mini",
+      "display_name": "CubeSprite V3 mini",
+      "model_path": "models/cubesprite_v3_mini.onnx",
+      "architecture": "gravity_resnet_v1",
+      "board_layers": 6,
+      "board_size": 5,
+      "input_channels": 2,
+      "action_dim": 150,
+      "artifact_sha256": "c991f73b241d67e7c2eea42812645e8335f952ba682b941f1113b63f5db1a94a",
+      "source_iteration": 208,
+      "defaults": { "mcts_sims": 128, "temperature": 0.4 },
+      "description": {
+        "zh": "CubeSprite V3 mini，适合移动设备的默认轻量模型。",
+        "en": "CubeSprite V3 mini, the default compact model for mobile devices."
+      }
+    },
+    {
+      "id": "cubesprite_v3",
+      "display_name": "CubeSprite V3",
+      "model_path": "models/cubesprite_v3.onnx",
+      "architecture": "gravity_resnet_v1",
+      "board_layers": 6,
+      "board_size": 5,
+      "input_channels": 2,
+      "action_dim": 150,
+      "artifact_sha256": "c6394b1ddcc7393fba5c30a83cffa5e21787be2d3ff1cd0c6848a7f4cdc95b76",
+      "source_iteration": 192,
+      "defaults": { "mcts_sims": 128, "temperature": 0.4 },
+      "description": {
+        "zh": "CubeSprite V3，移动端高质量模型。",
+        "en": "CubeSprite V3, the higher-quality mobile model."
+      }
+    }
+  ]
+}

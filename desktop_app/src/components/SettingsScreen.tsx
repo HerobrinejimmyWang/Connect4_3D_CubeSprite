@@ -5,6 +5,7 @@ import { PageShell } from "./PageShell";
 interface Props {
   copy: Copy;
   preloadHint: boolean;
+  replayEnabled?: boolean;
   onPreloadHint: (enabled: boolean) => void;
   autoplayIntervalMs: AutoplayInterval;
   onAutoplayInterval: (interval: AutoplayInterval) => void;
@@ -18,7 +19,7 @@ const AUTOPLAY_OPTIONS: Array<{ value: AutoplayInterval; label: string }> = [
   { value: 250, label: "0.25 s" },
 ];
 
-export function SettingsScreen({ copy: t, preloadHint, onPreloadHint, autoplayIntervalMs, onAutoplayInterval, onBack }: Props) {
+export function SettingsScreen({ copy: t, preloadHint, replayEnabled = true, onPreloadHint, autoplayIntervalMs, onAutoplayInterval, onBack }: Props) {
   return (
     <PageShell copy={t} title={t.settings.title} subtitle={t.settings.subtitle} onBack={onBack}>
       <div className="settings-stack">
@@ -39,7 +40,7 @@ export function SettingsScreen({ copy: t, preloadHint, onPreloadHint, autoplayIn
           <b>{preloadHint ? t.settings.preloadOn : t.settings.preloadOff}</b>
         </button>
       </div>
-      <div className="settings-card replay-speed-setting">
+      {replayEnabled && <div className="settings-card replay-speed-setting">
         <div className="settings-icon" aria-hidden="true">▶</div>
         <div className="settings-copy">
           <h2>{t.settings.autoplaySpeed}</h2>
@@ -58,7 +59,7 @@ export function SettingsScreen({ copy: t, preloadHint, onPreloadHint, autoplayIn
             </button>
           ))}
         </div>
-      </div>
+      </div>}
       </div>
       <div className="future-settings"><span>＋</span>{t.settings.future}</div>
     </PageShell>

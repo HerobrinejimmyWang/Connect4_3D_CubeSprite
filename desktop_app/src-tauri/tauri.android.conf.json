@@ -1,0 +1,19 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Connect4 3D CubeSprite"
+      }
+    ]
+  },
+  "bundle": {
+    "targets": "all",
+    "externalBin": [],
+    "resources": [],
+    "android": {
+      "minSdkVersion": 24
+    }
+  }
+}

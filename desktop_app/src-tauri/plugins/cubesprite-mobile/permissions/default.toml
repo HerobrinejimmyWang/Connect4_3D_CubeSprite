@@ -1,0 +1,5 @@
+"$schema" = "schemas/schema.json"
+
+[default]
+description = "Allows the bundled CubeSprite UI to use the Android game backend."
+permissions = ["allow-request", "allow-close"]

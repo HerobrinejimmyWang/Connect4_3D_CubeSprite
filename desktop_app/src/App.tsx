@@ -8,7 +8,7 @@ import { MenuScreen } from "./components/MenuScreen";
 import { ReplayScreen } from "./components/ReplayScreen";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { translations } from "./i18n";
-import { BackendRequestError, sidecarBackend } from "./lib/backend";
+import { appBackend, BackendRequestError } from "./lib/backend";
 import type {
   AiConfig,
   AiRole,
@@ -87,7 +87,7 @@ function downloadReplayFile(filename: string, content: string): void {
 
 interface AppProps { backend?: BackendApi }
 
-export function App({ backend = sidecarBackend }: AppProps) {
+export function App({ backend = appBackend }: AppProps) {
   const [language, setLanguage] = useState<Language>("zh");
   const [screen, setScreen] = useState<Screen>("loading");
   const screenRef = useRef<Screen>("loading");
@@ -95,6 +95,7 @@ export function App({ backend = sidecarBackend }: AppProps) {
   const [initError, setInitError] = useState("");
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [mctsOptions, setMctsOptions] = useState([32, 64, 128, 256, 512, 1024]);
+  const [replayEnabled, setReplayEnabled] = useState(true);
   const [aiSettings, setAiSettings] = useState<AiSettings>(DEFAULT_AI);
   const [preloadHint, setPreloadHint] = useState(false);
   const [autoplayIntervalMs, setAutoplayIntervalMs] = useState<AutoplayInterval>(1000);
@@ -168,13 +169,20 @@ export function App({ backend = sidecarBackend }: AppProps) {
       if (cancelled) return;
       setModels(result.models);
       setMctsOptions(result.mcts_options);
+      const supportsReplay = result.capabilities?.replay ?? true;
+      setReplayEnabled(supportsReplay);
+      if (!supportsReplay) setActiveMenuPanel(null);
       const preferred = result.models.find((model) => model.id === "v2.2_balance" && model.available)
         ?? result.models.find((model) => model.available);
       if (preferred) {
         setAiSettings((current) => Object.fromEntries(
           (Object.keys(current) as AiRole[]).map((role) => {
             const selected = result.models.find((model) => model.id === current[role].model_id);
-            return [role, selected?.available ? current[role] : { ...current[role], model_id: preferred.id }];
+            return [role, selected?.available ? current[role] : {
+              model_id: preferred.id,
+              mcts_sims: preferred.default_mcts_sims,
+              temperature: preferred.default_temperature,
+            }];
           }),
         ) as AiSettings);
       }
@@ -267,10 +275,11 @@ export function App({ backend = sidecarBackend }: AppProps) {
   }, [backend, reportError]);
 
   const openReplayPanel = useCallback(() => {
+    if (!replayEnabled) return;
     replayOpenToken.current += 1;
     setActiveMenuPanel("replays");
     void refreshReplays();
-  }, [refreshReplays]);
+  }, [refreshReplays, replayEnabled]);
 
   const openPvaiPanel = useCallback(() => {
     replayOpenToken.current += 1;
@@ -286,7 +295,7 @@ export function App({ backend = sidecarBackend }: AppProps) {
 
   const saveReplay = useCallback(async () => {
     const position = gameRef.current;
-    if (!position || saveReplayThinking) return;
+    if (!replayEnabled || !position || saveReplayThinking) return;
     setSaveReplayThinking(true);
     try {
       const result = await backend.request<ReplayMutationResult>("replay.save", {
@@ -300,7 +309,7 @@ export function App({ backend = sidecarBackend }: AppProps) {
     } finally {
       setSaveReplayThinking(false);
     }
-  }, [backend, language, reportError, saveReplayThinking, showToast, upsertReplay]);
+  }, [backend, language, replayEnabled, reportError, saveReplayThinking, showToast, upsertReplay]);
 
   const importReplay = useCallback(async (file: File) => {
     if (replayImportBusy) return;
@@ -624,6 +633,7 @@ export function App({ backend = sidecarBackend }: AppProps) {
           copy={t}
           activePanel={activeMenuPanel}
           busy={menuBusy}
+          replayEnabled={replayEnabled}
           replays={replays}
           replayListBusy={replayListBusy}
           replayImportBusy={replayImportBusy}
@@ -645,16 +655,16 @@ export function App({ backend = sidecarBackend }: AppProps) {
       );
     }
     if (screen === "ai-settings") return <AiSettingsScreen copy={t} models={models} mctsOptions={mctsOptions} settings={aiSettings} onChange={updateAi} onBack={() => navigate("menu")} />;
-    if (screen === "settings") return <SettingsScreen copy={t} preloadHint={preloadHint} onPreloadHint={setPreloadHint} autoplayIntervalMs={autoplayIntervalMs} onAutoplayInterval={setAutoplayIntervalMs} onBack={() => navigate("menu")} />;
+    if (screen === "settings") return <SettingsScreen copy={t} preloadHint={preloadHint} replayEnabled={replayEnabled} onPreloadHint={setPreloadHint} autoplayIntervalMs={autoplayIntervalMs} onAutoplayInterval={setAutoplayIntervalMs} onBack={() => navigate("menu")} />;
     if (screen === "instructions") return <InstructionsScreen copy={t} onBack={() => navigate("menu")} />;
     if (screen === "game" && game) {
-      return <GameScreen copy={t} state={game} combatThinking={combatThinking} hintThinking={hintThinking} winRateThinking={winRateThinking} saveReplayThinking={saveReplayThinking} mutationBusy={mutationBusy} hint={visibleHint} hintPreloaded={preloadHint && hintPreloaded} winRate={winRate} onMove={(move) => void handleMove(move)} onUndo={() => void mutateGame("game.undo", false)} onRestart={() => void mutateGame("game.restart", true)} onHint={requestVisibleHint} onWinRate={() => void requestWinRate()} onSaveReplay={() => void saveReplay()} onExit={exitGame} />;
+      return <GameScreen copy={t} state={game} combatThinking={combatThinking} hintThinking={hintThinking} winRateThinking={winRateThinking} saveReplayThinking={saveReplayThinking} replayEnabled={replayEnabled} mutationBusy={mutationBusy} hint={visibleHint} hintPreloaded={preloadHint && hintPreloaded} winRate={winRate} onMove={(move) => void handleMove(move)} onUndo={() => void mutateGame("game.undo", false)} onRestart={() => void mutateGame("game.restart", true)} onHint={requestVisibleHint} onWinRate={() => void requestWinRate()} onSaveReplay={() => void saveReplay()} onExit={exitGame} />;
     }
     if (screen === "replay" && activeReplay) {
       return <ReplayScreen key={activeReplay.replay.id} copy={t} replay={activeReplay} autoplayIntervalMs={autoplayIntervalMs} analysisThinking={replayAnalysisThinking} continueBusy={replayContinueBusy} onAnalyze={() => void analyzeReplay()} onContinue={(step, mode, humanPlayer) => void continueReplay(step, mode, humanPlayer)} onExit={exitReplay} />;
     }
     return null;
-  }, [activeMenuPanel, activeReplay, aiSettings, analyzeReplay, autoplayIntervalMs, closeMenuPanel, combatThinking, continueReplay, deleteReplay, exitGame, exitReplay, exportReplay, game, handleMove, hintPreloaded, hintThinking, importReplay, initError, menuBusy, mctsOptions, models, mutateGame, mutationBusy, navigate, openPvaiPanel, openReplay, openReplayPanel, preloadHint, replayAnalysisThinking, replayContinueBusy, replayDeleteBusyId, replayExportBusyId, replayImportBusy, replayListBusy, replays, requestVisibleHint, requestWinRate, saveReplay, saveReplayThinking, screen, startGame, t, updateAi, visibleHint, winRate, winRateThinking]);
+  }, [activeMenuPanel, activeReplay, aiSettings, analyzeReplay, autoplayIntervalMs, closeMenuPanel, combatThinking, continueReplay, deleteReplay, exitGame, exitReplay, exportReplay, game, handleMove, hintPreloaded, hintThinking, importReplay, initError, menuBusy, mctsOptions, models, mutateGame, mutationBusy, navigate, openPvaiPanel, openReplay, openReplayPanel, preloadHint, replayAnalysisThinking, replayContinueBusy, replayDeleteBusyId, replayEnabled, replayExportBusyId, replayImportBusy, replayListBusy, replays, requestVisibleHint, requestWinRate, saveReplay, saveReplayThinking, screen, startGame, t, updateAi, visibleHint, winRate, winRateThinking]);
 
   return (
     <div className="app-frame">

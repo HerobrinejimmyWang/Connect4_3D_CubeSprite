@@ -3,8 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
 
 import { App } from "./App";
-import { emptyState, FakeBackend, replayAnalysis, replayOpen } from "./test/fixtures";
-import type { GameState, ReplayOpenResult, WinRateAnalysis } from "./types";
+import { emptyState, FakeBackend, initialization, replayAnalysis, replayOpen } from "./test/fixtures";
+import type { GameState, InitializationResult, ReplayOpenResult, WinRateAnalysis } from "./types";
 
 class DeferredAiBackend extends FakeBackend {
   resolveAi: (() => void) | null = null;
@@ -92,6 +92,22 @@ class DeferredNewGameBackend extends FakeBackend {
   }
 }
 
+class MobileLiteBackend extends FakeBackend {
+  override async start(): Promise<InitializationResult> {
+    const mini = initialization.models.find((model) => model.id === "cubesprite_v3_mini")!;
+    const full = initialization.models.find((model) => model.id === "cubesprite_v3")!;
+    return {
+      ...initialization,
+      mcts_options: [32, 64, 128, 256, 512],
+      models: [
+        { ...mini, default_mcts_sims: 128, default_temperature: 0.4 },
+        { ...full, default_mcts_sims: 128, default_temperature: 0.4 },
+      ],
+      capabilities: { replay: false },
+    };
+  }
+}
+
 describe("CubeSprite app shell", () => {
   it("loads the menu and switches all copy instantly", async () => {
     const user = userEvent.setup();
@@ -159,6 +175,43 @@ describe("CubeSprite app shell", () => {
     await user.click(within(combat).getByRole("button", { name: "combat MCTS plus" }));
     expect(within(combat).getByText("256")).toBeVisible();
     expect(within(hint).getByText("128")).toBeVisible();
+  });
+
+  it("uses the mobile 128/0.4 defaults, allows 512 MCTS, and removes every reachable replay action", async () => {
+    const user = userEvent.setup();
+    const backend = new MobileLiteBackend();
+    render(<App backend={backend} />);
+
+    expect(await screen.findByRole("button", { name: "玩家 vs 玩家" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "对局回放" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "AI 设置" }));
+    for (const role of screen.getAllByRole("article")) {
+      expect(within(role).getByRole("radio", { name: "CubeSprite V3 mini" })).toBeChecked();
+      expect(within(role).getByText("128")).toBeVisible();
+      expect(within(role).getByRole("spinbutton", { name: "Temperature" })).toHaveValue(0.4);
+    }
+    const combat = screen.getAllByRole("article")[0];
+    await user.click(within(combat).getByRole("button", { name: "combat MCTS plus" }));
+    await user.click(within(combat).getByRole("button", { name: "combat MCTS plus" }));
+    expect(within(combat).getByText("512")).toBeVisible();
+    expect(within(combat).getByRole("button", { name: "combat MCTS plus" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: /返回主菜单/ }));
+
+    await user.click(screen.getByRole("button", { name: "设置" }));
+    expect(screen.queryByRole("radiogroup", { name: "回放自动播放速度" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /返回主菜单/ }));
+
+    await user.click(screen.getByRole("button", { name: "玩家 vs AI" }));
+    await user.click(screen.getByRole("button", { name: /蓝方 · 后手/ }));
+    await waitFor(() => expect(backend.calls.some((call) => call.command === "game.ai_move")).toBe(true));
+    expect(screen.queryByRole("button", { name: "保存回放" })).not.toBeInTheDocument();
+    expect(backend.calls.find((call) => call.command === "game.ai_move")?.params.ai).toMatchObject({
+      model_id: "cubesprite_v3_mini",
+      mcts_sims: 512,
+      temperature: 0.4,
+    });
+    expect(backend.calls.some((call) => call.command.startsWith("replay."))).toBe(false);
   });
 
   it("keeps the replay autoplay interval as an independent app setting", async () => {

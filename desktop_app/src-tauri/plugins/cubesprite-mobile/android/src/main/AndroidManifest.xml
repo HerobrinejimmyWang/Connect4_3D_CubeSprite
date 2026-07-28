@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+      This tracked library manifest is merged into Tauri's generated app
+      manifest, so regenerating gen/android cannot lose the phone layout
+      contract. The runtime plugin repeats the request as a defensive fallback.
+    -->
+    <application>
+        <activity
+            android:name="com.cubesprite.connect4_3d.MainActivity"
+            android:screenOrientation="sensorLandscape"
+            tools:node="merge" />
+    </application>
+</manifest>

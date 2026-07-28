@@ -7,6 +7,7 @@ export type GameMode = "pvp" | "pvai";
 export type GameStateMode = GameMode | "replay";
 export type AiRole = "combat" | "hint" | "winRate";
 export type BoardViewMode = "2d" | "3d";
+export type LayerViewMode = "sliding4" | "all6";
 export type PieceFocus = "all" | "red" | "blue";
 export type LayerSpacing = "standard" | "expanded";
 export type CameraPreset = "isometric" | "front" | "top";
@@ -70,6 +71,9 @@ export interface InitializationResult {
   board: { layers: number; size: number; connect_n: number };
   mcts_options: number[];
   models: ModelInfo[];
+  capabilities?: {
+    replay?: boolean;
+  };
   state: GameState;
 }
 
