@@ -1,6 +1,14 @@
 *.pyc
 __pycache__/
 .venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tmp/
+tmp/
+.codex/
+.vscode/
+.idea/
 
 *.pth
 *.tar
@@ -26,4 +34,16 @@ desktop_app/backend/dist/
 desktop_app/backend/*.spec
 desktop_app/visual-*.png
 
-迭代性能记录.xlsx
+# Local release binaries and large showcase media. Release notes, benchmark
+# data, charts, and presentation sources remain eligible for version control.
+release/**/*.mp4
+release/**/*.mov
+release/**/*.mkv
+release/**/*.webm
+release/**/*.exe
+release/**/*.msi
+release/**/*.zip
+release/**/*.7z
+release/**/*.log
+release/**/~$*
+release/**/demo*

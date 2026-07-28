@@ -1,0 +1,205 @@
+{
+  "schema_version": 1,
+  "metadata": {
+    "created_at_utc": "2026-07-24T17:20:04.018290+00:00",
+    "runtime": "desktop-app-onnx-numpymcts",
+    "model_id": "v2.2_balance",
+    "mcts_sims": 128,
+    "temperature": 0.4,
+    "idle_s": 10.0,
+    "excluded_state_indices": [
+      9,
+      21,
+      23
+    ],
+    "replay": "C:\\Users\\24233\\AppData\\Roaming\\com.cubesprite.connect4-3d\\replays\\52a4f881631f4a3e8ae6b04db4ac787e.c4replay.json",
+    "state_rule": "Selected replay states are reconstructed independently; no returned action is applied."
+  },
+  "records": [
+    {
+      "state_index": 0,
+      "player": 1,
+      "shortcut_triggered": false,
+      "shortcut_action": null,
+      "latency_s": 3.9319078999997146,
+      "returned_action": 12
+    },
+    {
+      "state_index": 1,
+      "player": -1,
+      "shortcut_triggered": false,
+      "shortcut_action": null,
+      "latency_s": 3.9842294999998558,
+      "returned_action": 16
+    },
+    {
+      "state_index": 2,
+      "player": 1,
+      "shortcut_triggered": false,
+      "shortcut_action": null,
+      "latency_s": 3.78332969999974,
+      "returned_action": 11
+    },
+    {
+      "state_index": 3,
+      "player": -1,
+      "shortcut_triggered": false,
+      "shortcut_action": null,
+      "latency_s": 4.1271405999996205,
+      "returned_action": 6
+    },
+    {
+      "state_index": 4,
+      "player": 1,
+      "shortcut_triggered": false,
+      "shortcut_action": null,
+      "latency_s": 4.047430500000701,
+      "returned_action": 7
+    },
+    {
+      "state_index": 5,
+      "player": -1,
+      "shortcut_triggered": false,
+      "shortcut_action": null,
+      "latency_s": 3.9664099000001443,
+      "returned_action": 17
+    },
+    {
+      "state_index": 6,
+      "player": 1,
+      "shortcut_triggered": false,
+      "shortcut_action": null,
+      "latency_s": 4.114713599999959,
+      "returned_action": 11
+    },
+    {
+      "state_index": 7,
+      "player": -1,
+      "shortcut_triggered": false,
+      "shortcut_action": null,
+      "latency_s": 4.035849699999744,
+      "returned_action": 13
+    },
+    {
+      "state_index": 8,
+      "player": 1,
+      "shortcut_triggered": false,
+      "shortcut_action": null,
+      "latency_s": 4.079262399998697,
+      "returned_action": 3
+    },
+    {
+      "state_index": 10,
+      "player": 1,
+      "shortcut_triggered": false,
+      "shortcut_action": null,
+      "latency_s": 4.1280698999999,
+      "returned_action": 5
+    },
+    {
+      "state_index": 11,
+      "player": -1,
+      "shortcut_triggered": false,
+      "shortcut_action": null,
+      "latency_s": 4.201562399999602,
+      "returned_action": 5
+    },
+    {
+      "state_index": 12,
+      "player": 1,
+      "shortcut_triggered": false,
+      "shortcut_action": null,
+      "latency_s": 4.098784700001488,
+      "returned_action": 36
+    },
+    {
+      "state_index": 13,
+      "player": -1,
+      "shortcut_triggered": false,
+      "shortcut_action": null,
+      "latency_s": 4.15822499999922,
+      "returned_action": 36
+    },
+    {
+      "state_index": 14,
+      "player": 1,
+      "shortcut_triggered": false,
+      "shortcut_action": null,
+      "latency_s": 4.36811359999956,
+      "returned_action": 57
+    },
+    {
+      "state_index": 15,
+      "player": -1,
+      "shortcut_triggered": false,
+      "shortcut_action": null,
+      "latency_s": 4.242527099999279,
+      "returned_action": 38
+    },
+    {
+      "state_index": 16,
+      "player": 1,
+      "shortcut_triggered": false,
+      "shortcut_action": null,
+      "latency_s": 4.264196599999195,
+      "returned_action": 38
+    },
+    {
+      "state_index": 17,
+      "player": -1,
+      "shortcut_triggered": false,
+      "shortcut_action": null,
+      "latency_s": 4.4554126000002725,
+      "returned_action": 62
+    },
+    {
+      "state_index": 18,
+      "player": 1,
+      "shortcut_triggered": false,
+      "shortcut_action": null,
+      "latency_s": 4.270217799999955,
+      "returned_action": 57
+    },
+    {
+      "state_index": 19,
+      "player": -1,
+      "shortcut_triggered": false,
+      "shortcut_action": null,
+      "latency_s": 4.214057099999991,
+      "returned_action": 57
+    },
+    {
+      "state_index": 20,
+      "player": 1,
+      "shortcut_triggered": false,
+      "shortcut_action": null,
+      "latency_s": 2.2196331999984977,
+      "returned_action": 31
+    },
+    {
+      "state_index": 22,
+      "player": 1,
+      "shortcut_triggered": false,
+      "shortcut_action": null,
+      "latency_s": 4.015245999999024,
+      "returned_action": 9
+    },
+    {
+      "state_index": 24,
+      "player": 1,
+      "shortcut_triggered": false,
+      "shortcut_action": null,
+      "latency_s": 4.2650604999998905,
+      "returned_action": 9
+    }
+  ],
+  "summary": {
+    "state_count": 22,
+    "shortcut_count": 0,
+    "mean_including_shortcuts_s": 4.044153649999729,
+    "mean_excluding_shortcuts_s": 4.044153649999729,
+    "searched_state_count": 22
+  },
+  "completed": true,
+  "stop_reason": null
+}

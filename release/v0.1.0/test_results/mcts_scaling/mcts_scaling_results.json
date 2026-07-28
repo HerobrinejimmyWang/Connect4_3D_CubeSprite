@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "created_at_utc": "2026-07-22T21:02:21.568727+00:00",
+  "config": {
+    "title": "Connect4-3D Model Strength vs. MCTS Search Budget",
+    "benchmark": {
+      "name": "V2.2 balance (128 sims)",
+      "model_path": "save_model/v2.2_balence/model.pth",
+      "agent_type": "auto",
+      "mcts_sims": 128
+    },
+    "candidates": [
+      {
+        "name": "V2.1 High",
+        "model_path": "save_model (old v2.1)/High/best.pth.tar",
+        "agent_type": "auto"
+      },
+      {
+        "name": "V2.2 balance",
+        "model_path": "save_model/v2.2_balence/model.pth",
+        "agent_type": "auto"
+      },
+      {
+        "name": "CubeSprite V3 flagship (iter240)",
+        "model_path": "distillation/save_model/flagship_wide/iter_0240/model.pth",
+        "agent_type": "auto"
+      },
+      {
+        "name": "CubeSprite V3 mini (iter260)",
+        "model_path": "distillation/save_model/gravity_balanced/iter_0260/model.pth",
+        "agent_type": "auto"
+      }
+    ],
+    "search_budgets": [
+      32,
+      64,
+      128,
+      256,
+      512,
+      1024
+    ],
+    "games_per_point": 100,
+    "temperature": 0.5,
+    "seed": 20260723,
+    "device": "cuda",
+    "mcts_threads": 4,
+    "inference_batch_size": 32,
+    "parallel_games": 24,
+    "baseline_parity_point": {
+      "enabled": true,
+      "candidate": "V2.2 balance",
+      "search_budget": 128,
+      "score_rate": 0.5
+    },
+    "me_marker": {
+      "enabled": true,
+      "search_budget": 128,
+      "score_rate": 0.5,
+      "label": "me"
+    }
+  },
+  "results": [
+    {
+      "candidate": "V2.1 High",
+      "search_budget": 32,
+      "games": 100,
+      "wins": 50,
+      "losses": 50,
+      "draws": 0,
+      "win_rate": 0.5,
+      "score_rate": 0.5,
+      "first_player_games": 50,
+      "second_player_games": 50,
+      "is_assumed_parity": false,
+      "point_index": 0
+    }
+  ]
+}

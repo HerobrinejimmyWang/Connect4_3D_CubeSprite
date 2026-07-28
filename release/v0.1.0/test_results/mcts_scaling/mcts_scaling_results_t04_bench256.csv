@@ -1,0 +1,21 @@
+﻿candidate,search_budget,games,wins,draws,losses,win_rate,score_rate,first_player_games,second_player_games,is_assumed_parity,point_index
+V2.1 High,32,100,31,0,69,0.31,0.31,50,50,False,0
+V2.1 High,128,100,33,0,67,0.33,0.33,50,50,False,1
+V2.1 High,256,100,39,0,61,0.39,0.39,50,50,False,2
+V2.1 High,512,100,38,0,62,0.38,0.38,50,50,False,3
+V2.1 High,1024,100,43,0,57,0.43,0.43,50,50,False,4
+V2.2 balance,32,100,26,0,74,0.26,0.26,50,50,False,5
+V2.2 balance,128,100,34,0,66,0.34,0.34,50,50,False,6
+V2.2 balance,256,0,0,0,0,0.5,0.5,0,0,True,7
+V2.2 balance,512,100,65,0,35,0.65,0.65,50,50,False,8
+V2.2 balance,1024,100,81,0,19,0.81,0.81,50,50,False,9
+CubeSprite V3 flagship (iter240),32,100,24,0,76,0.24,0.24,50,50,False,10
+CubeSprite V3 flagship (iter240),128,100,30,0,70,0.3,0.3,50,50,False,11
+CubeSprite V3 flagship (iter240),256,100,42,0,58,0.42,0.42,50,50,False,12
+CubeSprite V3 flagship (iter240),512,100,67,0,33,0.67,0.67,50,50,False,13
+CubeSprite V3 flagship (iter240),1024,100,69,0,31,0.69,0.69,50,50,False,14
+CubeSprite V3 mini (iter260),32,100,32,0,68,0.32,0.32,50,50,False,15
+CubeSprite V3 mini (iter260),128,100,38,0,62,0.38,0.38,50,50,False,16
+CubeSprite V3 mini (iter260),256,100,48,0,52,0.48,0.48,50,50,False,17
+CubeSprite V3 mini (iter260),512,100,53,0,47,0.53,0.53,50,50,False,18
+CubeSprite V3 mini (iter260),1024,100,63,0,37,0.63,0.63,50,50,False,19

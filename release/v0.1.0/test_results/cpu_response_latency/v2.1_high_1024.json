@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "metadata": {
+    "created_at_utc": "2026-07-24T18:48:22.429613+00:00",
+    "runtime": "desktop-app-onnx-numpymcts",
+    "model_id": "v2.1_high",
+    "mcts_sims": 1024,
+    "temperature": 0.4,
+    "idle_s": 10.0,
+    "excluded_state_indices": [
+      9,
+      21,
+      23
+    ],
+    "replay": "C:\\Users\\24233\\AppData\\Roaming\\com.cubesprite.connect4-3d\\replays\\52a4f881631f4a3e8ae6b04db4ac787e.c4replay.json",
+    "state_rule": "Selected replay states are reconstructed independently; no returned action is applied."
+  },
+  "records": [
+    {
+      "state_index": 0,
+      "player": 1,
+      "shortcut_triggered": false,
+      "shortcut_action": null,
+      "latency_s": 92.00749929999984,
+      "returned_action": 12
+    }
+  ],
+  "summary": {
+    "state_count": 1,
+    "shortcut_count": 0,
+    "mean_including_shortcuts_s": 92.00749929999984,
+    "mean_excluding_shortcuts_s": 92.00749929999984,
+    "searched_state_count": 1
+  },
+  "completed": true,
+  "stop_reason": "state 0 exceeded 60s"
+}

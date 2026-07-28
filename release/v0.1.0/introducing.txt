@@ -1,0 +1,47 @@
+Introducing Connect4 3D CubeSprite (Connect4 3D v2.2)
+CubeSprite 系列模型是我个人在 AI agent 的帮助下设计和训练的 connect4 3D 专用 AlphaZero 模型。相较于上一代（v2.1），我们重新设计了模型的架构，进行了从头开始的，时间更长，流程更复杂，更多配置的训练，得到了在 CPU 上响应更快，更加智能的模型。新版模型能够在一定程度上与我自己抗衡并提供提升思路。
+游戏方面，我们舍弃了原本的迭代版本号，转而使用了语义化版本，将模型迭代与游戏端迭代分开。现 Connect4 3D CubeSprite 即原计划中的 Connect4 3D v2.2。在 GPT 5.6 Sol 的帮助下，构建了开盖即食的 Windows destop APP，以便于更多人可以体验到空间四子棋小游戏。
+
+
+ChangeLog 更新说明
+1. 调整 AI 模型注册表。加入了三个新的模型：CubeSprite V3, CubeSprite V3 mini, v2.2_balance，旧模型保留 v2.1_high。4个模型的具体测试数据见“模型测试结果图”
+2. 提供了更加详细的 AI setting 界面。将游戏中使用到AI的三个功能：对抗，提示，胜率预测，分为了三个不同的设置。每一个设置下提供了 AI 模型的选择，MCTS_sims，温度三个配置，用于更细化的控制 AI 的强度
+3. 优化了 3D 视图。提供柱状定位辅助，在 3D 视图下的落子，增加了聚焦某一方的棋子的功能，增加了选择截面进行观察的功能
+4. 新增了回放 Replay 功能。在 replay 模式下，你可以对已经保存的某一局录像进行详细复盘，观察由 CubeSprite AI 提供的胜率曲线分析，也可以从某个选定的局面继续游戏，尝试更多的可能性。接受导出和导入使用相同协议的回放，便于与其他人进行交流
+5. 细化了 setting 界面。提供少量对局辅助功能
+6. 使用安装包的方式搭建 desktop APP，可以直接启动
+
+
+模型说明
+1. v2.2 balance 一个最稳定的模型。在上一次的训练过程中，达到了最稳定的能力基线，有能力对抗人类玩家
+2. CubeSprite 系列模型是由 v2.2 蒸馏 + 延长训练而来。这两个模型经过了针对 connect4 3D 的专项优化，拥有更高效的参数，可以在 CPU 上保持能力并更快速的响应。
+
+Power by: GPT series models
+
+
+Access 获取方式
+Github release：
+夸克网盘：
+
+Repo：
+
+
+Guide for AI settings
+1. MCTS_sims：搜索量。值越高，AI 对局面的思考越深入，展现的能力更强，但计算时间也越长。Default: 256, Training: 512
+2. Temperature：温度。值越高，AI 的落子越多样，反之则贪心，展现的能力更强。Default: 0.4
+3. 战术短路：开启时，如果检测到一步必胜或必须防守时，直接采用该落点并跳过 MCTS。默认开启
+
+新手推荐：CubeSprite V3 mini + MCTS_sims: 128 
+稳定对抗：CubeSprite V3 + MCTS_sims: 256 （先后手交替）
+提升：v2.2 balance + MCTS_sims: 512+ + Temperature: 0.2-
+觉得 AI 太强了？可以尝试提高 Temperature 到 0.6-1.0，但是会增加犯错概率
+
+Feedback
+Contact me or thourgh GitHub issues. 
+
+
+
+Backup
+1. v2.2 balance is our most stable model with the capability to against human players.
+2. CubeSprite V3 series models are distilled from v2.2 balance and have more efficient parameters, helping them respond in a short time.
+
