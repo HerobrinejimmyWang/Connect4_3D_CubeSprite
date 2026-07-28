@@ -80,6 +80,7 @@ interface LayerBoardsProps {
   windowStart: number;
   onLayerViewModeChange: (mode: LayerViewMode) => void;
   onWindowStartChange: (start: number) => void;
+  mobileLayout: boolean;
 }
 
 function LayerBoards({
@@ -92,6 +93,7 @@ function LayerBoards({
   windowStart,
   onLayerViewModeChange,
   onWindowStartChange,
+  mobileLayout,
 }: LayerBoardsProps) {
   const legalByCell = useMemo(() => new Map(state.legal_moves.map((move) => [moveKey(move), move])), [state.legal_moves]);
   const winning = useMemo(() => new Set(state.winning_line.map(moveKey)), [state.winning_line]);
@@ -103,10 +105,10 @@ function LayerBoards({
     () => state.board
       .map((layer, layerIndex) => ({ layer, layerIndex }))
       .slice(
-        layerViewMode === "sliding4" ? safeWindowStart : 0,
-        layerViewMode === "sliding4" ? safeWindowStart + LAYER_WINDOW_SIZE : state.board.length,
+        mobileLayout && layerViewMode === "sliding4" ? safeWindowStart : 0,
+        mobileLayout && layerViewMode === "sliding4" ? safeWindowStart + LAYER_WINDOW_SIZE : state.board.length,
       ),
-    [layerViewMode, safeWindowStart, state.board],
+    [layerViewMode, mobileLayout, safeWindowStart, state.board],
   );
   const pointerGesture = useRef<{ pointerId: number; startX: number; startY: number } | null>(null);
   const suppressNextClick = useRef(false);
@@ -119,7 +121,7 @@ function LayerBoards({
     onWindowStartChange(Math.max(0, Math.min(maxWindowStart, start)));
   };
   const beginSwipe = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (layerViewMode !== "sliding4" || event.button !== 0) return;
+    if (!mobileLayout || layerViewMode !== "sliding4" || event.button !== 0) return;
     pointerGesture.current = {
       pointerId: event.pointerId,
       startX: event.clientX,
@@ -147,7 +149,7 @@ function LayerBoards({
 
   return (
     <>
-      <div className="layer-layout-toolbar">
+      {mobileLayout && <div className="layer-layout-toolbar">
         <div className="layer-layout-switch" role="radiogroup" aria-label={t.game.view2d.layout}>
           <label>
             <input
@@ -209,12 +211,12 @@ function LayerBoards({
             </button>
           </div>
         )}
-      </div>
+      </div>}
 
       <div
-        className={`layer-grid ${layerViewMode === "sliding4" ? "sliding-four" : "all-six"} ${locked ? "board-locked" : ""}`}
+        className={`layer-grid ${mobileLayout ? (layerViewMode === "sliding4" ? "sliding-four" : "all-six") : "desktop-six"} ${locked ? "board-locked" : ""}`}
         aria-label="6 × 5 × 5 board"
-        data-window-start={safeWindowStart}
+        data-window-start={mobileLayout ? safeWindowStart : undefined}
         onPointerDown={beginSwipe}
         onPointerUp={finishSwipe}
         onPointerCancel={cancelSwipe}
@@ -292,6 +294,7 @@ interface Props {
   hint?: HintResult | null;
   winRate?: WinRateResult | null;
   locked: boolean;
+  mobileLayout?: boolean;
   onMove?: (move: Move) => void;
   onViewModeChange: (mode: BoardViewMode) => void;
 }
@@ -303,10 +306,12 @@ export function BoardWorkspace({
   hint = null,
   winRate = null,
   locked,
+  mobileLayout = false,
   onMove,
   onViewModeChange,
 }: Props) {
-  const compactLandscape = useCompactLandscapeViewport();
+  const compactViewport = useCompactLandscapeViewport();
+  const compactLandscape = mobileLayout && compactViewport;
   const [drawerOpen, setDrawerOpen] = useState(() => !compactLandscape);
   const [pieceFocus, setPieceFocus] = useState<PieceFocus>("all");
   const [showColumnGuides, setShowColumnGuides] = useState(() => !compactLandscape);
@@ -335,7 +340,7 @@ export function BoardWorkspace({
   }, [compactLandscape]);
 
   useEffect(() => {
-    if (layerViewMode !== "sliding4") return;
+    if (!mobileLayout || layerViewMode !== "sliding4") return;
     const ranges: Array<readonly [number, number]> = [];
     if (winningMinimum !== null && winningMaximum !== null) ranges.push([winningMinimum, winningMaximum]);
     if (lastLayer !== null) ranges.push([lastLayer, lastLayer]);
@@ -350,6 +355,7 @@ export function BoardWorkspace({
     lastMarkerKey,
     layerViewMode,
     maxLayerWindowStart,
+    mobileLayout,
     winningMarkerKey,
     winningMaximum,
     winningMinimum,
@@ -379,6 +385,7 @@ export function BoardWorkspace({
                 windowStart={layerWindowStart}
                 onLayerViewModeChange={setLayerViewMode}
                 onWindowStartChange={setLayerWindowStart}
+                mobileLayout={mobileLayout}
               />
               <WinRateCard copy={t} result={winRate} />
               <div className="board-legend">

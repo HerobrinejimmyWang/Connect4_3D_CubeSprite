@@ -298,6 +298,8 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--cyan); outl
 .layer-window-indicators button::after { content: ""; position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; border-radius: 50%; background: #38546a; transform: translate(-50%, -50%); transition: .16s ease; }
 .layer-window-indicators button.active::after { width: 17px; border-radius: 99px; background: var(--cyan); box-shadow: 0 0 8px rgba(80, 215, 220, .4); }
 .layer-grid { display: grid; gap: 13px; }
+.layer-grid.desktop-six { grid-template-columns: repeat(4, minmax(145px, 1fr)); }
+.layer-grid.desktop-six .layer-board:nth-child(5) { grid-column: 2; }
 .layer-grid.sliding-four { grid-template-columns: repeat(4, minmax(145px, 1fr)); touch-action: pan-y; user-select: none; }
 .layer-grid.all-six { width: min(820px, 100%); grid-template-columns: repeat(3, minmax(145px, 1fr)); margin-inline: auto; }
 .layer-board { min-width: 0; padding: 9px 10px 11px; border: 1px solid rgba(114, 151, 181, .2); border-radius: 10px; background: linear-gradient(145deg, rgba(18, 39, 60, .91), rgba(9, 24, 40, .94)); box-shadow: 0 11px 28px rgba(0,0,0,.18); }

@@ -93,11 +93,22 @@ it("switches between the same 2D and 3D game state without a coming-soon placeho
   expect(screen.getByLabelText("6 × 5 × 5 board")).toBeVisible();
 });
 
+it("uses the original four-plus-two grid on desktop without mobile layer controls", () => {
+  renderGame();
+
+  const board = screen.getByLabelText("6 × 5 × 5 board");
+  expect(board).toHaveClass("desktop-six");
+  expect(board).not.toHaveAttribute("data-window-start");
+  expect(screen.getByLabelText("F1")).toBeVisible();
+  expect(screen.getByLabelText("F6")).toBeVisible();
+  expect(screen.queryByRole("radiogroup", { name: translations.zh.game.view2d.layout })).not.toBeInTheDocument();
+});
+
 it("defaults to consecutive four-layer windows and keeps the original layer index when moving", async () => {
   const user = userEvent.setup();
   const move: Move = { action: 112, layer: 4, row: 2, col: 2 };
   const onMove = vi.fn();
-  renderGame({ state: emptyState({ legal_moves: [move] }), onMove });
+  renderGame({ state: emptyState({ legal_moves: [move] }), mobileLayout: true, onMove });
 
   const board = screen.getByLabelText("6 × 5 × 5 board");
   expect(board).toHaveClass("sliding-four");
@@ -136,7 +147,7 @@ it("defaults to consecutive four-layer windows and keeps the original layer inde
 it("swipes by one layer without submitting the cell under the released pointer", () => {
   const move: Move = { action: 27, layer: 1, row: 0, col: 2 };
   const onMove = vi.fn();
-  renderGame({ state: emptyState({ legal_moves: [move] }), onMove });
+  renderGame({ state: emptyState({ legal_moves: [move] }), mobileLayout: true, onMove });
 
   const board = screen.getByLabelText("6 × 5 × 5 board");
   const pointerEvent = (type: string, clientX: number, clientY: number) => {
@@ -171,6 +182,7 @@ it("follows a winning line before an out-of-window last move or hint", async () 
       winning_line: winningLine,
       last_move: { action: 125, layer: 5, row: 0, col: 0, player: 1 },
     }),
+    mobileLayout: true,
     hint: { for_revision: 9, move: { action: 0, layer: 0, row: 0, col: 0 }, value: 0.2 },
   });
 
@@ -187,6 +199,7 @@ it("follows an out-of-window hint when higher-priority markers are already visib
       revision: 4,
       last_move: { action: 0, layer: 0, row: 0, col: 0, player: 1 },
     }),
+    mobileLayout: true,
     hint: { for_revision: 4, move: { action: 125, layer: 5, row: 0, col: 0 }, value: 0.1 },
   });
 
@@ -202,6 +215,7 @@ it("follows a new last move once without fighting later manual window navigation
       revision: 3,
       last_move: { action: 125, layer: 5, row: 0, col: 0, player: -1 },
     }),
+    mobileLayout: true,
     hint: { for_revision: 3, move: { action: 0, layer: 0, row: 0, col: 0 }, value: -0.1 },
   });
 
@@ -236,7 +250,7 @@ it("starts the compact landscape 3D view with a clear board and collapsed tools"
 
   try {
     const user = userEvent.setup();
-    renderGame();
+    renderGame({ mobileLayout: true });
     await user.click(screen.getByRole("button", { name: translations.zh.game.switch3d }));
 
     const scene = await screen.findByTestId("board-3d-canvas");
