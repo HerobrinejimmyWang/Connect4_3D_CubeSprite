@@ -20,7 +20,7 @@ desktop release.
 
 | Artifact | Distribution | SHA-256 |
 | --- | --- | --- |
-| `Connect4 3D CubeSprite_0.1.0_x64-setup.exe` | Windows desktop installer | `19d05de49eec0714392300eb432ea5eaf38abedd57d13dab2f30ebfd7f69fa5c` |
+| `Connect4 3D CubeSprite_0.1.0_x64-setup.exe` | Windows desktop installer | `16de51d2813c7efdc94fc15dca644a6e8375cb06dd71c79d3494bb2245c77076` |
 | `Connect4_3D_CubeSprite_0.1.0-beta-android-arm64.apk` | **Android ARM64 Beta** test build | `708b89c85de090ea8701db62f371974f83be57194087f5a218ed650f508bb038` |
 | `Connect4_3D_CubeSprite_models_v0.1.0.zip` | Four weights-only PyTorch `.pth` state dictionaries | `873430fc0d9df6a90bb3ccc7a77145aa2b9fc6df476d85b1add19aa419c4ddea` |
 
