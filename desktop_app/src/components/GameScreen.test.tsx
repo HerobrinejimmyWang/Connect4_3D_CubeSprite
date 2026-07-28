@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
 
@@ -10,6 +10,8 @@ import { GameScreen } from "./GameScreen";
 interface CanvasStubProps {
   state: GameState;
   moveLocked: boolean;
+  compactLayout: boolean;
+  showCoordinateLabels: boolean;
   pieceFocus: PieceFocus;
   showColumnGuides: boolean;
   slicePickerEnabled: boolean;
@@ -24,8 +26,10 @@ vi.mock("./Board3DCanvas", () => ({
   Board3DCanvas: (props: CanvasStubProps) => (
     <div
       data-testid="board-3d-canvas"
+      data-compact={String(props.compactLayout)}
       data-focus={props.pieceFocus}
       data-guides={String(props.showColumnGuides)}
+      data-coordinate-labels={String(props.showCoordinateLabels)}
       data-slice-picker={String(props.slicePickerEnabled)}
       data-slice={props.sliceSelection ? `${props.sliceSelection.axis}:${props.sliceSelection.index}` : "none"}
       data-spacing={props.layerSpacing}
@@ -87,6 +91,168 @@ it("switches between the same 2D and 3D game state without a coming-soon placeho
 
   await user.click(screen.getByRole("button", { name: translations.zh.game.switch2d }));
   expect(screen.getByLabelText("6 × 5 × 5 board")).toBeVisible();
+});
+
+it("defaults to consecutive four-layer windows and keeps the original layer index when moving", async () => {
+  const user = userEvent.setup();
+  const move: Move = { action: 112, layer: 4, row: 2, col: 2 };
+  const onMove = vi.fn();
+  renderGame({ state: emptyState({ legal_moves: [move] }), onMove });
+
+  const board = screen.getByLabelText("6 × 5 × 5 board");
+  expect(board).toHaveClass("sliding-four");
+  expect(board).toHaveAttribute("data-window-start", "0");
+  expect(screen.getByLabelText("F1")).toBeVisible();
+  expect(screen.getByLabelText("F4")).toBeVisible();
+  expect(screen.queryByLabelText("F5")).not.toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: translations.zh.game.view2d.nextWindow }));
+  expect(board).toHaveAttribute("data-window-start", "1");
+  expect(screen.queryByLabelText("F1")).not.toBeInTheDocument();
+  expect(screen.getByLabelText("F2")).toBeVisible();
+  expect(screen.getByLabelText("F5")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "F5, 3, 3: 合法落点" }));
+  expect(onMove).toHaveBeenCalledWith(move);
+
+  await user.click(screen.getByRole("button", { name: translations.zh.game.view2d.nextWindow }));
+  expect(board).toHaveAttribute("data-window-start", "2");
+  expect(screen.getByLabelText("F3")).toBeVisible();
+  expect(screen.getByLabelText("F6")).toBeVisible();
+  expect(screen.getByRole("button", { name: translations.zh.game.view2d.nextWindow })).toBeDisabled();
+
+  const slidingMode = screen.getByRole("radio", { name: translations.zh.game.view2d.slidingFour });
+  const allSixMode = screen.getByRole("radio", { name: translations.zh.game.view2d.allSix });
+  expect(slidingMode).toBeChecked();
+  slidingMode.focus();
+  await user.keyboard("{ArrowRight}");
+  expect(allSixMode).toBeChecked();
+  expect(allSixMode).toHaveFocus();
+  expect(board).toHaveClass("all-six");
+  expect(screen.getByLabelText("F1")).toBeVisible();
+  expect(screen.getByLabelText("F6")).toBeVisible();
+  expect(screen.queryByRole("button", { name: translations.zh.game.view2d.nextWindow })).not.toBeInTheDocument();
+});
+
+it("swipes by one layer without submitting the cell under the released pointer", () => {
+  const move: Move = { action: 27, layer: 1, row: 0, col: 2 };
+  const onMove = vi.fn();
+  renderGame({ state: emptyState({ legal_moves: [move] }), onMove });
+
+  const board = screen.getByLabelText("6 × 5 × 5 board");
+  const pointerEvent = (type: string, clientX: number, clientY: number) => {
+    const event = new MouseEvent(type, { bubbles: true, button: 0, clientX, clientY });
+    Object.defineProperty(event, "pointerId", { value: 7 });
+    return event;
+  };
+  fireEvent(board, pointerEvent("pointerdown", 620, 120));
+  fireEvent(board, pointerEvent("pointerup", 480, 124));
+
+  expect(board).toHaveAttribute("data-window-start", "1");
+  const releasedCell = screen.getByRole("button", { name: "F2, 1, 3: 合法落点" });
+  fireEvent.click(releasedCell);
+  expect(onMove).not.toHaveBeenCalled();
+
+  fireEvent.click(releasedCell);
+  expect(onMove).toHaveBeenCalledOnce();
+  expect(onMove).toHaveBeenCalledWith(move);
+});
+
+it("follows a winning line before an out-of-window last move or hint", async () => {
+  const winningLine: Move[] = [1, 2, 3, 4].map((layer) => ({
+    action: layer * 25,
+    layer,
+    row: 0,
+    col: 0,
+    player: 1,
+  }));
+  renderGame({
+    state: emptyState({
+      revision: 9,
+      winning_line: winningLine,
+      last_move: { action: 125, layer: 5, row: 0, col: 0, player: 1 },
+    }),
+    hint: { for_revision: 9, move: { action: 0, layer: 0, row: 0, col: 0 }, value: 0.2 },
+  });
+
+  const board = screen.getByLabelText("6 × 5 × 5 board");
+  await waitFor(() => expect(board).toHaveAttribute("data-window-start", "1"));
+  expect(screen.getByLabelText("F2")).toBeVisible();
+  expect(screen.getByLabelText("F5")).toBeVisible();
+  expect(screen.queryByLabelText("F6")).not.toBeInTheDocument();
+});
+
+it("follows an out-of-window hint when higher-priority markers are already visible", async () => {
+  renderGame({
+    state: emptyState({
+      revision: 4,
+      last_move: { action: 0, layer: 0, row: 0, col: 0, player: 1 },
+    }),
+    hint: { for_revision: 4, move: { action: 125, layer: 5, row: 0, col: 0 }, value: 0.1 },
+  });
+
+  const board = screen.getByLabelText("6 × 5 × 5 board");
+  await waitFor(() => expect(board).toHaveAttribute("data-window-start", "2"));
+  expect(screen.getByLabelText("F6")).toBeVisible();
+});
+
+it("follows a new last move once without fighting later manual window navigation", async () => {
+  const user = userEvent.setup();
+  renderGame({
+    state: emptyState({
+      revision: 3,
+      last_move: { action: 125, layer: 5, row: 0, col: 0, player: -1 },
+    }),
+    hint: { for_revision: 3, move: { action: 0, layer: 0, row: 0, col: 0 }, value: -0.1 },
+  });
+
+  const board = screen.getByLabelText("6 × 5 × 5 board");
+  await waitFor(() => expect(board).toHaveAttribute("data-window-start", "2"));
+  await user.click(screen.getByRole("button", { name: translations.zh.game.view2d.previousWindow }));
+  expect(board).toHaveAttribute("data-window-start", "1");
+  await waitFor(() => expect(board).toHaveAttribute("data-window-start", "1"));
+});
+
+it("lays out the 2D win-rate card after the board instead of over its cells", () => {
+  renderGame({ winRate: { for_revision: 1, red: 0.6, blue: 0.4, estimate: "model_mcts" } });
+
+  const board = screen.getByLabelText("6 × 5 × 5 board");
+  const winRate = screen.getByRole("complementary", { name: translations.zh.game.winRate });
+  expect(winRate.parentElement).toHaveClass("board-area");
+  expect(board.nextElementSibling).toBe(winRate);
+});
+
+it("starts the compact landscape 3D view with a clear board and collapsed tools", async () => {
+  const originalMatchMedia = window.matchMedia;
+  window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+    matches: query === "(orientation: landscape) and (max-height: 600px)",
+    media: query,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  }));
+
+  try {
+    const user = userEvent.setup();
+    renderGame();
+    await user.click(screen.getByRole("button", { name: translations.zh.game.switch3d }));
+
+    const scene = await screen.findByTestId("board-3d-canvas");
+    expect(scene).toHaveAttribute("data-compact", "true");
+    expect(scene).toHaveAttribute("data-guides", "false");
+    expect(scene).toHaveAttribute("data-coordinate-labels", "false");
+    const layout = scene.closest(".board-view-layout");
+    expect(layout).toHaveClass("drawer-closed");
+    const openTools = screen.getByRole("button", { name: translations.zh.game.view3d.openTools });
+    expect(openTools).toHaveAttribute("aria-expanded", "false");
+    await user.click(openTools);
+    expect(layout).toHaveClass("drawer-open");
+    expect(screen.getByRole("button", { name: translations.zh.game.view3d.closeTools })).toHaveAttribute("aria-expanded", "true");
+  } finally {
+    window.matchMedia = originalMatchMedia;
+  }
 });
 
 it("keeps all observation controls live and passes them to the 3D scene", async () => {

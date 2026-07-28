@@ -3,5 +3,6 @@
   "identifier": "main-window",
   "description": "Minimum core permissions for the CubeSprite main window",
   "windows": ["main"],
+  "platforms": ["windows", "linux", "macOS"],
   "permissions": ["core:default"]
 }

@@ -5,6 +5,7 @@ import { PageShell } from "./PageShell";
 interface Props {
   copy: Copy;
   preloadHint: boolean;
+  replayEnabled?: boolean;
   onPreloadHint: (enabled: boolean) => void;
   tacticalHintDelay: TacticalHintDelay;
   onTacticalHintDelay: (delay: TacticalHintDelay) => void;
@@ -25,6 +26,7 @@ const TACTICAL_HINT_OPTIONS: TacticalHintDelay[] = ["off", 0, 5000];
 export function SettingsScreen({
   copy: t,
   preloadHint,
+  replayEnabled = true,
   onPreloadHint,
   tacticalHintDelay,
   onTacticalHintDelay,
@@ -79,7 +81,7 @@ export function SettingsScreen({
           })}
         </div>
       </div>
-      <div className="settings-card replay-speed-setting">
+      {replayEnabled && <div className="settings-card replay-speed-setting">
         <div className="settings-icon" aria-hidden="true">▶</div>
         <div className="settings-copy">
           <h2>{t.settings.autoplaySpeed}</h2>
@@ -98,7 +100,7 @@ export function SettingsScreen({
             </button>
           ))}
         </div>
-      </div>
+      </div>}
       </div>
       <div className="future-settings"><span>＋</span>{t.settings.future}</div>
     </PageShell>

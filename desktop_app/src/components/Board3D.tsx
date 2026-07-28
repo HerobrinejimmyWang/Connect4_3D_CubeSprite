@@ -32,6 +32,7 @@ interface Props {
   state: GameState;
   hint: HintResult | null;
   moveLocked: boolean;
+  compactLayout: boolean;
   pieceFocus: PieceFocus;
   showColumnGuides: boolean;
   slicePickerEnabled: boolean;
@@ -73,6 +74,8 @@ export function Board3D(props: Props) {
             state={props.state}
             hint={props.hint}
             moveLocked={props.moveLocked}
+            compactLayout={props.compactLayout}
+            showCoordinateLabels={!props.compactLayout}
             pieceFocus={props.pieceFocus}
             showColumnGuides={props.showColumnGuides}
             slicePickerEnabled={props.slicePickerEnabled}
@@ -106,13 +109,13 @@ export function Board3D(props: Props) {
           </div>
         ))}
 
-        <div className={`board-3d-coordinate ${hoveredMove || props.sliceSelection ? "visible" : ""}`} aria-live="polite">
-          {hoveredMove
-            ? `F${hoveredMove.layer + 1} · R${hoveredMove.row + 1} · C${hoveredMove.col + 1}`
-            : props.sliceSelection
-              ? `${t.selectedSlice}: ${sliceSelectionLabel(props.sliceSelection)}`
-              : "F– · R– · C–"}
-        </div>
+        {(hoveredMove || props.sliceSelection) && (
+          <div className="board-3d-coordinate visible" aria-live="polite">
+            {hoveredMove
+              ? `F${hoveredMove.layer + 1} · R${hoveredMove.row + 1} · C${hoveredMove.col + 1}`
+              : `${t.selectedSlice}: ${sliceSelectionLabel(props.sliceSelection!)}`}
+          </div>
+        )}
         <div className="board-3d-help">{t.controlsHint}</div>
       </div>
 

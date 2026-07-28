@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 
 import type { Copy } from "../i18n";
 import type {
@@ -8,6 +8,7 @@ import type {
   GameState,
   HintResult,
   LayerSpacing,
+  LayerViewMode,
   Move,
   PieceFocus,
   SliceSelection,
@@ -20,8 +21,53 @@ const Board3D = lazy(async () => {
   return { default: module.Board3D };
 });
 
+const LAYER_WINDOW_SIZE = 4;
+const SWIPE_THRESHOLD_PX = 44;
+const COMPACT_LANDSCAPE_QUERY = "(orientation: landscape) and (max-height: 600px)";
+
+function isCompactLandscapeViewport(): boolean {
+  return typeof window !== "undefined"
+    && typeof window.matchMedia === "function"
+    && window.matchMedia(COMPACT_LANDSCAPE_QUERY).matches;
+}
+
+function useCompactLandscapeViewport(): boolean {
+  const [compact, setCompact] = useState(isCompactLandscapeViewport);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const query = window.matchMedia(COMPACT_LANDSCAPE_QUERY);
+    const update = () => setCompact(query.matches);
+    update();
+    if (typeof query.addEventListener === "function") {
+      query.addEventListener("change", update);
+      return () => query.removeEventListener("change", update);
+    }
+    query.addListener(update);
+    return () => query.removeListener(update);
+  }, []);
+
+  return compact;
+}
+
 function moveKey(move: Pick<Move, "layer" | "row" | "col">): string {
   return `${move.layer}:${move.row}:${move.col}`;
+}
+
+function nextTrackedWindowStart(
+  current: number,
+  maxWindowStart: number,
+  ranges: ReadonlyArray<readonly [minimum: number, maximum: number]>,
+): number {
+  for (const [minimum, maximum] of ranges) {
+    const alreadyVisible = minimum >= current && maximum < current + LAYER_WINDOW_SIZE;
+    if (alreadyVisible) continue;
+
+    const firstContainingWindow = Math.max(0, maximum - LAYER_WINDOW_SIZE + 1);
+    const lastContainingWindow = Math.min(maxWindowStart, minimum);
+    return Math.max(firstContainingWindow, Math.min(lastContainingWindow, current));
+  }
+  return current;
 }
 
 interface LayerBoardsProps {
@@ -30,17 +76,156 @@ interface LayerBoardsProps {
   hint: HintResult | null;
   locked: boolean;
   onMove?: (move: Move) => void;
+  layerViewMode: LayerViewMode;
+  windowStart: number;
+  onLayerViewModeChange: (mode: LayerViewMode) => void;
+  onWindowStartChange: (start: number) => void;
 }
 
-function LayerBoards({ copy: t, state, hint, locked, onMove }: LayerBoardsProps) {
+function LayerBoards({
+  copy: t,
+  state,
+  hint,
+  locked,
+  onMove,
+  layerViewMode,
+  windowStart,
+  onLayerViewModeChange,
+  onWindowStartChange,
+}: LayerBoardsProps) {
   const legalByCell = useMemo(() => new Map(state.legal_moves.map((move) => [moveKey(move), move])), [state.legal_moves]);
   const winning = useMemo(() => new Set(state.winning_line.map(moveKey)), [state.winning_line]);
   const last = state.last_move ? moveKey(state.last_move) : "";
   const hintCell = hint ? moveKey(hint.move) : "";
+  const maxWindowStart = Math.max(0, state.board.length - LAYER_WINDOW_SIZE);
+  const safeWindowStart = Math.max(0, Math.min(maxWindowStart, windowStart));
+  const visibleLayers = useMemo(
+    () => state.board
+      .map((layer, layerIndex) => ({ layer, layerIndex }))
+      .slice(
+        layerViewMode === "sliding4" ? safeWindowStart : 0,
+        layerViewMode === "sliding4" ? safeWindowStart + LAYER_WINDOW_SIZE : state.board.length,
+      ),
+    [layerViewMode, safeWindowStart, state.board],
+  );
+  const pointerGesture = useRef<{ pointerId: number; startX: number; startY: number } | null>(null);
+  const suppressNextClick = useRef(false);
+  const windowLabel = `${t.game.view2d.showingLayers} F${safeWindowStart + 1}–F${Math.min(
+    state.board.length,
+    safeWindowStart + LAYER_WINDOW_SIZE,
+  )}`;
+
+  const selectWindow = (start: number) => {
+    onWindowStartChange(Math.max(0, Math.min(maxWindowStart, start)));
+  };
+  const beginSwipe = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (layerViewMode !== "sliding4" || event.button !== 0) return;
+    pointerGesture.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+    };
+  };
+  const cancelSwipe = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (pointerGesture.current?.pointerId === event.pointerId) pointerGesture.current = null;
+  };
+  const finishSwipe = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const gesture = pointerGesture.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    pointerGesture.current = null;
+    const deltaX = event.clientX - gesture.startX;
+    const deltaY = event.clientY - gesture.startY;
+    if (Math.abs(deltaX) < SWIPE_THRESHOLD_PX || Math.abs(deltaX) <= Math.abs(deltaY)) return;
+
+    suppressNextClick.current = true;
+    window.setTimeout(() => {
+      suppressNextClick.current = false;
+    }, 0);
+    selectWindow(safeWindowStart + (deltaX < 0 ? 1 : -1));
+    event.preventDefault();
+  };
 
   return (
-    <div className={`layer-grid ${locked ? "board-locked" : ""}`} aria-label="6 × 5 × 5 board">
-      {state.board.map((layer, layerIndex) => (
+    <>
+      <div className="layer-layout-toolbar">
+        <div className="layer-layout-switch" role="radiogroup" aria-label={t.game.view2d.layout}>
+          <label>
+            <input
+              type="radio"
+              name="layer-view-mode"
+              value="sliding4"
+              checked={layerViewMode === "sliding4"}
+              onChange={() => onLayerViewModeChange("sliding4")}
+            />
+            <span>{t.game.view2d.slidingFour}</span>
+          </label>
+          <label>
+            <input
+              type="radio"
+              name="layer-view-mode"
+              value="all6"
+              checked={layerViewMode === "all6"}
+              onChange={() => onLayerViewModeChange("all6")}
+            />
+            <span>{t.game.view2d.allSix}</span>
+          </label>
+        </div>
+
+        {layerViewMode === "sliding4" && (
+          <div className="layer-window-nav">
+            <button
+              type="button"
+              className="layer-window-arrow"
+              aria-label={t.game.view2d.previousWindow}
+              disabled={safeWindowStart === 0}
+              onClick={() => selectWindow(safeWindowStart - 1)}
+            >
+              ‹
+            </button>
+            <div className="layer-window-status">
+              <strong aria-live="polite">{windowLabel}</strong>
+              <div className="layer-window-indicators">
+                {Array.from({ length: maxWindowStart + 1 }, (_, start) => (
+                  <button
+                    type="button"
+                    key={start}
+                    aria-label={`${t.game.view2d.showingLayers} F${start + 1}–F${start + LAYER_WINDOW_SIZE}`}
+                    aria-pressed={safeWindowStart === start}
+                    className={safeWindowStart === start ? "active" : ""}
+                    onClick={() => selectWindow(start)}
+                  />
+                ))}
+              </div>
+              <small>{t.game.view2d.swipeHint}</small>
+            </div>
+            <button
+              type="button"
+              className="layer-window-arrow"
+              aria-label={t.game.view2d.nextWindow}
+              disabled={safeWindowStart === maxWindowStart}
+              onClick={() => selectWindow(safeWindowStart + 1)}
+            >
+              ›
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div
+        className={`layer-grid ${layerViewMode === "sliding4" ? "sliding-four" : "all-six"} ${locked ? "board-locked" : ""}`}
+        aria-label="6 × 5 × 5 board"
+        data-window-start={safeWindowStart}
+        onPointerDown={beginSwipe}
+        onPointerUp={finishSwipe}
+        onPointerCancel={cancelSwipe}
+        onClickCapture={(event) => {
+          if (!suppressNextClick.current) return;
+          suppressNextClick.current = false;
+          event.preventDefault();
+          event.stopPropagation();
+        }}
+      >
+      {visibleLayers.map(({ layer, layerIndex }) => (
         <section className="layer-board" key={layerIndex} aria-label={`${t.game.floor}${layerIndex + 1}`}>
           <header>
             <strong>{t.game.floor}{layerIndex + 1}</strong>
@@ -78,7 +263,8 @@ function LayerBoards({ copy: t, state, hint, locked, onMove }: LayerBoardsProps)
           </div>
         </section>
       ))}
-    </div>
+      </div>
+    </>
   );
 }
 
@@ -120,13 +306,54 @@ export function BoardWorkspace({
   onMove,
   onViewModeChange,
 }: Props) {
-  const [drawerOpen, setDrawerOpen] = useState(true);
+  const compactLandscape = useCompactLandscapeViewport();
+  const [drawerOpen, setDrawerOpen] = useState(() => !compactLandscape);
   const [pieceFocus, setPieceFocus] = useState<PieceFocus>("all");
-  const [showColumnGuides, setShowColumnGuides] = useState(true);
+  const [showColumnGuides, setShowColumnGuides] = useState(() => !compactLandscape);
   const [slicePickerEnabled, setSlicePickerEnabled] = useState(false);
   const [sliceSelection, setSliceSelection] = useState<SliceSelection | null>(null);
   const [layerSpacing, setLayerSpacing] = useState<LayerSpacing>("standard");
+  const [layerViewMode, setLayerViewMode] = useState<LayerViewMode>("sliding4");
+  const [layerWindowStart, setLayerWindowStart] = useState(0);
   const [cameraCommand, setCameraCommand] = useState<CameraCommand>({ preset: "isometric", serial: 0 });
+  const maxLayerWindowStart = Math.max(0, state.board.length - LAYER_WINDOW_SIZE);
+  const winningLayers = state.winning_line.map((move) => move.layer);
+  const winningMinimum = winningLayers.length > 0 ? Math.min(...winningLayers) : null;
+  const winningMaximum = winningLayers.length > 0 ? Math.max(...winningLayers) : null;
+  const winningMarkerKey = state.winning_line.map(moveKey).join("|");
+  const lastLayer = state.last_move?.layer ?? null;
+  const lastMarkerKey = state.last_move ? `${state.revision}:${moveKey(state.last_move)}` : "";
+  const hintLayer = hint?.move.layer ?? null;
+  const hintMarkerKey = hint ? `${hint.for_revision}:${moveKey(hint.move)}` : "";
+  const previousCompactLandscape = useRef(compactLandscape);
+
+  useEffect(() => {
+    if (previousCompactLandscape.current === compactLandscape) return;
+    setDrawerOpen(!compactLandscape);
+    setShowColumnGuides(!compactLandscape);
+    previousCompactLandscape.current = compactLandscape;
+  }, [compactLandscape]);
+
+  useEffect(() => {
+    if (layerViewMode !== "sliding4") return;
+    const ranges: Array<readonly [number, number]> = [];
+    if (winningMinimum !== null && winningMaximum !== null) ranges.push([winningMinimum, winningMaximum]);
+    if (lastLayer !== null) ranges.push([lastLayer, lastLayer]);
+    if (hintLayer !== null) ranges.push([hintLayer, hintLayer]);
+    if (ranges.length === 0) return;
+
+    setLayerWindowStart((current) => nextTrackedWindowStart(current, maxLayerWindowStart, ranges));
+  }, [
+    hintLayer,
+    hintMarkerKey,
+    lastLayer,
+    lastMarkerKey,
+    layerViewMode,
+    maxLayerWindowStart,
+    winningMarkerKey,
+    winningMaximum,
+    winningMinimum,
+  ]);
 
   const selectCamera = (preset: CameraPreset) => {
     setCameraCommand((current) => ({ preset, serial: current.serial + 1 }));
@@ -142,7 +369,18 @@ export function BoardWorkspace({
         <div className={`board-canvas-pane ${sliceSelection ? "slice-active" : ""} ${winRate ? "has-win-rate" : ""}`}>
           {viewMode === "2d" ? (
             <div className="board-area">
-              <LayerBoards copy={t} state={state} hint={hint} locked={locked} onMove={onMove} />
+              <LayerBoards
+                copy={t}
+                state={state}
+                hint={hint}
+                locked={locked}
+                onMove={onMove}
+                layerViewMode={layerViewMode}
+                windowStart={layerWindowStart}
+                onLayerViewModeChange={setLayerViewMode}
+                onWindowStartChange={setLayerWindowStart}
+              />
+              <WinRateCard copy={t} result={winRate} />
               <div className="board-legend">
                 <span><i className="legend-cell legal" />{t.game.legal}</span>
                 <span><i className="legend-cell illegal" />{t.game.illegal}</span>
@@ -151,26 +389,29 @@ export function BoardWorkspace({
               </div>
             </div>
           ) : (
-            <Suspense fallback={<div className="board-3d-loading">{t.game.view3d.loading}</div>}>
-              <Board3D
-                copy={t}
-                state={state}
-                hint={hint}
-                moveLocked={locked}
-                pieceFocus={pieceFocus}
-                showColumnGuides={showColumnGuides}
-                slicePickerEnabled={slicePickerEnabled}
-                sliceSelection={sliceSelection}
-                layerSpacing={layerSpacing}
-                cameraCommand={cameraCommand}
-                onMove={(move) => onMove?.(move)}
-                onSliceSelection={setSliceSelection}
-                onClearSlice={() => setSliceSelection(null)}
-                onFallbackTo2d={() => onViewModeChange("2d")}
-              />
-            </Suspense>
+            <>
+              <Suspense fallback={<div className="board-3d-loading">{t.game.view3d.loading}</div>}>
+                <Board3D
+                  copy={t}
+                  state={state}
+                  hint={hint}
+                  moveLocked={locked}
+                  compactLayout={compactLandscape}
+                  pieceFocus={pieceFocus}
+                  showColumnGuides={showColumnGuides}
+                  slicePickerEnabled={slicePickerEnabled}
+                  sliceSelection={sliceSelection}
+                  layerSpacing={layerSpacing}
+                  cameraCommand={cameraCommand}
+                  onMove={(move) => onMove?.(move)}
+                  onSliceSelection={setSliceSelection}
+                  onClearSlice={() => setSliceSelection(null)}
+                  onFallbackTo2d={() => onViewModeChange("2d")}
+                />
+              </Suspense>
+              <WinRateCard copy={t} result={winRate} />
+            </>
           )}
-          <WinRateCard copy={t} result={winRate} />
         </div>
         {viewMode === "3d" && (
           <ObservationDrawer

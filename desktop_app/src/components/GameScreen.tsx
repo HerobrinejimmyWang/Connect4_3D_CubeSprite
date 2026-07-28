@@ -11,6 +11,7 @@ interface Props {
   hintThinking: boolean;
   winRateThinking: boolean;
   saveReplayThinking: boolean;
+  replayEnabled?: boolean;
   mutationBusy: boolean;
   hint: HintResult | null;
   hintPreloaded: boolean;
@@ -90,14 +91,16 @@ export function GameScreen(props: Props) {
           <button aria-label={t.game.winRate} className={props.winRateThinking ? "working" : ""} disabled={finished || props.winRateThinking || props.combatThinking} onClick={props.onWinRate}><span aria-hidden="true">▰</span>{t.game.winRate}</button>
         </div>
         <div className="function-group edge-functions">
-          <button
-            aria-label={t.game.saveReplay}
-            className={props.saveReplayThinking ? "working save-replay-button" : "save-replay-button"}
-            disabled={props.saveReplayThinking || props.mutationBusy}
-            onClick={props.onSaveReplay}
-          >
-            <span aria-hidden="true">⇩</span>{t.game.saveReplay}
-          </button>
+          {props.replayEnabled !== false && (
+            <button
+              aria-label={t.game.saveReplay}
+              className={props.saveReplayThinking ? "working save-replay-button" : "save-replay-button"}
+              disabled={props.saveReplayThinking || props.mutationBusy}
+              onClick={props.onSaveReplay}
+            >
+              <span aria-hidden="true">⇩</span>{t.game.saveReplay}
+            </button>
+          )}
           <button
             aria-label={viewMode === "2d" ? t.game.switch3d : t.game.switch2d}
             className="view-toggle-button"

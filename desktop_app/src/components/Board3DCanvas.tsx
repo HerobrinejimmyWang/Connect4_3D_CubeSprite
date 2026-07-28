@@ -30,6 +30,8 @@ interface Props {
   state: GameState;
   hint: HintResult | null;
   moveLocked: boolean;
+  compactLayout: boolean;
+  showCoordinateLabels: boolean;
   pieceFocus: PieceFocus;
   showColumnGuides: boolean;
   slicePickerEnabled: boolean;
@@ -41,7 +43,28 @@ interface Props {
   onSliceSelection: (selection: SliceSelection) => void;
 }
 
-function CameraRig({ command, spacing, sliceActive }: { command: CameraCommand; spacing: LayerSpacing; sliceActive: boolean }) {
+function cameraZoom(command: CameraCommand, spacing: LayerSpacing, compactLayout: boolean): number {
+  if (compactLayout) {
+    if (command.preset === "top") return 38;
+    if (spacing === "expanded") return command.preset === "front" ? 30 : 22;
+    return command.preset === "front" ? 36 : 26;
+  }
+  if (command.preset === "top") return 64;
+  if (spacing === "expanded") return command.preset === "front" ? 40 : 44;
+  return 52;
+}
+
+function CameraRig({
+  command,
+  spacing,
+  sliceActive,
+  compactLayout,
+}: {
+  command: CameraCommand;
+  spacing: LayerSpacing;
+  sliceActive: boolean;
+  compactLayout: boolean;
+}) {
   const controls = useRef<ComponentRef<typeof OrbitControls>>(null);
   const sliceActiveRef = useRef(sliceActive);
   const zoomBeforeSlice = useRef<number | null>(null);
@@ -57,11 +80,7 @@ function CameraRig({ command, spacing, sliceActive }: { command: CameraCommand; 
     camera.position.set(x, y, z);
     camera.up.set(0, command.preset === "top" ? 0 : 1, command.preset === "top" ? -1 : 0);
     if ("zoom" in camera) {
-      const baseZoom = command.preset === "top"
-        ? 64
-        : spacing === "expanded"
-          ? command.preset === "front" ? 40 : 44
-          : 52;
+      const baseZoom = cameraZoom(command, spacing, compactLayout);
       zoomBeforeSlice.current = sliceActive ? baseZoom : null;
       camera.zoom = baseZoom * (sliceActive ? 0.9 : 1);
     }
@@ -73,7 +92,7 @@ function CameraRig({ command, spacing, sliceActive }: { command: CameraCommand; 
     invalidate();
     const frame = requestAnimationFrame(() => invalidate());
     return () => cancelAnimationFrame(frame);
-  }, [camera, command, invalidate, spacing]); // slice state is fitted separately without resetting the orbit
+  }, [camera, command, compactLayout, invalidate, spacing]); // slice state is fitted separately without resetting the orbit
 
   useEffect(() => {
     if (sliceActiveRef.current === sliceActive || !("zoom" in camera)) return;
@@ -101,7 +120,7 @@ function CameraRig({ command, spacing, sliceActive }: { command: CameraCommand; 
       dampingFactor={0.08}
       minPolarAngle={0.12}
       maxPolarAngle={Math.PI / 2 - 0.04}
-      minZoom={MIN_CAMERA_ZOOM}
+      minZoom={compactLayout ? 16 : MIN_CAMERA_ZOOM}
       maxZoom={MAX_CAMERA_ZOOM}
     />
   );
@@ -464,11 +483,16 @@ function Scene(props: Props & { hoveredMove: Move | null; setHoveredMove: (move:
       <ambientLight intensity={1.3} />
       <directionalLight position={[7, 11, 8]} intensity={2.1} color="#dff7ff" />
       <directionalLight position={[-7, 2, -5]} intensity={0.7} color="#5478b8" />
-      <CameraRig command={props.cameraCommand} spacing={props.layerSpacing} sliceActive={Boolean(props.sliceSelection)} />
+      <CameraRig
+        command={props.cameraCommand}
+        spacing={props.layerSpacing}
+        sliceActive={Boolean(props.sliceSelection)}
+        compactLayout={props.compactLayout}
+      />
       <BoardLattice spacing={props.layerSpacing} guidesVisible={props.showColumnGuides} />
       <CoordinateLabels
         spacing={props.layerSpacing}
-        visible={props.showColumnGuides || props.slicePickerEnabled}
+        visible={props.showCoordinateLabels && (props.showColumnGuides || props.slicePickerEnabled)}
         selectable={props.slicePickerEnabled}
         selection={props.sliceSelection}
         onSelect={props.onSliceSelection}
@@ -515,7 +539,7 @@ export function Board3DCanvas(props: Props) {
       orthographic
       frameloop="demand"
       dpr={[1, 1.5]}
-      camera={{ position: [8.6, 7.6, 8.6], zoom: 52, near: 0.1, far: 100 }}
+      camera={{ position: [8.6, 7.6, 8.6], zoom: props.compactLayout ? 26 : 52, near: 0.1, far: 100 }}
       gl={{ antialias: true, alpha: true, powerPreference: "high-performance" }}
       onPointerMissed={() => { setHoveredMove(null); props.onHoverMove(null); }}
       onCreated={({ gl }) => gl.setClearColor(0x000000, 0)}

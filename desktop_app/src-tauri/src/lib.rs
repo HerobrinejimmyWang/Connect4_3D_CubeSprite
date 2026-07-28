@@ -1,27 +1,35 @@
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use std::{ffi::OsString, fs, path::PathBuf, sync::Mutex};
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use tauri::{Emitter, Manager, RunEvent, State, WindowEvent};
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use tauri_plugin_shell::{
     process::{CommandChild, CommandEvent},
     ShellExt,
 };
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 const SIDECAR_NAME: &str = "cubesprite-backend";
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 struct ManagedChild {
     pid: u32,
     child: CommandChild,
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[derive(Default)]
 struct SidecarState {
     child: Mutex<Option<ManagedChild>>,
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn state_lock_error() -> String {
     "The AI sidecar state lock is unavailable".to_owned()
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn is_current_sidecar(state: &SidecarState, pid: u32) -> bool {
     match state.child.lock() {
         Ok(current) => current.as_ref().map(|managed| managed.pid) == Some(pid),
@@ -31,6 +39,7 @@ fn is_current_sidecar(state: &SidecarState, pid: u32) -> bool {
     }
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn clear_current_sidecar(state: &SidecarState, pid: u32) -> bool {
     match state.child.lock() {
         Ok(mut current) if current.as_ref().map(|managed| managed.pid) == Some(pid) => {
@@ -44,6 +53,7 @@ fn clear_current_sidecar(state: &SidecarState, pid: u32) -> bool {
     }
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn resource_directory(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let bundled = app
         .path()
@@ -64,6 +74,7 @@ fn resource_directory(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     }
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn application_data_directory(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let directory = app
         .path()
@@ -74,6 +85,7 @@ fn application_data_directory(app: &tauri::AppHandle) -> Result<PathBuf, String>
     Ok(directory)
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 fn start_sidecar(app: tauri::AppHandle, state: State<'_, SidecarState>) -> Result<u32, String> {
     let mut slot = state.child.lock().map_err(|_| state_lock_error())?;
@@ -140,6 +152,7 @@ fn start_sidecar(app: tauri::AppHandle, state: State<'_, SidecarState>) -> Resul
     Ok(pid)
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 fn write_sidecar(line: String, state: State<'_, SidecarState>) -> Result<(), String> {
     if line.contains('\r') || line.contains('\n') {
@@ -158,6 +171,7 @@ fn write_sidecar(line: String, state: State<'_, SidecarState>) -> Result<(), Str
         .map_err(|error| format!("Unable to send a request to the AI sidecar: {error}"))
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn stop_sidecar_inner(state: &SidecarState) -> Result<bool, String> {
     let managed = state.child.lock().map_err(|_| state_lock_error())?.take();
     if let Some(managed) = managed {
@@ -171,12 +185,14 @@ fn stop_sidecar_inner(state: &SidecarState) -> Result<bool, String> {
     }
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 fn stop_sidecar(state: State<'_, SidecarState>) -> Result<bool, String> {
     stop_sidecar_inner(&state)
 }
 
-pub fn run() {
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn run_desktop() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(SidecarState::default())
@@ -200,4 +216,29 @@ pub fn run() {
             let _ = stop_sidecar_inner(&state);
         }
     });
+}
+
+#[cfg(target_os = "android")]
+fn run_android() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_cubesprite_mobile::init())
+        .run(tauri::generate_context!())
+        .expect("failed to run CubeSprite on Android");
+}
+
+#[cfg(target_os = "ios")]
+fn run_ios() {
+    tauri::Builder::default()
+        .run(tauri::generate_context!())
+        .expect("failed to run CubeSprite on iOS");
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    run_desktop();
+    #[cfg(target_os = "android")]
+    run_android();
+    #[cfg(target_os = "ios")]
+    run_ios();
 }

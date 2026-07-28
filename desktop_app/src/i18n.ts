@@ -102,6 +102,15 @@ export interface Copy {
     preloadReady: string;
     tacticalWinHint: string;
     tacticalBlockHint: string;
+    view2d: {
+      layout: string;
+      slidingFour: string;
+      allSix: string;
+      previousWindow: string;
+      nextWindow: string;
+      showingLayers: string;
+      swipeHint: string;
+    };
     view3d: {
       boardLabel: string;
       loading: string;
@@ -318,6 +327,15 @@ export const translations: Record<Language, Copy> = {
       preloadReady: "提示已预加载",
       tacticalWinHint: "发现一步必胜位置，已为你高亮。",
       tacticalBlockHint: "对手下一步可能获胜，必须防守的位置已高亮。",
+      view2d: {
+        layout: "2D 层视图",
+        slidingFour: "连续四层",
+        allSix: "全部六层",
+        previousWindow: "查看前一组连续四层",
+        nextWindow: "查看后一组连续四层",
+        showingLayers: "当前显示",
+        swipeHint: "左右滑动可逐层观察",
+      },
       view3d: {
         boardLabel: "6 × 5 × 5 三维棋盘",
         loading: "正在加载 3D 棋盘…",
@@ -527,6 +545,15 @@ export const translations: Record<Language, Copy> = {
       preloadReady: "Hint preloaded",
       tacticalWinHint: "An immediate winning move is highlighted.",
       tacticalBlockHint: "The opponent can win next move; the mandatory block is highlighted.",
+      view2d: {
+        layout: "2D layer view",
+        slidingFour: "Four-layer window",
+        allSix: "All six layers",
+        previousWindow: "Show the previous four-layer window",
+        nextWindow: "Show the next four-layer window",
+        showingLayers: "Showing",
+        swipeHint: "Swipe horizontally to inspect adjacent layers",
+      },
       view3d: {
         boardLabel: "6 × 5 × 5 three-dimensional board",
         loading: "Loading the 3D board…",

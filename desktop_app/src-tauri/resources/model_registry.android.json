@@ -1,0 +1,40 @@
+{
+  "manifest_version": 1,
+  "product_version": "0.1.0-android",
+  "models": [
+    {
+      "id": "cubesprite_v3_mini",
+      "display_name": "CubeSprite V3 mini",
+      "model_path": "models/cubesprite_v3_mini.onnx",
+      "architecture": "gravity_resnet_v1",
+      "board_layers": 6,
+      "board_size": 5,
+      "input_channels": 2,
+      "action_dim": 150,
+      "artifact_sha256": "31143a556257708b2363b3e280988c1bf00fb15df49b7bc842de015fd6a6b8a9",
+      "source_iteration": 260,
+      "defaults": { "mcts_sims": 128, "temperature": 0.4 },
+      "description": {
+        "zh": "CubeSprite V3 mini，正式 checkpoint iteration 260，移动端默认轻量模型。",
+        "en": "CubeSprite V3 mini, official checkpoint iteration 260 and the default compact mobile model."
+      }
+    },
+    {
+      "id": "cubesprite_v3",
+      "display_name": "CubeSprite V3",
+      "model_path": "models/cubesprite_v3.onnx",
+      "architecture": "gravity_resnet_v1",
+      "board_layers": 6,
+      "board_size": 5,
+      "input_channels": 2,
+      "action_dim": 150,
+      "artifact_sha256": "61f4619d4b46daba149667697fcc9ffbf28171cef9b03d1b659a07395403814e",
+      "source_iteration": 240,
+      "defaults": { "mcts_sims": 128, "temperature": 0.4 },
+      "description": {
+        "zh": "CubeSprite V3 旗舰版，正式 checkpoint iteration 240。",
+        "en": "CubeSprite V3 flagship, official checkpoint iteration 240."
+      }
+    }
+  ]
+}
