@@ -48,10 +48,11 @@ of the model lineage, approximate training history, limitations, and remaining
 uncertainty is available in
 [Model Training History](release/v0.1.0/MODEL_TRAINING_HISTORY.md).
 
-The V3 family encodes the gravity-constrained action space as 25 playable
-columns instead of 150 independent board cells. The public model-weight package
-uses the original PyTorch `.pth` checkpoints for research and conversion,
-while the desktop and Android applications use ONNX exports for local runtime
+The V3 family uses an internal 25-column gravity-aware policy head instead of
+learning 150 independent cell logits. Its export path maps those column logits
+back into the shared 150-action game protocol. The public model-weight package
+uses the original PyTorch `.pth` checkpoints for research and conversion; the
+desktop application and planned Android Beta use ONNX exports for local runtime
 inference.
 
 The current repository is focused on the verified game client and desktop
