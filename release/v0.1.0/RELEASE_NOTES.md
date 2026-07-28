@@ -22,7 +22,7 @@ Android Beta.
 
 ### Windows
 
-`Connect4 3D CubeSprite_0.1.0_x64-setup.exe`
+`Connect4_3D_CubeSprite_0.1.0_x64-setup.exe`
 
 - Windows x64 NSIS installer.
 - Includes the local Python sidecar and all four ONNX models.
