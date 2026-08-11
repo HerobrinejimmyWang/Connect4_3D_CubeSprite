@@ -15,6 +15,7 @@ tmp/
 arena/history/*
 test/history/*
 */checkpoints/*
+training/runs/
 *.log
 *.tmp
 *.partial

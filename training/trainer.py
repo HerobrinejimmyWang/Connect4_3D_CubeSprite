@@ -41,6 +41,52 @@ from runtime_resources import available_cpu_count
 # Logging setup
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+
+def _wdl_summary(wins, losses, draws):
+    wins = int(wins)
+    losses = int(losses)
+    draws = int(draws)
+    games = wins + losses + draws
+    return {
+        'wins': wins,
+        'losses': losses,
+        'draws': draws,
+        'games': games,
+        'win_rate': (wins + 0.5 * draws) / games if games else 0.0,
+    }
+
+
+def _summarize_evaluation_details(wins, losses, draws, detailed_results):
+    """Return overall and candidate-side W/D/L without changing legacy totals."""
+    outcome_keys = {'win': 'wins', 'loss': 'losses', 'draw': 'draws'}
+    by_side = {
+        1: {'wins': 0, 'losses': 0, 'draws': 0},
+        -1: {'wins': 0, 'losses': 0, 'draws': 0},
+    }
+    for item in detailed_results or []:
+        candidate_player = int(item.get('candidate_player', 0))
+        outcome = str(item.get('outcome', ''))
+        if candidate_player in by_side and outcome in outcome_keys:
+            by_side[candidate_player][outcome_keys[outcome]] += 1
+
+    return {
+        'overall': _wdl_summary(wins, losses, draws),
+        'candidate_as_first': _wdl_summary(**by_side[1]),
+        'candidate_as_second': _wdl_summary(**by_side[-1]),
+    }
+
+
+def _unpack_evaluation_result(result):
+    """Accept both the legacy 3-tuple and detailed 4-tuple result shapes."""
+    if len(result) == 3:
+        wins, losses, draws = result
+        detailed_results = []
+    elif len(result) == 4:
+        wins, losses, draws, detailed_results = result
+    else:
+        raise ValueError(f'Unexpected evaluation result length: {len(result)}')
+    return int(wins), int(losses), int(draws), list(detailed_results or [])
+
 class Connect4Dataset(torch.utils.data.Dataset):
     """Dataset wrapping training examples for use with DataLoader."""
     def __init__(self, examples):
@@ -1533,15 +1579,23 @@ class Trainer:
         )
         return max(1, min(self.args.max_self_play_workers, target_workers, total_games, search_limited_workers))
 
-    def execute_evaluation_parallel(self, num_games, opponent_nnet=None, opponent_model_spec=None):
+    def execute_evaluation_parallel(
+        self,
+        num_games,
+        opponent_nnet=None,
+        opponent_model_spec=None,
+        return_details=False,
+    ):
         num_workers = self._get_parallel_worker_count(num_games)
         opponent_state = None
         opponent_config = None
         if opponent_nnet is not None:
             opponent_state = {k: v.detach().cpu() for k, v in opponent_nnet.state_dict().items()}
             opponent_config = extract_model_config(opponent_nnet)
+        evaluation_args = copy.copy(self.args)
+        evaluation_args.evaluation_return_details = bool(return_details)
         return execute_evaluation_parallel(
-            args=self.args,
+            args=evaluation_args,
             num_games=num_games,
             num_workers=num_workers,
             shared_inference_device=self.args.shared_inference_device,
@@ -2064,7 +2118,12 @@ class Trainer:
 
         def _run_one_eval(opponent_item):
             key, label, model_ref = opponent_item
-            wins_i, losses_i, draws_i = self.execute_evaluation_parallel(games_per_best, opponent_nnet=model_ref)
+            raw_result = self.execute_evaluation_parallel(
+                games_per_best,
+                opponent_nnet=model_ref,
+                return_details=True,
+            )
+            wins_i, losses_i, draws_i, details_i = _unpack_evaluation_result(raw_result)
             win_rate_i = (wins_i + 0.5 * draws_i) / games_per_best
             return {
                 'key': key,
@@ -2074,6 +2133,7 @@ class Trainer:
                 'draws': draws_i,
                 'games': games_per_best,
                 'win_rate': win_rate_i,
+                **_summarize_evaluation_details(wins_i, losses_i, draws_i, details_i),
             }
 
         parallel_eval = bool(getattr(self.args, 'best_eval_parallelize_generations', True)) and len(opponents) > 1
@@ -2185,6 +2245,9 @@ class Trainer:
             'no_improve_streak': 0,
             'random_baseline': random_baseline,
             'auxiliary_teacher': auxiliary_teacher,
+            'overall': primary_result['overall'],
+            'candidate_as_first': primary_result['candidate_as_first'],
+            'candidate_as_second': primary_result['candidate_as_second'],
         }
         self.eval_history.append(eval_result)
         return eval_result

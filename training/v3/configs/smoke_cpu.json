@@ -1,0 +1,101 @@
+{
+  "run": {
+    "run_id": "smoke_cpu",
+    "seed": 314159,
+    "run_dir": "training/runs/smoke_cpu",
+    "resume": false
+  },
+  "model": {
+    "architecture": "gravity_resnet",
+    "channels": 16,
+    "blocks": 1
+  },
+  "selfplay": {
+    "search_schedule": [
+      {
+        "start_generation": 0,
+        "games": 4,
+        "full_search_sims": 8,
+        "fast_search_sims": 2,
+        "full_probability": 0.5
+      }
+    ],
+    "exploration_phases": [
+      {
+        "start_ply": 0,
+        "temperature": 1.0,
+        "dirichlet_alpha": 0.3,
+        "dirichlet_epsilon": 0.25
+      },
+      {
+        "start_ply": 12,
+        "temperature": 0.0,
+        "dirichlet_alpha": 0.0,
+        "dirichlet_epsilon": 0.0
+      }
+    ],
+    "cpuct": 1.5,
+    "virtual_loss": 1.0
+  },
+  "replay": {
+    "train_fraction": 0.95,
+    "window_c": 1,
+    "window_alpha": 0.75,
+    "window_beta": 0.4,
+    "train_tokens_per_raw_position": 4.0,
+    "shard_games": 4
+  },
+  "learner": {
+    "max_optimizer_steps_per_cycle": 2,
+    "batch_size": 8,
+    "lr_schedule": [
+      {
+        "start_train_positions": 0,
+        "learning_rate": 0.001
+      }
+    ],
+    "weight_decay": 0.0001,
+    "grad_clip_norm": 1.0
+  },
+  "gate": {
+    "bootstrap_candidate_train_positions": 8,
+    "candidate_train_positions": 16,
+    "initial_opening_pairs": 2,
+    "pair_increment": 2,
+    "max_opening_pairs": 2,
+    "opening_depths": [0, 2, 4, 6],
+    "search_schedule": [
+      {
+        "start_generation": 0,
+        "search_sims": 4
+      }
+    ],
+    "cpuct": 1.5,
+    "bootstrap_samples": 400,
+    "confidence": 0.95,
+    "role_floor": 0.45,
+    "accept_threshold": 0.5
+  },
+  "runtime": {
+    "device": "cpu",
+    "selfplay_devices": [],
+    "actor_processes": 1,
+    "mcts_lanes_per_actor": 1,
+    "inference_batch_size": 1,
+    "num_workers": 0,
+    "torch_threads": 1,
+    "deterministic": true,
+    "learner_amp": false,
+    "storage": {
+      "mode": "keep_all",
+      "soft_used_fraction": 0.8,
+      "hard_free_gib": 0.0,
+      "active_window_margin": 1.25,
+      "bundle_target_gib": 1.0,
+      "keep_checkpoints": 1,
+      "keep_accepted": 1,
+      "keep_rejected": 1,
+      "representative_games": 3
+    }
+  }
+}

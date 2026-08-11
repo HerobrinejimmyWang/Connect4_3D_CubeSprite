@@ -43,19 +43,21 @@ class TreeNode:
             return self.value_sum / self.visit_count
 
     def add_virtual_loss(self, virtual_loss):
-        # Virtual loss is added during selection so other threads are discouraged
-        # from choosing the same path until this simulation completes.
+        # Values are stored from this child node's current-player perspective,
+        # while the parent negates them during PUCT selection.  A positive
+        # temporary child value is therefore a loss from the parent's
+        # perspective and discourages other threads from choosing this path.
         with self.lock:
             self.virtual_loss_count += 1
             self.visit_count += 1
-            self.value_sum -= float(virtual_loss)
+            self.value_sum += float(virtual_loss)
 
     def revert_virtual_loss(self, virtual_loss):
         with self.lock:
             if self.virtual_loss_count > 0:
                 self.virtual_loss_count -= 1
                 self.visit_count -= 1
-                self.value_sum += float(virtual_loss)
+                self.value_sum -= float(virtual_loss)
 
     def apply_real_backup(self, value):
         with self.lock:

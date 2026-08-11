@@ -1,3 +1,5 @@
+"""Legacy training entry point; prefer ``python -m training.v3`` for new runs."""
+
 import os
 import sys
 import torch

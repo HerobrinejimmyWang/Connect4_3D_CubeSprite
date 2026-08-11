@@ -190,6 +190,8 @@ def play_self_play_game(game, predictor, args, seed):
             mcts.advance_to_action(action, game.get_canonical_form(board, cur_player))
             continue
 
+        is_draw = bool(np.isclose(float(result), 1e-4, rtol=0.0, atol=1e-12))
+
         if use_min_step_filter and episode_step < args.min_game_steps:
             search_stats = mcts.get_search_stats()
             mcts.close()
@@ -203,7 +205,7 @@ def play_self_play_game(game, predictor, args, seed):
                 'trace': {
                     'moves': move_trace,
                     'winner': 0,
-                    'is_draw': bool(result == 1e-4),
+                    'is_draw': is_draw,
                     'result_code': float(result),
                 },
                 'search_stats': search_stats,
@@ -216,8 +218,9 @@ def play_self_play_game(game, predictor, args, seed):
             winner = -1
 
         return_data = []
+        terminal_value = 0.0 if is_draw else float(result)
         for canonical_state, state_player, policy, _ in train_examples:
-            reward = result * (1 if state_player == cur_player else -1)
+            reward = terminal_value * (1 if state_player == cur_player else -1)
             for board_sym, policy_sym in game.get_symmetries(canonical_state, policy):
                 return_data.append((board_sym.astype(np.int8), policy_sym.astype(np.float32), float(reward)))
         search_stats = mcts.get_search_stats()
@@ -232,7 +235,7 @@ def play_self_play_game(game, predictor, args, seed):
             'trace': {
                 'moves': move_trace,
                 'winner': int(winner),
-                'is_draw': bool(result == 1e-4),
+                'is_draw': is_draw,
                 'result_code': float(result),
             },
             'search_stats': search_stats,
