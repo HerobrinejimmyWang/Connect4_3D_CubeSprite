@@ -1,7 +1,9 @@
 import {
   BOARD_SIZE,
+  BOARD_WORLD_UP,
   MAX_LAYERS,
   boardToWorld,
+  cameraPosition,
   createColumnGuides,
   findLegalMoveForColumn,
   isIntentionalBoardClick,
@@ -14,6 +16,13 @@ import {
 import type { Move } from "./types";
 
 describe("3D board model", () => {
+  it("keeps every camera preset aligned to the board's world-up axis", () => {
+    expect(BOARD_WORLD_UP).toEqual([0, 1, 0]);
+    expect(cameraPosition("isometric")[1]).toBeGreaterThan(0);
+    expect(cameraPosition("front")[1]).toBeGreaterThan(0);
+    expect(cameraPosition("top")[1]).toBeGreaterThan(0);
+  });
+
   it("maps board coordinates around a stable center and only expands the layer axis", () => {
     const standard = boardToWorld(2, 2, 2, "standard");
     const expanded = boardToWorld(2, 2, 2, "expanded");

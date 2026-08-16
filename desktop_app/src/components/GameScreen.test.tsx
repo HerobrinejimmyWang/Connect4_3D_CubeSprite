@@ -226,8 +226,20 @@ it("follows a new last move once without fighting later manual window navigation
   await waitFor(() => expect(board).toHaveAttribute("data-window-start", "1"));
 });
 
-it("lays out the 2D win-rate card after the board instead of over its cells", () => {
+it("keeps the desktop 2D win-rate card outside the board flow", () => {
   renderGame({ winRate: { for_revision: 1, red: 0.6, blue: 0.4, estimate: "model_mcts" } });
+
+  const board = screen.getByLabelText("6 × 5 × 5 board");
+  const winRate = screen.getByRole("complementary", { name: translations.zh.game.winRate });
+  expect(winRate.parentElement).toHaveClass("board-canvas-pane");
+  expect(board.closest(".board-area")?.nextElementSibling).toBe(winRate);
+});
+
+it("keeps the mobile 2D win-rate card in the scrollable board flow", () => {
+  renderGame({
+    mobileLayout: true,
+    winRate: { for_revision: 1, red: 0.6, blue: 0.4, estimate: "model_mcts" },
+  });
 
   const board = screen.getByLabelText("6 × 5 × 5 board");
   const winRate = screen.getByRole("complementary", { name: translations.zh.game.winRate });

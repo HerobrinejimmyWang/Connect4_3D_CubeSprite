@@ -5,9 +5,11 @@ import { CanvasTexture, DoubleSide, SRGBColorSpace } from "three";
 
 import {
   BOARD_SIZE,
+  BOARD_WORLD_UP,
   CELL_GAP,
   MAX_LAYERS,
   boardToWorld,
+  cameraPosition,
   columnKey,
   coordinateKey,
   createColumnGuides,
@@ -71,14 +73,9 @@ function CameraRig({
   const { camera, invalidate } = useThree();
 
   useEffect(() => {
-    const positions = {
-      isometric: [8.6, 7.6, 8.6],
-      front: [0, 1.2, 12],
-      top: [0, 12, 0.001],
-    } as const;
-    const [x, y, z] = positions[command.preset];
+    const [x, y, z] = cameraPosition(command.preset);
     camera.position.set(x, y, z);
-    camera.up.set(0, command.preset === "top" ? 0 : 1, command.preset === "top" ? -1 : 0);
+    camera.up.set(...BOARD_WORLD_UP);
     if ("zoom" in camera) {
       const baseZoom = cameraZoom(command, spacing, compactLayout);
       zoomBeforeSlice.current = sliceActive ? baseZoom : null;

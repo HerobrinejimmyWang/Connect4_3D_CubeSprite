@@ -1,4 +1,4 @@
-import type { GameState, LayerSpacing, Move, PieceFocus, Player, SliceSelection } from "./types";
+import type { CameraPreset, GameState, LayerSpacing, Move, PieceFocus, Player, SliceSelection } from "./types";
 
 export const BOARD_SIZE = 5;
 export const MAX_LAYERS = 6;
@@ -6,6 +6,13 @@ export const CELL_GAP = 1.22;
 export const STANDARD_LAYER_GAP = 1.04;
 export const EXPANDED_LAYER_GAP = 1.46;
 export const MAX_CLICK_DELTA = 4;
+export const BOARD_WORLD_UP = [0, 1, 0] as const;
+
+const CAMERA_POSITIONS: Record<CameraPreset, readonly [number, number, number]> = {
+  isometric: [8.6, 7.6, 8.6],
+  front: [0, 1.2, 12],
+  top: [0, 12, 0.001],
+};
 
 export interface ColumnGuide {
   row: number;
@@ -21,6 +28,10 @@ export interface SliceCell {
 }
 
 export type PieceRenderMode = "solid" | "outline" | "winning";
+
+export function cameraPosition(preset: CameraPreset): readonly [number, number, number] {
+  return CAMERA_POSITIONS[preset];
+}
 
 export function coordinateKey(move: Pick<Move, "layer" | "row" | "col">): string {
   return `${move.layer}:${move.row}:${move.col}`;

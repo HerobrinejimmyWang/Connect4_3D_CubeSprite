@@ -387,7 +387,7 @@ export function BoardWorkspace({
                 onWindowStartChange={setLayerWindowStart}
                 mobileLayout={mobileLayout}
               />
-              <WinRateCard copy={t} result={winRate} />
+              {mobileLayout && <WinRateCard copy={t} result={winRate} />}
               <div className="board-legend">
                 <span><i className="legend-cell legal" />{t.game.legal}</span>
                 <span><i className="legend-cell illegal" />{t.game.illegal}</span>
@@ -419,6 +419,7 @@ export function BoardWorkspace({
               <WinRateCard copy={t} result={winRate} />
             </>
           )}
+          {viewMode === "2d" && !mobileLayout && <WinRateCard copy={t} result={winRate} />}
         </div>
         {viewMode === "3d" && (
           <ObservationDrawer
