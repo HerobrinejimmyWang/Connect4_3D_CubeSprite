@@ -229,6 +229,32 @@ def _make_training_stack(initial_state=None, *, num_workers=0):
     return model, optimizer, scheduler, learner
 
 
+class _OneShotSkippingScaler:
+    """Minimal GradScaler stand-in that skips exactly its first optimizer step."""
+
+    def __init__(self) -> None:
+        self.scale_value = 1024.0
+        self.skip_next_step = True
+
+    def get_scale(self):
+        return self.scale_value
+
+    def scale(self, loss):
+        return loss
+
+    def unscale_(self, optimizer):
+        return None
+
+    def step(self, optimizer):
+        if not self.skip_next_step:
+            optimizer.step()
+
+    def update(self):
+        if self.skip_next_step:
+            self.scale_value /= 2.0
+            self.skip_next_step = False
+
+
 class LearnerCheckpointTests(unittest.TestCase):
     def setUp(self):
         torch.set_num_threads(1)
@@ -306,6 +332,57 @@ class LearnerCheckpointTests(unittest.TestCase):
             self.assertAlmostEqual(actual_metrics.total_loss, expected_metrics.total_loss, places=7)
             for name, expected in expected_state.items():
                 torch.testing.assert_close(resumed_model.state_dict()[name], expected, rtol=0.0, atol=0.0)
+
+    def test_amp_skipped_step_preserves_budget_cursor_and_sample_order(self):
+        torch.manual_seed(13)
+        model, optimizer, scheduler, learner = _make_training_stack()
+        dataset = OnlineD4Dataset(_make_replay(12), augmentation_seed=444)
+        bucket = TrainTokenBucket(tokens_per_position=4.0)
+        bucket.add(12)
+        initial_model = copy.deepcopy(model.state_dict())
+        initial_bucket = bucket.state_dict()
+        initial_lr = scheduler.get_last_lr()
+        expected_keys = next(
+            iter(
+                DeterministicKeyBatchSampler(
+                    dataset_size=len(dataset),
+                    sample_seed=555,
+                    start_cursor=0,
+                    batch_sizes=(4,),
+                )
+            )
+        )
+        expected_ids = [dataset[key]["sample_id"] for key in expected_keys]
+
+        learner.amp_enabled = True
+        learner.scaler = _OneShotSkippingScaler()
+        skipped = learner.train_steps(dataset, steps=2, token_bucket=bucket)
+
+        self.assertEqual(skipped.steps, 0)
+        self.assertEqual(skipped.positions, 0)
+        self.assertEqual(learner.global_step, 0)
+        self.assertEqual(learner.sample_cursor, 0)
+        self.assertEqual(learner.last_sample_ids, [])
+        self.assertEqual(bucket.state_dict(), initial_bucket)
+        self.assertEqual(scheduler.get_last_lr(), initial_lr)
+        for name, expected in initial_model.items():
+            torch.testing.assert_close(model.state_dict()[name], expected, rtol=0.0, atol=0.0)
+
+        completed = learner.train_steps(dataset, steps=1, token_bucket=bucket)
+
+        self.assertEqual(completed.steps, 1)
+        self.assertEqual(completed.positions, 4)
+        self.assertEqual(learner.global_step, 1)
+        self.assertEqual(learner.sample_cursor, 4)
+        self.assertEqual(learner.last_sample_ids, expected_ids)
+        self.assertEqual(bucket.total_positions_consumed, 4)
+        self.assertNotEqual(scheduler.get_last_lr(), initial_lr)
+        self.assertTrue(
+            any(
+                not torch.equal(model.state_dict()[name], expected)
+                for name, expected in initial_model.items()
+            )
+        )
 
     def test_training_uses_dataloader_with_deterministic_cursor_keys(self):
         sampler = DeterministicKeyBatchSampler(

@@ -10,6 +10,14 @@ BOARD_SIZE = 5
 MAX_LAYERS = 6
 CONNECT_N = 4
 BOARD_SHAPE = (MAX_LAYERS, BOARD_SIZE, BOARD_SIZE)
+WIN_DIRECTIONS = tuple(
+    (dz, dy, dx)
+    for dz in (-1, 0, 1)
+    for dy in (-1, 0, 1)
+    for dx in (-1, 0, 1)
+    if (dz, dy, dx) != (0, 0, 0)
+    and next(component for component in (dz, dy, dx) if component != 0) > 0
+)
 
 
 def _strict_int(value, name):
@@ -81,6 +89,18 @@ class GameRules:
         new_board[layer, row, col] = player
         return new_board, -player
 
+    def get_next_state_fast(self, board, player, action):
+        """Apply a trusted legal move without repeating public API validation."""
+        action = int(action)
+        plane = self.board_size * self.board_size
+        layer = action // plane
+        remainder = action - layer * plane
+        row = remainder // self.board_size
+        col = remainder - row * self.board_size
+        new_board = np.array(board, dtype=np.int8, copy=True)
+        new_board[layer, row, col] = int(player)
+        return new_board, -int(player)
+
     def get_valid_moves(self, board):
         board = self._validated_board(board)
         valid_moves = np.zeros(self.get_action_size(), dtype=np.int8)
@@ -93,6 +113,17 @@ class GameRules:
                         break
         return valid_moves
 
+    def get_valid_moves_fast(self, board):
+        """Return gravity-valid legacy actions for a trusted internal board."""
+        board = np.asarray(board)
+        plane = self.board_size * self.board_size
+        heights = np.count_nonzero(board, axis=0).reshape(-1)
+        open_columns = heights < self.max_layers
+        valid_moves = np.zeros(self.get_action_size(), dtype=np.int8)
+        column_indices = np.flatnonzero(open_columns)
+        valid_moves[heights[column_indices] * plane + column_indices] = 1
+        return valid_moves
+
     def get_game_ended(self, board, player):
         board = self._validated_board(board)
         player = int(player)
@@ -100,6 +131,20 @@ class GameRules:
             return -1
         if self.check_win(board, player):
             return 1
+        return 1e-4 if not np.any(board == 0) else 0
+
+    def get_game_ended_after_action_fast(self, board, player, action):
+        """Check a trusted state by inspecting only lines through its last move."""
+        board = np.asarray(board)
+        action = int(action)
+        plane = self.board_size * self.board_size
+        layer = action // plane
+        remainder = action - layer * plane
+        row = remainder // self.board_size
+        col = remainder - row * self.board_size
+        stone = int(board[layer, row, col])
+        if stone in (-1, 1) and self._check_win_from_coords_fast(board, stone, layer, row, col):
+            return 1 if stone == int(player) else -1
         return 1e-4 if not np.any(board == 0) else 0
 
     def check_win(self, board, player):
@@ -124,6 +169,10 @@ class GameRules:
 
     def get_canonical_form(self, board, player):
         return self._validated_board(board) * int(player)
+
+    def get_canonical_form_fast(self, board, player):
+        """Canonicalize a trusted internal board without rescanning its contents."""
+        return np.asarray(board, dtype=np.int8) * int(player)
 
     def get_symmetries(self, board, pi):
         board = self._validated_board(board)
@@ -162,6 +211,21 @@ class GameRules:
 
     def _is_inside(self, layer, row, col):
         return 0 <= int(layer) < self.max_layers and 0 <= int(row) < self.board_size and 0 <= int(col) < self.board_size
+
+    def _check_win_from_coords_fast(self, board, player, layer, row, col):
+        for dz, dy, dx in WIN_DIRECTIONS:
+            count = 1
+            for sign in (-1, 1):
+                for step in range(1, self.connect_n):
+                    nl = layer + sign * step * dz
+                    nr = row + sign * step * dy
+                    nc = col + sign * step * dx
+                    if not self._is_inside(nl, nr, nc) or board[nl, nr, nc] != player:
+                        break
+                    count += 1
+            if count >= self.connect_n:
+                return True
+        return False
 
     def _validate_move(self, board, layer, row, col, action=None):
         if not self._is_inside(layer, row, col):

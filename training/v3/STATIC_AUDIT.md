@@ -1,9 +1,9 @@
 # V3.1 static audit and cloud pilot plan
 
-This document records the conclusions of three static review rounds performed
-without a CUDA machine. It separates implemented contracts from GPU-dependent
-assumptions so the first cloud session can be used for measurements rather than
-rediscovering configuration errors.
+This document records the conclusions of three static review rounds originally
+performed without a CUDA machine, followed by a minimal CUDA effectiveness
+check. It separates implemented contracts from performance assumptions so an
+uncontended cloud session can be reserved for meaningful measurements.
 
 ## Round 1: audit findings
 
@@ -47,13 +47,18 @@ rediscovering configuration errors.
 
 - Strict nested schedules replaced static search, exploration, gate-search, and
   learning-rate fields. Generation moved from semantic config into run state.
-- No-op actor/search hardware controls moved to `runtime`; the formal entry is
-  still guarded until their process scheduler exists.
+- Actor/search hardware controls moved to `runtime`; a bounded actor process
+  pool and shared accepted-model inference owners now implement that topology.
 - MCTS virtual lanes now use a batch predictor. Torch inference supports
   `[N,6,5,5]` input in one forward pass and reports inference batch metrics.
 - FP32 losses under autocast, `-inf` legal masking, pinned memory, non-blocking
   H2D, and conditional prefetch removed the known AMP failure and obvious loader
   stalls.
+- CUDA effectiveness testing exposed another AMP state bug: GradScaler could
+  skip an overflowing optimizer step while replay tokens and resumable cursors
+  still advanced. Skipped steps now stop the current learner call without
+  consuming tokens, advancing the LR scheduler, or changing deterministic sample
+  state; the next call retries at the reduced scale.
 - Every position is persisted. Fast rows train WDL only; full rows train WDL and
   policy. A stable early forced-full ply avoids empty-board over-sampling.
 - Replay is split by game count and committed with checksum, measured storage,
@@ -89,19 +94,65 @@ The third review also closed issues found only after integration:
 
 Remaining blockers:
 
-1. Implement the multiprocess actor pool and one bounded shared inference
-   service per self-play GPU.
-2. Implement the formal generation state machine, including append-only replay
-   cursor, candidate trigger by consumed positions, inconclusive gate extension,
-   and safe shutdown/drain.
-3. Implement a generation draft/reconcile journal and an OS-level
+1. Connect the persisted formal-loop state to an executable generation
+   scheduler. The append-only replay cursor, consumed-position candidate cadence,
+   and inconclusive gate extension now have tested state transitions; safe
+   shutdown/drain still needs scheduler integration.
+2. Implement a generation draft/reconcile journal and an OS-level
    single-coordinator no-clobber lock.
-4. Integrate archive catalog creation, verified transfer receipts, and a
+3. Integrate archive catalog creation, verified transfer receipts, and a
    separately invoked prune command with disk-watermark backpressure.
-5. Benchmark actual GPU batch fill, queue wait, forward latency, game throughput,
+4. Benchmark actual GPU batch fill, queue wait, forward latency, game throughput,
    learner throughput, and peak VRAM/RAM.
-6. Run a short learning-signal pilot before accepting the Mini schedule for an
+5. Run a short learning-signal pilot before accepting the Mini schedule for an
    unattended run.
+
+## Minimal CUDA effectiveness result
+
+An isolated, deliberately tiny 4-actor run on an RTX 3080 Ti completed the
+accepted-model shared-inference path, four self-play games, replay construction,
+one real optimizer update, a non-empty validation split, and a paired gate. The
+learner required two AMP scale reductions before the successful update; the
+accepted update had finite loss and gradient norm and changed model weights.
+Shared inference merged 362 requested positions into 140 batches, with a maximum
+batch of four. The gate was inconclusive after one pair, as expected for a tiny
+random-model check.
+
+This establishes functional connectivity only. Another workload occupied the
+machine, and the search/model sizes were intentionally tiny, so wall time,
+throughput, CPU/GPU utilization, and the observed batch-size distribution are
+not efficiency evidence.
+
+## Uncontended 3080 Ti short-pilot result
+
+The later uncontended window exposed a 20-core CPU quota and 30-GiB memory quota
+despite the container seeing 80 host threads and 125 GiB. All CPU percentages
+below therefore use cgroup accounting rather than host-wide `vmstat`.
+
+For the 64x4 model at 128/32 full/fast simulations and batch limit 32:
+
+- 18, 20, and 22 actors at 4 lanes produced about 4214, 4207, and 4145
+  simulations/s. Eighteen is the conservative default; 18-20 is the plateau.
+- At 18 actors, 2/4/6/8/10 lanes produced about
+  2622/4236/5218/5949/6434 simulations/s.
+- On 32 fixed positions at 128 simulations, top-action agreement with serial
+  MCTS was 100% through 6 lanes and 96.9% at 8 and 10. Mean root-value absolute
+  error was 0.005/0.026/0.050/0.076/0.101 for 2/4/6/8/10 lanes.
+- The selected provisional topology is therefore 18 actors x 6 lanes, batch 32;
+  4-6 lanes is the quality-conscious range. This calibration applies to the
+  64x4 pilot, not automatically to the 128x6 Mini.
+- Shared-inference testing revealed that whole actor requests could previously
+  exceed the nominal batch limit (observed maximum 39 for a limit of 32). The
+  service now defers the request and enforces a hard limit, with a regression
+  test covering the boundary.
+
+At 18 x 6 the shared-inference batch averaged 28.2 and reached the hard limit of
+32, but active GPU utilization was still only about 6.4% and VRAM about 338 MiB.
+The 64x4 self-play model is far too small to saturate a 3080 Ti; raising lanes
+beyond 6 buys throughput by changing search semantics rather than by solving
+GPU starvation cleanly. Learner samples briefly reached roughly 15-18% GPU in
+the tiny closed-loop runs. Final hardware economics require the 128x6 Mini and
+longer searches, after the formal scheduler produces a stable champion.
 
 ## Minimal cloud pilot matrix
 

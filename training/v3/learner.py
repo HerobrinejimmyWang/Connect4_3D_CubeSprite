@@ -450,6 +450,7 @@ class V3Learner:
                 total_loss = policy_loss + wdl_loss
 
             if self.amp_enabled:
+                scale_before = float(self.scaler.get_scale())
                 self.scaler.scale(total_loss).backward()
                 self.scaler.unscale_(self.optimizer)
                 grad_norm = torch.nn.utils.clip_grad_norm_(
@@ -457,12 +458,21 @@ class V3Learner:
                 )
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
+                optimizer_step_applied = float(self.scaler.get_scale()) >= scale_before
             else:
                 total_loss.backward()
                 grad_norm = torch.nn.utils.clip_grad_norm_(
                     self.model.parameters(), self.grad_clip_norm
                 )
                 self.optimizer.step()
+                optimizer_step_applied = True
+            last_grad_norm = float(torch.as_tensor(grad_norm).detach().cpu())
+            if not optimizer_step_applied:
+                # GradScaler found non-finite gradients and intentionally skipped
+                # optimizer.step(). Do not consume replay budget or advance any
+                # resumable cursor; the next call retries the same deterministic
+                # sample IDs with the reduced scale.
+                break
             if self.scheduler is not None:
                 self.scheduler.step()
 
@@ -489,7 +499,6 @@ class V3Learner:
             weighted_total_loss += float(total_loss.detach().cpu()) * batch_count
             weighted_brier += float(brier.detach().cpu()) * batch_count
             weighted_age += average_age * batch_count
-            last_grad_norm = float(torch.as_tensor(grad_norm).detach().cpu())
 
         elapsed = max(time.perf_counter() - started, 1e-12)
         denominator = max(positions, 1)

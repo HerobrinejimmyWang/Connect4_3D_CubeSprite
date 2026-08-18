@@ -172,6 +172,9 @@ def run_self_play_game(
         raise ValueError("mcts_lanes must be positive")
     search_stage = selfplay_config.stage_for_generation(generation)
     game = GameRules()
+    get_next_state = getattr(game, "get_next_state_fast", game.get_next_state)
+    get_canonical_form = getattr(game, "get_canonical_form_fast", game.get_canonical_form)
+    get_game_ended_after_action = getattr(game, "get_game_ended_after_action_fast", None)
     game_seed = derive_game_seed(run_seed, game_id)
     board = game.get_init_board()
     player = 1
@@ -187,7 +190,7 @@ def run_self_play_game(
     forced_full_ply = _forced_full_search_ply(game_seed, MAX_GAME_MOVES)
 
     for ply in range(MAX_GAME_MOVES):
-        canonical = game.get_canonical_form(board, player)
+        canonical = get_canonical_form(board, player)
         budget_rng = _position_rng(game_seed, ply, 0)
         is_full = (
             ply == forced_full_ply
@@ -248,8 +251,12 @@ def run_self_play_game(
                 simulations=simulations,
             )
         )
-        board, player = game.get_next_state(board, player, legacy_action)
-        terminal_result = float(game.get_game_ended(board, player))
+        board, player = get_next_state(board, player, legacy_action)
+        terminal_result = float(
+            get_game_ended_after_action(board, player, legacy_action)
+            if get_game_ended_after_action is not None
+            else game.get_game_ended(board, player)
+        )
         if terminal_result != 0.0:
             if math.isclose(terminal_result, 1e-4, rel_tol=0.0, abs_tol=1e-9):
                 winner = 0

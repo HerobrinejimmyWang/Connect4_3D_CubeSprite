@@ -25,9 +25,11 @@ import torch.nn.functional as F
 from training.runtime_resources import available_cpu_count
 
 from . import __version__
+from .actor_runtime import run_self_play_actor_pool
 from .checkpoint import CheckpointV1, load_checkpoint, save_checkpoint
 from .config import V3Config, config_hash
 from .evaluation import build_openings, play_paired_openings, write_opening_manifest
+from .formal_state import FormalLoopState, PendingCandidateState
 from .gate import evaluate_gate
 from .hardware_plan import plan_hardware
 from .layout import RunLayout
@@ -54,7 +56,7 @@ from .replay_export import (
     write_replay_atomic,
 )
 from .retention import GIB, RetentionPolicy
-from .selfplay import GameRecord, run_self_play_games
+from .selfplay import GameRecord
 
 
 def repository_root() -> Path:
@@ -391,6 +393,72 @@ def _result_counts(games: Iterable[GameRecord]) -> dict[str, int]:
         "p2_wins": sum(game.winner == -1 for game in rows),
         "draws": sum(game.winner == 0 for game in rows),
     }
+
+
+def _run_sequential_gate(
+    config: V3Config,
+    *,
+    generation: int,
+    openings: list[Any],
+    candidate_predictor: Any,
+    incumbent_predictor: Any,
+    existing_results: Iterable[Any] = (),
+) -> tuple[list[Any], Any, list[dict[str, Any]]]:
+    """Append only new opening pairs until the gate resolves or reaches its cap."""
+
+    results = list(existing_results)
+    if len(results) % 2 != 0:
+        raise ValueError("paired gate history must contain an even number of games")
+    completed_pairs = len(results) // 2
+    if completed_pairs > config.gate.max_opening_pairs:
+        raise ValueError("paired gate history exceeds gate.max_opening_pairs")
+    target_pairs = max(config.gate.initial_opening_pairs, completed_pairs)
+    if len(openings) < config.gate.max_opening_pairs:
+        raise ValueError("opening suite does not cover gate.max_opening_pairs")
+
+    gate_search_sims = config.gate.search_sims_for_generation(generation)
+    looks: list[dict[str, Any]] = []
+    while True:
+        if completed_pairs < target_pairs:
+            new_results = play_paired_openings(
+                openings[completed_pairs:target_pairs],
+                candidate_predictor=candidate_predictor,
+                incumbent_predictor=incumbent_predictor,
+                search_sims=gate_search_sims,
+                cpuct=config.gate.cpuct,
+            )
+            expected_games = 2 * (target_pairs - completed_pairs)
+            if len(new_results) != expected_games:
+                raise RuntimeError(
+                    f"paired gate returned {len(new_results)} games, expected {expected_games}"
+                )
+            results.extend(new_results)
+            completed_pairs = target_pairs
+
+        decision = evaluate_gate(
+            results,
+            bootstrap_samples=config.gate.bootstrap_samples,
+            confidence=config.gate.decision_confidence(),
+            bootstrap_seed=config.run.seed + 2701,
+            accept_threshold=config.gate.accept_threshold,
+            role_floor=config.gate.role_floor,
+        )
+        looks.append(
+            {
+                "pairs": completed_pairs,
+                "games": len(results),
+                "verdict": decision.verdict,
+                "overall_point_score": decision.summary.overall.point_score,
+                "ci_lower": decision.summary.ci_lower,
+                "ci_upper": decision.summary.ci_upper,
+            }
+        )
+        if decision.verdict != "inconclusive" or completed_pairs >= config.gate.max_opening_pairs:
+            return results, decision, looks
+        target_pairs = min(
+            config.gate.max_opening_pairs,
+            completed_pairs + config.gate.pair_increment,
+        )
 
 
 def _d4_column_sequence(columns: tuple[int, ...]) -> tuple[int, ...]:
@@ -853,6 +921,13 @@ def _resume_existing_smoke(config: V3Config, layout: RunLayout, expected_hash: s
     )
     learner.load_state_dict(saved.extra_state["learner_state"])
     bucket = TrainTokenBucket.from_state_dict(saved.extra_state["token_bucket"])
+    formal_state = FormalLoopState.from_dict(saved.extra_state["formal_loop_state"])
+    if formal_state.next_generation != saved.generation + 1:
+        raise ValueError("formal loop state generation does not follow the checkpoint")
+    if formal_state.next_game_id != int(saved.replay_cursor["next_game_id"]):
+        raise ValueError("formal loop state next_game_id differs from replay cursor")
+    if formal_state.replay_positions != int(saved.replay_cursor["raw_positions"]):
+        raise ValueError("formal loop state replay position count differs from replay cursor")
     metrics = learner.train_steps(dataset, steps=1, token_bucket=bucket)
     if metrics.steps != 1:
         raise RuntimeError("Resume probe did not have enough train tokens for one optimizer update.")
@@ -862,6 +937,7 @@ def _resume_existing_smoke(config: V3Config, layout: RunLayout, expected_hash: s
         "checkpoint": str(checkpoint_path),
         "restored_global_step": saved.global_step,
         "probe_global_step": learner.global_step,
+        "formal_loop_state": formal_state.to_dict(),
         "sample_ids": [list(sample_id) for sample_id in learner.last_sample_ids],
         "metrics": metrics.to_dict(),
     }
@@ -909,13 +985,13 @@ def run_smoke(config: V3Config) -> dict[str, Any]:
         generation = 0
         search_stage = config.selfplay.stage_for_generation(generation)
         accepted_predictor, accepted_model_id = _accepted_predictor(layout, config)
-        games = run_self_play_games(
+        actor_batch = run_self_play_actor_pool(
             config,
-            accepted_predictor=accepted_predictor,
             producer_model_id=accepted_model_id,
             start_game_id=0,
             generation=generation,
         )
+        games = list(actor_batch.games)
         producer_model_id = games[0].producer_model_id
         if any(game.producer_model_id != producer_model_id for game in games):
             raise RuntimeError("A self-play batch changed producer model mid-batch.")
@@ -988,6 +1064,7 @@ def run_smoke(config: V3Config) -> dict[str, Any]:
                 ),
                 "max_inference_batch": max(game.max_inference_batch for game in games),
                 "search_stage": asdict(search_stage),
+                "actor_runtime": actor_batch.metrics.to_dict(),
                 "health": health,
             },
         )
@@ -1052,7 +1129,7 @@ def run_smoke(config: V3Config) -> dict[str, Any]:
         )
 
         openings = build_openings(
-            config.gate.initial_opening_pairs,
+            config.gate.max_opening_pairs,
             run_seed=config.run.seed,
             prefix_lengths=config.gate.opening_depths,
         )
@@ -1060,20 +1137,12 @@ def run_smoke(config: V3Config) -> dict[str, Any]:
         write_opening_manifest(opening_manifest_path, openings)
         candidate_predictor = TorchPredictor(model, config.runtime.device)
         gate_search_sims = config.gate.search_sims_for_generation(generation)
-        gate_results = play_paired_openings(
-            openings,
+        gate_results, gate_decision, gate_looks = _run_sequential_gate(
+            config,
+            generation=generation,
+            openings=openings,
             candidate_predictor=candidate_predictor,
             incumbent_predictor=accepted_predictor,
-            search_sims=gate_search_sims,
-            cpuct=config.gate.cpuct,
-        )
-        gate_decision = evaluate_gate(
-            gate_results,
-            bootstrap_samples=config.gate.bootstrap_samples,
-            confidence=config.gate.decision_confidence(),
-            bootstrap_seed=config.run.seed + 2701,
-            accept_threshold=config.gate.accept_threshold,
-            role_floor=config.gate.role_floor,
         )
         gate_payload = {
             "schema_version": 1,
@@ -1088,6 +1157,7 @@ def run_smoke(config: V3Config) -> dict[str, Any]:
             "decision_confidence": config.gate.decision_confidence(),
             "descriptive_confidence": config.gate.confidence,
             "games": [asdict(result) for result in gate_results],
+            "looks": gate_looks,
             **gate_decision.to_dict(),
         }
         gate_path = layout.metrics / f"gate_g{generation:06d}.json"
@@ -1115,6 +1185,34 @@ def run_smoke(config: V3Config) -> dict[str, Any]:
             candidate_final_path = layout.rejected / candidate_path.name
             os.replace(candidate_path, candidate_final_path)
         # Inconclusive candidates stay available for the configured pair increments.
+
+        formal_state = FormalLoopState(
+            next_generation=generation,
+            next_game_id=0,
+            replay_positions=0,
+            train_positions_consumed=0,
+            last_candidate_train_positions=0,
+            accepted_model_id=accepted_model_id,
+        ).finish_generation(
+            next_game_id=games[-1].game_id + 1,
+            replay_positions=len(replay),
+            train_positions_consumed=int(bucket.total_positions_consumed),
+        )
+        formal_state = formal_state.emit_candidate(
+            PendingCandidateState(
+                candidate_model_id=candidate_model_id,
+                candidate_path=str(candidate_final_path.relative_to(layout.root)).replace("\\", "/"),
+                incumbent_model_id=accepted_model_id or "random",
+                gate_path=str(gate_path.relative_to(layout.root)).replace("\\", "/"),
+                opening_manifest=str(opening_manifest_path.relative_to(layout.root)).replace("\\", "/"),
+                pairs_evaluated=len(openings),
+                max_pairs=config.gate.max_opening_pairs,
+            )
+        )
+        if gate_decision.verdict == "accept":
+            formal_state = formal_state.resolve_pending_candidate(accepted=True)
+        elif gate_decision.verdict == "reject":
+            formal_state = formal_state.resolve_pending_candidate(accepted=False)
 
         audit_created_at = str(run_manifest["created_at"])
         audit_selections, audit_documents, audit_filenames, audit_references = (
@@ -1156,6 +1254,7 @@ def run_smoke(config: V3Config) -> dict[str, Any]:
                 "token_bucket": bucket.state_dict(),
                 "model_config": asdict(config.model),
                 "train_positions_consumed": bucket.total_positions_consumed,
+                "formal_loop_state": formal_state.to_dict(),
                 "audit_replays": audit_references,
             },
         )
@@ -1249,6 +1348,8 @@ def run_smoke(config: V3Config) -> dict[str, Any]:
             "learner_metrics": learner_metrics.to_dict(),
             "validation_metrics": validation_metrics,
             "selfplay_health": health,
+            "actor_runtime": actor_batch.metrics.to_dict(),
+            "formal_loop_state": formal_state.to_dict(),
             "gate_verdict": gate_decision.verdict,
             "gate": gate_decision.to_dict(),
             "checkpoint": str(checkpoint_path),
@@ -1357,12 +1458,11 @@ def formal_run_status(config: V3Config) -> dict[str, Any]:
             "receipt_required_before_prune": True,
         },
         "blocking_items": [
-            "formal generation scheduler and cumulative replay cursor are not implemented",
-            "candidate cadence and inconclusive gate pair extension are not implemented",
-            "cross-process actor and bounded shared inference service are not implemented",
+            "formal generation scheduler is not connected to the cumulative replay cursor",
+            "candidate cadence state and gate pair extension are not connected to formal run",
             "archive catalog, transfer receipts, and explicit prune command are not integrated",
             "pre-commit crash reconciliation and a single-coordinator no-clobber lock are not implemented",
-            "configured GPU throughput and queue sizes require a short on-machine benchmark",
+            "shared inference CUDA throughput and queue sizes require a short on-machine benchmark",
         ],
         "message": (
             "Static schedules, hardware roles, retention, and audit replay contracts are "

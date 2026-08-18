@@ -216,6 +216,49 @@ class SearchTests(unittest.TestCase):
         self.assertEqual(result.max_inference_batch, max(predictor.batch_sizes))
         self.assertGreater(result.max_inference_batch, 1)
 
+    def test_unvisited_v3_children_do_not_materialize_boards(self) -> None:
+        search = MCTS(RandomPredictor(), num_threads=1)
+        root = TreeNode(board=np.zeros((6, 5, 5), dtype=np.int8))
+        search._expand(root)
+        self.assertTrue(root.children)
+        self.assertTrue(all(child.board is None for child in root.children.values()))
+
+        path, virtual_nodes = search._select_lane(root)
+        self.assertIsNotNone(path[-1].board)
+        self.assertEqual(sum(child.board is not None for child in root.children.values()), 1)
+        for node in reversed(virtual_nodes):
+            node.revert_virtual_loss(search.virtual_loss)
+
+    def test_v3_fast_rule_path_matches_validated_rules(self) -> None:
+        game = GameRules()
+        rng = np.random.default_rng(20260816)
+        board = game.get_init_board()
+        player = 1
+        for _ in range(80):
+            canonical = game.get_canonical_form(board, player)
+            np.testing.assert_array_equal(
+                game.get_valid_moves_fast(canonical),
+                game.get_valid_moves(canonical),
+            )
+            valid_actions = np.flatnonzero(game.get_valid_moves(canonical))
+            if not len(valid_actions):
+                break
+            action = int(rng.choice(valid_actions))
+            expected_next, expected_player = game.get_next_state(canonical, 1, action)
+            fast_next, fast_player = game.get_next_state_fast(canonical, 1, action)
+            np.testing.assert_array_equal(fast_next, expected_next)
+            self.assertEqual(fast_player, expected_player)
+            expected_canonical = game.get_canonical_form(expected_next, expected_player)
+            fast_canonical = game.get_canonical_form_fast(fast_next, fast_player)
+            np.testing.assert_array_equal(fast_canonical, expected_canonical)
+            self.assertEqual(
+                game.get_game_ended_after_action_fast(fast_canonical, 1, action),
+                game.get_game_ended(expected_canonical, 1),
+            )
+            board, player = game.get_next_state(board, player, action)
+            if game.get_game_ended(board, player) != 0:
+                break
+
 
 class OpeningSuiteTests(unittest.TestCase):
     def test_openings_are_deterministic_and_d4_deduplicated(self) -> None:

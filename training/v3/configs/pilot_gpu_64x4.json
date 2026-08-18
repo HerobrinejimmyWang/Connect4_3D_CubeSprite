@@ -65,9 +65,9 @@
   "runtime": {
     "device": "cuda:0",
     "selfplay_devices": [],
-    "actor_processes": 8,
-    "mcts_lanes_per_actor": 2,
-    "inference_batch_size": 16,
+    "actor_processes": 18,
+    "mcts_lanes_per_actor": 6,
+    "inference_batch_size": 32,
     "num_workers": 2,
     "torch_threads": 4,
     "deterministic": false,

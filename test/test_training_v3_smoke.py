@@ -7,11 +7,12 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
-from training.v3.config import load_config
+from training.v3.config import GateConfig, load_config
 from training.v3.cli import main as cli_main
-from training.v3.pipeline import run_smoke
+from training.v3.pipeline import _run_sequential_gate, run_smoke
 from training.v3.preflight import PreflightError, run_preflight
 from training.v3.replay import load_replay_shard, replay_ready_path
 
@@ -33,6 +34,69 @@ class PreflightTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(PreflightError, "visible inventory"):
                 run_preflight("cuda:2")
+
+
+class SequentialGateTests(unittest.TestCase):
+    def test_gate_appends_only_new_pairs_until_resolved(self) -> None:
+        config = load_config(SMOKE_CONFIG)
+        config = replace(
+            config,
+            gate=GateConfig(
+                bootstrap_candidate_train_positions=8,
+                candidate_train_positions=16,
+                initial_opening_pairs=2,
+                pair_increment=2,
+                max_opening_pairs=6,
+                opening_depths=(0, 2, 4, 6),
+                search_schedule=config.gate.search_schedule,
+                cpuct=config.gate.cpuct,
+                bootstrap_samples=config.gate.bootstrap_samples,
+                confidence=config.gate.confidence,
+                role_floor=config.gate.role_floor,
+                accept_threshold=config.gate.accept_threshold,
+            ),
+        )
+
+        def decision(verdict: str, pairs: int):
+            return SimpleNamespace(
+                verdict=verdict,
+                summary=SimpleNamespace(
+                    overall=SimpleNamespace(point_score=0.5),
+                    ci_lower=0.4,
+                    ci_upper=0.6,
+                ),
+                pairs=pairs,
+            )
+
+        played_slices = []
+
+        def play(openings, **_kwargs):
+            played_slices.append(tuple(openings))
+            return [object()] * (2 * len(openings))
+
+        with (
+            mock.patch("training.v3.pipeline.play_paired_openings", side_effect=play),
+            mock.patch(
+                "training.v3.pipeline.evaluate_gate",
+                side_effect=[
+                    decision("inconclusive", 2),
+                    decision("inconclusive", 4),
+                    decision("accept", 6),
+                ],
+            ),
+        ):
+            results, final_decision, looks = _run_sequential_gate(
+                config,
+                generation=0,
+                openings=list(range(6)),
+                candidate_predictor=object(),
+                incumbent_predictor=None,
+            )
+
+        self.assertEqual(played_slices, [(0, 1), (2, 3), (4, 5)])
+        self.assertEqual(len(results), 12)
+        self.assertEqual(final_decision.verdict, "accept")
+        self.assertEqual([look["pairs"] for look in looks], [2, 4, 6])
 
     def test_cli_print_config_and_guarded_run(self) -> None:
         output = io.StringIO()
@@ -87,6 +151,12 @@ class EndToEndSmokeTests(unittest.TestCase):
             self.assertIn(result["gate_verdict"], {"accept", "reject", "inconclusive"})
             self.assertTrue(result["resume_verification"]["passed"])
             self.assertTrue(all(result["resume_verification"]["checks"].values()))
+            self.assertEqual(result["formal_loop_state"]["next_generation"], 1)
+            self.assertEqual(result["formal_loop_state"]["next_game_id"], 4)
+            self.assertEqual(
+                result["formal_loop_state"]["replay_positions"],
+                result["raw_positions"],
+            )
 
             replay_paths = [Path(path) for path in result["artifacts"]["replay_shards"]]
             self.assertEqual(len(replay_paths), 2)
@@ -138,6 +208,7 @@ class EndToEndSmokeTests(unittest.TestCase):
             self.assertEqual(resumed["status"], "resume-probe-complete")
             self.assertEqual(resumed["restored_global_step"], 2)
             self.assertEqual(resumed["probe_global_step"], 3)
+            self.assertEqual(resumed["formal_loop_state"], result["formal_loop_state"])
             self.assertTrue(resumed["sample_ids"])
 
             checkpoint_bytes = bytearray(Path(result["checkpoint"]).read_bytes())

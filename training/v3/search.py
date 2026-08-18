@@ -10,7 +10,6 @@ from connect4_core import GameRules
 
 from .model import (
     COLUMN_COUNT,
-    column_to_legacy_action,
     legal_column_mask,
     wdl_expected_value,
 )
@@ -47,9 +46,10 @@ class RandomPredictor:
 
 @dataclass
 class TreeNode:
-    board: np.ndarray
+    board: np.ndarray | None
     prior: float = 1.0
     action_from_parent: int | None = None
+    legacy_action_from_parent: int | None = None
     children: dict[int, "TreeNode"] = field(default_factory=dict)
     visit_count: int = 0
     value_sum: float = 0.0
@@ -160,6 +160,17 @@ class MCTS:
         self.virtual_loss = float(virtual_loss)
         self.num_threads = int(num_threads)
         self.game = game or GameRules()
+        self._get_next_state = getattr(self.game, "get_next_state_fast", self.game.get_next_state)
+        self._get_canonical_form = getattr(
+            self.game,
+            "get_canonical_form_fast",
+            self.game.get_canonical_form,
+        )
+        self._get_game_ended_after_action = getattr(
+            self.game,
+            "get_game_ended_after_action_fast",
+            None,
+        )
         self.inference_calls = 0
         self.inference_positions = 0
         self.max_inference_batch = 0
@@ -210,7 +221,10 @@ class MCTS:
             seen: set[int] = set()
             for path, _virtual_nodes in lanes:
                 leaf = path[-1]
-                terminal = self._terminal_value(leaf.board)
+                terminal = self._terminal_value(
+                    leaf.board,
+                    last_action=leaf.legacy_action_from_parent,
+                )
                 if terminal is not None:
                     leaf.terminal_value = terminal
                     leaf.initial_value = terminal
@@ -244,8 +258,18 @@ class MCTS:
             max_inference_batch=self.max_inference_batch,
         )
 
-    def _terminal_value(self, board: np.ndarray) -> float | None:
-        result = float(self.game.get_game_ended(board, 1))
+    def _terminal_value(
+        self,
+        board: np.ndarray | None,
+        *,
+        last_action: int | None = None,
+    ) -> float | None:
+        if board is None:
+            raise RuntimeError("Cannot evaluate an unmaterialized MCTS node.")
+        if last_action is not None and self._get_game_ended_after_action is not None:
+            result = float(self._get_game_ended_after_action(board, 1, last_action))
+        else:
+            result = float(self.game.get_game_ended(board, 1))
         if result == 0.0:
             return None
         if math.isclose(result, 1e-4, rel_tol=0.0, abs_tol=1e-9):
@@ -262,6 +286,8 @@ class MCTS:
         nodes = [node for node in nodes if not node.expanded]
         if not nodes:
             return
+        if any(node.board is None for node in nodes):
+            raise RuntimeError("Cannot expand an unmaterialized MCTS node.")
         boards = np.stack([node.board for node in nodes], axis=0)
         batch_predict = getattr(self.predictor, "predict_batch", None)
         if callable(batch_predict):
@@ -293,11 +319,8 @@ class MCTS:
             policy = _normalize_policy(policies[index], valid)
             for action in np.flatnonzero(valid):
                 column = int(action)
-                legacy_action = column_to_legacy_action(node.board, column)
-                next_board, next_player = self.game.get_next_state(node.board, 1, legacy_action)
-                next_canonical = self.game.get_canonical_form(next_board, next_player)
                 node.children[column] = TreeNode(
-                    board=np.asarray(next_canonical, dtype=np.int8),
+                    board=None,
                     prior=float(policy[column]),
                     action_from_parent=column,
                 )
@@ -314,6 +337,7 @@ class MCTS:
                 key=lambda item: (puct_score(node, item[1], self.cpuct), -item[0]),
             )
             del action
+            self._materialize_child(node, child)
             child.apply_virtual_loss(self.virtual_loss)
             virtual_nodes.append(child)
             path.append(child)
@@ -321,6 +345,24 @@ class MCTS:
             if not node.expanded or node.terminal_value is not None:
                 break
         return path, virtual_nodes
+
+    def _materialize_child(self, parent: TreeNode, child: TreeNode) -> np.ndarray:
+        if child.board is not None:
+            return child.board
+        if parent.board is None or child.action_from_parent is None:
+            raise RuntimeError("Cannot materialize a child without its parent board and action.")
+        row, col = divmod(int(child.action_from_parent), self.game.board_size)
+        layer = int(np.count_nonzero(parent.board[:, row, col]))
+        legacy_action = layer * self.game.board_size * self.game.board_size + int(
+            child.action_from_parent
+        )
+        next_board, next_player = self._get_next_state(parent.board, 1, legacy_action)
+        child.board = np.asarray(
+            self._get_canonical_form(next_board, next_player),
+            dtype=np.int8,
+        )
+        child.legacy_action_from_parent = legacy_action
+        return child.board
 
     @staticmethod
     def _backup(path: list[TreeNode], leaf_value: float) -> None:

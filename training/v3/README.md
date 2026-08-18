@@ -4,11 +4,14 @@
 Legacy `training/main_train.py` remains available for old experiments, but its
 configuration and checkpoints are intentionally not imported into V3.
 
-The current supported endpoint is a deterministic CPU smoke workflow. The
-formal generation loop remains guarded because cross-process actors, a bounded
-shared CUDA inference service, and on-machine throughput calibration have not
-yet been implemented. `run` prints the reviewed hardware, stage, and retention
-plan; it does not start training.
+The current supported endpoint is a deterministic CPU smoke workflow. A bounded
+cross-process actor pool and one shared inference owner per configured self-play
+device are implemented and covered by CPU regression tests. The formal
+generation loop remains guarded pending its cumulative replay/candidate state
+machine, crash journal, and uncontended on-machine CUDA efficiency calibration.
+A tiny CUDA effectiveness loop has already exercised shared inference,
+self-play, replay, AMP learning, validation, and paired gating. `run` prints the
+reviewed hardware, stage, and retention plan; it does not start training.
 
 ## Commands
 
@@ -81,7 +84,9 @@ temperature/noise pair is no longer a supported production configuration.
   cycle performs that many updates.
 - D4 augmentation is online and deterministic by sample cursor. CUDA learners
   use FP32 policy/WDL losses under autocast, pinned memory, non-blocking transfer,
-  and worker prefetch when applicable.
+  and worker prefetch when applicable. If GradScaler skips an optimizer step,
+  replay budget, sample cursor, scheduler, and global step remain unchanged so
+  the same deterministic batch can be retried at the reduced scale.
 - Validation reports policy CE, WDL CE, Brier score, calibration error, WDL
   accuracy, and throughput when the active window contains validation games.
 
@@ -108,9 +113,20 @@ therefore ignored after an interrupted commit.
 
 ## Hardware plan
 
-The reference MCTS now batches the virtual-loss lanes of one game through
-`predict_batch`, but `actor_processes` is still a production plan rather than an
-implemented process pool. This limitation is deliberately reported by `run`.
+The reference MCTS batches the virtual-loss lanes of one game through
+`predict_batch`. `actor_processes` now creates a bounded process pool, and
+accepted-model actors send inference requests to one batching owner per active
+self-play device. The shared service treats `inference_batch_size` as a hard
+limit, deferring a complete actor request when adding it would overflow the
+current batch.
+
+An uncontended RTX 3080 Ti + 20-vCPU/30-GiB short pilot calibrated the 64x4
+model at 128/32 full/fast simulations. The provisional single-card topology is
+18 actors x 6 lanes with inference batch 32; 18-20 actors and 4-6 lanes are the
+reasonable local ranges. Fixed-position comparison retained 100% serial-MCTS
+top-action agreement through 6 lanes, while 8 and 10 lanes fell to 96.9%.
+These values are encoded only in `pilot_gpu_64x4.json`; the larger 128x6 Mini
+must be recalibrated rather than inheriting them blindly.
 
 - One GPU: use one CUDA context and one shared inference owner in staged phases:
   self-play, learner, then gate. Do not keep separate learner and inference CUDA
@@ -130,9 +146,7 @@ implemented process pool. This limitation is deliberately reported by `run`.
   it must not be conflated with `learner_amp`.
 
 The historical RTX 4090 run used 24 actors x 4 search lanes with one shared
-inference service. That is a calibration starting point, not a portable default:
-cloud CPU allocation, batch fill, queue wait, games/s, and stable wall time must
-be measured before enabling a long run.
+inference service. It remains historical context, not a portable default.
 
 For a two-GPU role split, keep one preset and change only the runtime topology:
 
