@@ -58,6 +58,7 @@ def main(argv: list[str] | None = None) -> int:
     receipts_dir = local_root / "receipts"
     for directory in (bundles_dir, materialized, receipts_dir):
         directory.mkdir(parents=True, exist_ok=True)
+    _remote(args, ["mkdir", "-p", f"{args.run_dir}/archive_receipts"])
 
     completed: list[dict[str, object]] = []
     for _ in range(args.max_bundles):
