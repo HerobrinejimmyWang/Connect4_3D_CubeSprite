@@ -54,6 +54,12 @@ def _parser() -> argparse.ArgumentParser:
     match.add_argument("--parallel-games", type=int, default=1)
     match.add_argument("--inference-batch-size", type=int, default=1)
     match.add_argument("--inference-batch-timeout-ms", type=float, default=1.0)
+    match.add_argument(
+        "--devices",
+        default="",
+        help="comma-separated replicated evaluator devices, e.g. cuda:0,cuda:1",
+    )
+    match.add_argument("--replicas-per-device", type=int, default=1)
     match.add_argument("--output", type=Path, required=True)
 
     calibrate = commands.add_parser(
@@ -160,22 +166,34 @@ def main(argv: list[str] | None = None) -> int:
                 args.parallel_games < 1
                 or args.inference_batch_size < 1
                 or args.inference_batch_timeout_ms < 0.0
+                or args.replicas_per_device < 1
             ):
                 raise ValueError("evaluation parallel/batch settings are invalid")
+            devices = tuple(item.strip() for item in args.devices.split(",") if item.strip())
+            if args.devices and not devices:
+                raise ValueError("replicated evaluation devices are invalid")
+            replica_devices = tuple(
+                device for _ in range(args.replicas_per_device) for device in devices
+            )
+            if replica_devices and (
+                args.parallel_games != 1 or args.inference_batch_size != 1
+            ):
+                raise ValueError("replicated and central-batched modes cannot be combined")
             stop = args.pair_start + args.pair_count
             if stop > profile.max_pairs or stop > len(openings):
                 raise ValueError("requested pair range exceeds the profile or opening suite")
+            load_device = "cpu" if replica_devices else args.device
             predictor_a, identity_a = _resolve_model(
                 args.model_a,
                 model_id=args.model_a_id,
                 config=config,
-                device=args.device,
+                device=load_device,
             )
             predictor_b, identity_b = _resolve_model(
                 args.model_b,
                 model_id=args.model_b_id,
                 config=config,
-                device=args.device,
+                device=load_device,
             )
             if identity_a["model_id"] == identity_b["model_id"]:
                 raise ValueError("a model cannot play itself in anchored evaluation")
@@ -190,10 +208,14 @@ def main(argv: list[str] | None = None) -> int:
                 predictor_a=predictor_a,
                 predictor_b=predictor_b,
                 milestone=args.milestone,
-                runtime={"device": args.device},
+                runtime={
+                    "device": args.device,
+                    "replica_devices": list(replica_devices),
+                },
                 parallel_games=args.parallel_games,
                 inference_batch_size=args.inference_batch_size,
                 inference_batch_timeout_s=args.inference_batch_timeout_ms / 1000.0,
+                replica_devices=replica_devices,
             )
             sys.stdout.write(_json({"status": "complete", "output": str(args.output)}))
             return 0

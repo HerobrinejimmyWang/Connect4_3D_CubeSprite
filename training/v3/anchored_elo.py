@@ -25,7 +25,11 @@ from connect4_core.rules import CLASSIC_RULE, DEFAULT_RULE_REGISTRY
 
 from .config import ModelConfig
 from .evaluation import Opening, load_opening_manifest, play_paired_openings
-from .evaluation_runtime import play_paired_openings_parallel
+from .evaluation_runtime import (
+    EvaluationModelSource,
+    play_paired_openings_parallel,
+    play_paired_openings_replicated,
+)
 from .model import TorchPredictor, build_model, legacy_policy_to_columns
 from .replay import sha256_file
 from .search import Predictor
@@ -506,6 +510,7 @@ def write_match_batch(
     parallel_games: int = 1,
     inference_batch_size: int = 1,
     inference_batch_timeout_s: float = 0.001,
+    replica_devices: Sequence[str] = (),
 ) -> Path:
     """Run and immutably persist one disjoint paired-opening batch."""
 
@@ -537,7 +542,20 @@ def write_match_batch(
     if any(manifest_rows.get(opening.opening_id) != opening for opening in rows):
         raise ValueError("match openings are not an exact subset of the frozen suite")
     evaluation_runtime: dict[str, Any]
-    if parallel_games == 1 and inference_batch_size == 1:
+    if replica_devices and (parallel_games != 1 or inference_batch_size != 1):
+        raise ValueError("replicated and central-batched evaluation modes cannot be combined")
+    if replica_devices:
+        evaluated = play_paired_openings_replicated(
+            rows,
+            candidate_source=EvaluationModelSource.from_identity(dict(model_a)),
+            incumbent_source=EvaluationModelSource.from_identity(dict(model_b)),
+            search_sims=profile.search_sims,
+            cpuct=profile.cpuct,
+            worker_devices=replica_devices,
+        )
+        results = evaluated.games
+        evaluation_runtime = evaluated.metrics.to_dict()
+    elif parallel_games == 1 and inference_batch_size == 1:
         started = time.perf_counter()
         results = play_paired_openings(
             rows,

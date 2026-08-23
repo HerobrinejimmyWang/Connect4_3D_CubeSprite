@@ -138,19 +138,23 @@ All formal V3 head-to-head paths use the same operational evaluation runtime:
 same-lineage candidate gates, Historical Anchored Elo (including anchor-scale
 calibration), and cross-scale donor qualification. Parallelism is only across
 independent opening/color games. Every game keeps the frozen simulation count,
-`cpuct`, deterministic seed, and single-lane MCTS semantics; requests from
-concurrent games are combined into a hard-limited inference batch. Immutable
-evidence records game concurrency, batch limit/timeout, wall time, and per-model
-batch statistics. These topology controls are operational and excluded from the
-model-lineage hash.
+`cpuct`, deterministic seed, and single-lane MCTS semantics. The adopted target-
+host mode uses device-local replicated serial workers: every process owns its
+two models, dynamically receives complete opening pairs, and performs no per-
+move IPC or cross-game inference batching. Immutable evidence records worker
+devices, replica counts, model-load/play/wall time, and exact pair coverage.
+These topology controls are operational and excluded from the model-lineage
+hash.
 
-GPU presets must set `runtime.evaluation_parallel_games`,
-`runtime.evaluation_inference_batch_size`, and
-`runtime.evaluation_inference_batch_timeout_ms` only after a fixed-opening
-serial-versus-parallel check. The check requires identical opening/role
-coverage, no batch-limit violation, and a paired strength regression when
-floating-point batching changes an exact result. Do not raise MCTS lanes to
-improve evaluation utilization.
+GPU presets set `runtime.evaluation_devices` and
+`runtime.evaluation_replicas_per_device` only after a fixed-opening serial-
+versus-replicated check. The check requires identical opening/role results and
+safe GPU-memory headroom. The older central-batched experiment remains available
+through `evaluation_parallel_games`/`evaluation_inference_batch_size`, but is not
+a target preset: ThreadPool points were only 0.77-0.80x serial and changed one of
+eight outcomes; process-plus-central-batch was 1.07x at 4 workers for the heavy
+anchor pair but 0.73x for B4-vs-v2.2. Do not raise MCTS lanes to improve
+evaluation utilization.
 
 Use the common fixed-profile sweep before changing a GPU preset:
 
@@ -160,10 +164,13 @@ python tools\benchmark_v3_evaluation_runtime.py `
   --output training\runs\evaluation_runtime_benchmark.json
 ```
 
-The benchmark accepts `anchor:<id>` and `v3:<checkpoint>` model specs. It saves
+The central-batch diagnostic accepts `anchor:<id>` and `v3:<checkpoint>` model specs. It saves
 the serial games, every parallel game, exact-result mismatch count, effective
 inference batches, wall-time speedup, cgroup CPU quota/use, and sampled GPU
 utilization, memory, and power. Run it only in an uncontended hardware window.
+For the adopted replicated path, use
+`match --devices cuda:0,cuda:1 --replicas-per-device 4`; a single immutable batch dynamically balances whole
+opening pairs across eight workers.
 
 ## Historical anchored Elo
 

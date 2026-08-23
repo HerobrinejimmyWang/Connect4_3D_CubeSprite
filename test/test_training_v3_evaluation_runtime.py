@@ -7,7 +7,12 @@ from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 
 from training.v3.evaluation import build_openings, play_paired_openings
-from training.v3.evaluation_runtime import BatchingPredictor, play_paired_openings_parallel
+from training.v3.evaluation_runtime import (
+    BatchingPredictor,
+    EvaluationModelSource,
+    play_paired_openings_parallel,
+    play_paired_openings_replicated,
+)
 from training.v3.model import ROLE_FEATURE_COUNT, RULE_FEATURE_COUNT
 from training.v3.search import RandomPredictor
 
@@ -89,6 +94,32 @@ class EvaluationRuntimeTests(unittest.TestCase):
         self.assertEqual(len(parallel.metrics.inference_services), 2)
         self.assertTrue(
             all(service.max_batch <= service.batch_limit for service in parallel.metrics.inference_services)
+        )
+
+    def test_replicated_workers_preserve_serial_pairs_without_per_move_ipc(self) -> None:
+        openings = build_openings(3, run_seed=2901, prefix_lengths=(0, 2))
+        serial = play_paired_openings(
+            openings,
+            candidate_predictor=RandomPredictor(),
+            incumbent_predictor=None,
+            search_sims=2,
+            cpuct=1.5,
+        )
+        replicated = play_paired_openings_replicated(
+            openings,
+            candidate_source=EvaluationModelSource("random", "", "random-candidate"),
+            incumbent_source=None,
+            search_sims=2,
+            cpuct=1.5,
+            worker_devices=("cpu", "cpu"),
+        )
+
+        self.assertEqual(replicated.games, serial)
+        self.assertEqual(replicated.metrics.worker_processes, 2)
+        self.assertEqual(len(replicated.metrics.replicated_workers), 2)
+        self.assertEqual(
+            sum(worker.opening_pairs for worker in replicated.metrics.replicated_workers),
+            3,
         )
 
 

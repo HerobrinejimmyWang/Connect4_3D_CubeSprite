@@ -84,6 +84,8 @@ def _parser() -> argparse.ArgumentParser:
     qualify.add_argument("--parallel-games", type=int, default=1)
     qualify.add_argument("--inference-batch-size", type=int, default=1)
     qualify.add_argument("--inference-batch-timeout-ms", type=float, default=1.0)
+    qualify.add_argument("--devices", default="")
+    qualify.add_argument("--replicas-per-device", type=int, default=1)
     qualify.add_argument("--output", type=Path, required=True)
 
     verify_qualification = commands.add_parser(
@@ -219,8 +221,19 @@ def main(argv: list[str] | None = None) -> int:
                 args.parallel_games < 1
                 or args.inference_batch_size < 1
                 or args.inference_batch_timeout_ms < 0.0
+                or args.replicas_per_device < 1
             ):
                 raise ValueError("evaluation parallel/batch settings are invalid")
+            devices = tuple(item.strip() for item in args.devices.split(",") if item.strip())
+            if args.devices and not devices:
+                raise ValueError("replicated evaluation devices are invalid")
+            replica_devices = tuple(
+                device for _ in range(args.replicas_per_device) for device in devices
+            )
+            if replica_devices and (
+                args.parallel_games != 1 or args.inference_batch_size != 1
+            ):
+                raise ValueError("replicated and central-batched modes cannot be combined")
             spec = load_scaling_experiment(args.spec)
             qualification = spec["production_track"]["qualification"]
             valid_counts = range(
@@ -234,11 +247,12 @@ def main(argv: list[str] | None = None) -> int:
             openings = load_opening_manifest(opening_path)
             if args.pair_count > len(openings):
                 raise ValueError("pair-count exceeds the frozen opening manifest")
+            load_device = "cpu" if replica_devices else args.device
             candidate_predictor, candidate_identity = load_v3_artifact_predictor(
-                args.candidate, device=args.device
+                args.candidate, device=load_device
             )
             donor_predictor, donor_identity = load_v3_artifact_predictor(
-                args.donor, device=args.device
+                args.donor, device=load_device
             )
             write_donor_qualification(
                 args.output,
@@ -258,6 +272,7 @@ def main(argv: list[str] | None = None) -> int:
                 parallel_games=args.parallel_games,
                 inference_batch_size=args.inference_batch_size,
                 inference_batch_timeout_s=args.inference_batch_timeout_ms / 1000.0,
+                replica_devices=replica_devices,
             )
             evidence = load_donor_qualification(args.output)
             sys.stdout.write(

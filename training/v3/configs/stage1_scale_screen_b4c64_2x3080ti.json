@@ -32,7 +32,9 @@
   },
   "runtime": {
     "device": "cuda:0", "selfplay_devices": ["cuda:1"], "actor_processes": 24, "mcts_lanes_per_actor": 4,
-    "inference_batch_size": 32, "num_workers": 2, "torch_threads": 4, "deterministic": false, "learner_amp": true,
+    "inference_batch_size": 32,
+    "evaluation_devices": ["cuda:0", "cuda:1"], "evaluation_replicas_per_device": 4,
+    "num_workers": 2, "torch_threads": 4, "deterministic": false, "learner_amp": true,
     "storage": {"mode": "archive_ack_prune", "soft_used_fraction": 0.7, "hard_free_gib": 10.0, "active_window_margin": 1.25, "bundle_target_gib": 4.0, "keep_checkpoints": 3, "keep_accepted": 2, "keep_rejected": 1, "representative_games": 5}
   }
 }

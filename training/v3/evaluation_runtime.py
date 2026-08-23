@@ -62,6 +62,7 @@ class PairedEvaluationMetrics:
     games: int
     wall_seconds: float
     inference_services: tuple[EvaluationInferenceMetrics, ...]
+    replicated_workers: tuple["ReplicatedWorkerMetrics", ...] = ()
 
     @property
     def games_per_second(self) -> float:
@@ -76,6 +77,7 @@ class PairedEvaluationMetrics:
             "wall_seconds": self.wall_seconds,
             "games_per_second": self.games_per_second,
             "inference_services": [row.to_dict() for row in self.inference_services],
+            "replicated_workers": [row.to_dict() for row in self.replicated_workers],
         }
 
 
@@ -90,6 +92,39 @@ class EvaluationTask:
     task_index: int
     opening: Opening
     candidate_is_first: bool
+
+
+@dataclass(frozen=True)
+class EvaluationModelSource:
+    kind: str
+    path: str
+    model_id: str
+
+    def __post_init__(self) -> None:
+        if self.kind not in {"v3_artifact", "legacy_artifact", "random"}:
+            raise ValueError("evaluation model source kind is unsupported")
+        if (self.kind != "random" and not self.path) or not self.model_id:
+            raise ValueError("evaluation model source needs path and model_id")
+
+    @classmethod
+    def from_identity(cls, identity: dict[str, Any]) -> "EvaluationModelSource":
+        lineage = str(identity.get("lineage", ""))
+        kind = "legacy_artifact" if lineage == "external_legacy_anchor" else "v3_artifact"
+        return cls(kind, str(identity.get("path", "")), str(identity.get("model_id", "")))
+
+
+@dataclass(frozen=True)
+class ReplicatedWorkerMetrics:
+    worker_id: int
+    device: str
+    opening_pairs: int
+    games: int
+    model_load_seconds: float
+    play_seconds: float
+    wall_seconds: float
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 class BatchingPredictor:
@@ -656,10 +691,209 @@ def play_paired_openings_parallel(
                 pass
 
 
+def _load_replicated_predictor(source: EvaluationModelSource, device: str) -> Predictor:
+    # Local import avoids making the anchored compatibility layer a dependency
+    # of the ordinary serial evaluation module.
+    from .anchored_elo import LegacyCheckpointPredictor, load_v3_artifact_predictor
+    from .search import RandomPredictor
+
+    if source.kind == "random":
+        return RandomPredictor()
+    if source.kind == "legacy_artifact":
+        return LegacyCheckpointPredictor(source.path, device=device)
+    predictor, identity = load_v3_artifact_predictor(source.path, device=device)
+    if identity["model_id"] != source.model_id:
+        # A benchmark label may rename a V3 target, but the artifact itself must
+        # still be valid; identity is recorded by the caller's immutable batch.
+        identity["model_id"] = source.model_id
+    return predictor
+
+
+def _replicated_worker_main(
+    worker_id: int,
+    device: str,
+    task_queue: Any,
+    result_queue: Any,
+    candidate_source: EvaluationModelSource,
+    incumbent_source: EvaluationModelSource | None,
+    search_sims: int,
+    cpuct: float,
+) -> None:
+    started = time.perf_counter()
+    pairs = games = 0
+    try:
+        import torch
+
+        torch.set_num_threads(1)
+        load_started = time.perf_counter()
+        candidate = _load_replicated_predictor(candidate_source, device)
+        incumbent = (
+            None
+            if incumbent_source is None
+            else _load_replicated_predictor(incumbent_source, device)
+        )
+        load_seconds = time.perf_counter() - load_started
+        play_started = time.perf_counter()
+        while True:
+            task = task_queue.get()
+            if task is None:
+                break
+            opening_index, opening = task
+            first = play_paired_game(
+                opening,
+                candidate_is_first=True,
+                candidate_predictor=candidate,
+                incumbent_predictor=incumbent,
+                search_sims=search_sims,
+                cpuct=cpuct,
+            )
+            second = play_paired_game(
+                opening,
+                candidate_is_first=False,
+                candidate_predictor=candidate,
+                incumbent_predictor=incumbent,
+                search_sims=search_sims,
+                cpuct=cpuct,
+            )
+            pairs += 1
+            games += 2
+            result_queue.put(("pair", worker_id, int(opening_index), (first, second)))
+        metrics = ReplicatedWorkerMetrics(
+            worker_id=worker_id,
+            device=device,
+            opening_pairs=pairs,
+            games=games,
+            model_load_seconds=load_seconds,
+            play_seconds=time.perf_counter() - play_started,
+            wall_seconds=time.perf_counter() - started,
+        )
+        result_queue.put(("stopped", worker_id, None, metrics))
+    except BaseException:
+        result_queue.put(("error", worker_id, None, traceback.format_exc()))
+
+
+def play_paired_openings_replicated(
+    openings: Iterable[Opening],
+    *,
+    candidate_source: EvaluationModelSource,
+    incumbent_source: EvaluationModelSource | None,
+    search_sims: int,
+    cpuct: float,
+    worker_devices: Iterable[str],
+    start_method: str = "spawn",
+) -> PairedEvaluationResult:
+    """Evaluate opening pairs in device-local serial worker replicas.
+
+    Each worker owns its model instances and runs ordinary single-lane games.
+    There is no per-move IPC or cross-game inference batching, so search and
+    floating-point execution match the serial evaluator on that device.
+    """
+
+    rows = tuple(openings)
+    devices = tuple(str(device) for device in worker_devices)
+    if not rows or not devices:
+        raise ValueError("replicated evaluation needs openings and worker devices")
+    if search_sims < 1 or cpuct <= 0.0:
+        raise ValueError("replicated evaluation search settings are invalid")
+    rule_contexts = {(opening.rule_id, opening.rule_version) for opening in rows}
+    if len(rule_contexts) != 1:
+        raise ValueError("replicated evaluation openings need one rule context")
+    worker_count = min(len(devices), len(rows))
+    devices = devices[:worker_count]
+    context = mp.get_context(start_method)
+    task_queue = context.Queue(maxsize=len(rows) + worker_count)
+    result_queue = context.Queue(maxsize=max(1, 2 * worker_count))
+    workers: list[mp.Process] = []
+    started = time.perf_counter()
+    try:
+        for worker_id, device in enumerate(devices):
+            worker = context.Process(
+                target=_replicated_worker_main,
+                args=(
+                    worker_id,
+                    device,
+                    task_queue,
+                    result_queue,
+                    candidate_source,
+                    incumbent_source,
+                    search_sims,
+                    cpuct,
+                ),
+                name=f"v3-evaluation-replica-{worker_id}-{device}",
+            )
+            worker.start()
+            workers.append(worker)
+        for opening_index, opening in enumerate(rows):
+            task_queue.put((opening_index, opening))
+        for _ in workers:
+            task_queue.put(None)
+
+        pairs_by_index: dict[int, tuple[GateGameResult, GateGameResult]] = {}
+        worker_metrics: dict[int, ReplicatedWorkerMetrics] = {}
+        while len(pairs_by_index) < len(rows) or len(worker_metrics) < worker_count:
+            try:
+                kind, worker_id, opening_index, payload = result_queue.get(timeout=1.0)
+            except queue.Empty:
+                failed = [worker for worker in workers if worker.exitcode not in (None, 0)]
+                if failed:
+                    raise RuntimeError("replicated evaluation worker exited unexpectedly")
+                continue
+            if kind == "error":
+                raise RuntimeError(f"replicated evaluation worker {worker_id} failed:\n{payload}")
+            if kind == "pair":
+                index = int(opening_index)
+                if index in pairs_by_index:
+                    raise RuntimeError(f"duplicate replicated pair result {index}")
+                if not isinstance(payload, tuple) or len(payload) != 2:
+                    raise RuntimeError("replicated evaluation returned an invalid pair")
+                pairs_by_index[index] = payload
+                continue
+            if kind == "stopped" and isinstance(payload, ReplicatedWorkerMetrics):
+                worker_metrics[int(worker_id)] = payload
+                continue
+            raise RuntimeError("replicated evaluation returned an invalid message")
+
+        for worker in workers:
+            worker.join(timeout=30.0)
+            if worker.exitcode != 0:
+                raise RuntimeError(f"replicated worker {worker.name} exited with {worker.exitcode}")
+        games = tuple(
+            game
+            for opening_index in range(len(rows))
+            for game in pairs_by_index[opening_index]
+        )
+        elapsed = time.perf_counter() - started
+        return PairedEvaluationResult(
+            games=games,
+            metrics=PairedEvaluationMetrics(
+                parallel_games=worker_count,
+                worker_processes=worker_count,
+                start_method=start_method,
+                games=len(games),
+                wall_seconds=elapsed,
+                inference_services=(),
+                replicated_workers=tuple(
+                    worker_metrics[index] for index in range(worker_count)
+                ),
+            ),
+        )
+    finally:
+        _terminate_processes(workers)
+        for managed_queue in (task_queue, result_queue):
+            try:
+                managed_queue.close()
+                managed_queue.join_thread()
+            except (AttributeError, OSError, ValueError):
+                pass
+
+
 __all__ = [
     "BatchingPredictor",
+    "EvaluationModelSource",
     "EvaluationInferenceMetrics",
     "PairedEvaluationMetrics",
     "PairedEvaluationResult",
+    "ReplicatedWorkerMetrics",
     "play_paired_openings_parallel",
+    "play_paired_openings_replicated",
 ]

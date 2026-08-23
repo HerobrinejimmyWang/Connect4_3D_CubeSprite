@@ -62,6 +62,8 @@ class ScaleScreenContractTests(unittest.TestCase):
         self.assertEqual(dual.runtime.actor_processes, 24)
         self.assertEqual(dual.runtime.mcts_lanes_per_actor, 4)
         self.assertEqual(dual.runtime.inference_batch_size, 32)
+        self.assertEqual(dual.runtime.evaluation_devices, ("cuda:0", "cuda:1"))
+        self.assertEqual(dual.runtime.evaluation_replicas_per_device, 4)
         plan = plan_hardware(
             (dual.runtime.device, *dual.runtime.selfplay_devices),
             learner_device=dual.runtime.device,
@@ -89,6 +91,8 @@ class ScaleScreenContractTests(unittest.TestCase):
         self.assertEqual(dual.runtime.actor_processes, 24)
         self.assertEqual(dual.runtime.mcts_lanes_per_actor, 4)
         self.assertEqual(dual.runtime.inference_batch_size, 32)
+        self.assertEqual(dual.runtime.evaluation_devices, ("cuda:0", "cuda:1"))
+        self.assertEqual(dual.runtime.evaluation_replicas_per_device, 4)
 
 
 if __name__ == "__main__":

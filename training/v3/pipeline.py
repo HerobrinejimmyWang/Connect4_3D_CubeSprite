@@ -29,7 +29,11 @@ from .actor_runtime import run_self_play_actor_pool
 from .checkpoint import CheckpointV1, load_checkpoint, save_checkpoint
 from .config import V3Config, config_hash
 from .evaluation import build_openings, play_paired_openings, write_opening_manifest
-from .evaluation_runtime import play_paired_openings_parallel
+from .evaluation_runtime import (
+    EvaluationModelSource,
+    play_paired_openings_parallel,
+    play_paired_openings_replicated,
+)
 from .formal_state import FormalLoopState, PendingCandidateState
 from .gate import evaluate_gate
 from .hardware_plan import plan_hardware
@@ -447,6 +451,8 @@ def _run_sequential_gate(
     incumbent_predictor: Any,
     existing_results: Iterable[Any] = (),
     runtime_records: list[dict[str, Any]] | None = None,
+    candidate_source: EvaluationModelSource | None = None,
+    incumbent_source: EvaluationModelSource | None = None,
 ) -> tuple[list[Any], Any, list[dict[str, Any]]]:
     """Append only new opening pairs until the gate resolves or reaches its cap."""
 
@@ -466,7 +472,23 @@ def _run_sequential_gate(
         if completed_pairs < target_pairs:
             pair_start = completed_pairs
             new_openings = openings[completed_pairs:target_pairs]
-            if (
+            if config.runtime.evaluation_devices and candidate_source is not None:
+                replica_devices = tuple(
+                    device
+                    for _ in range(config.runtime.evaluation_replicas_per_device)
+                    for device in config.runtime.evaluation_devices
+                )
+                evaluated = play_paired_openings_replicated(
+                    new_openings,
+                    candidate_source=candidate_source,
+                    incumbent_source=incumbent_source,
+                    search_sims=gate_search_sims,
+                    cpuct=config.gate.cpuct,
+                    worker_devices=replica_devices,
+                )
+                new_results = evaluated.games
+                evaluation_runtime = evaluated.metrics.to_dict()
+            elif (
                 config.runtime.evaluation_parallel_games == 1
                 and config.runtime.evaluation_inference_batch_size == 1
             ):

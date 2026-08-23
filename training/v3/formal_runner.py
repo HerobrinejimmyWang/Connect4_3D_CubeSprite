@@ -25,6 +25,7 @@ from .actor_runtime import run_self_play_actor_pool
 from .checkpoint import CheckpointV1, load_checkpoint, save_checkpoint
 from .config import V3Config
 from .evaluation import build_openings, write_opening_manifest
+from .evaluation_runtime import EvaluationModelSource
 from .formal_journal import (
     CoordinatorLock,
     GenerationJournal,
@@ -531,6 +532,18 @@ def _run_generation(
             write_opening_manifest(opening_manifest_path, openings)
         candidate_predictor = TorchPredictor(model, config.runtime.device)
         gate_evaluation_runtime: list[dict[str, Any]] = []
+        candidate_source = EvaluationModelSource(
+            "v3_artifact", str(candidate_path.resolve()), candidate_model_id
+        )
+        incumbent_source = (
+            None
+            if accepted_model_id is None or latest_commit is None
+            else EvaluationModelSource(
+                "v3_artifact",
+                str((layout.root / str(latest_commit["accepted_model_path"])).resolve()),
+                accepted_model_id,
+            )
+        )
         gate_results, gate_decision, gate_looks = _run_sequential_gate(
             config,
             generation=generation,
@@ -538,6 +551,8 @@ def _run_generation(
             candidate_predictor=candidate_predictor,
             incumbent_predictor=accepted_predictor,
             runtime_records=gate_evaluation_runtime,
+            candidate_source=candidate_source,
+            incumbent_source=incumbent_source,
         )
         gate_path = layout.metrics / f"gate_g{generation:06d}.json"
         _atomic_write_json(

@@ -12,6 +12,7 @@ from unittest import mock
 
 from training.v3.config import GateConfig, load_config
 from training.v3.cli import main as cli_main
+from training.v3.evaluation_runtime import EvaluationModelSource
 from training.v3.pipeline import _run_sequential_gate, run_smoke
 from training.v3.preflight import PreflightError, run_preflight
 from training.v3.replay import load_replay_shard, replay_ready_path
@@ -158,6 +159,71 @@ class SequentialGateTests(unittest.TestCase):
         self.assertEqual(runtime_records[0]["pair_start"], 0)
         self.assertEqual(runtime_records[0]["pair_stop"], 2)
         self.assertEqual(runtime_records[0]["parallel_games"], 4)
+
+    def test_gate_prefers_replicated_devices_when_artifact_sources_are_available(self) -> None:
+        config = load_config(SMOKE_CONFIG)
+        config = replace(
+            config,
+            gate=replace(
+                config.gate,
+                initial_opening_pairs=2,
+                pair_increment=2,
+                max_opening_pairs=2,
+            ),
+            runtime=replace(
+                config.runtime,
+                evaluation_devices=("cpu",),
+                evaluation_replicas_per_device=2,
+            ),
+        )
+        decision = SimpleNamespace(
+            verdict="accept",
+            summary=SimpleNamespace(
+                overall=SimpleNamespace(point_score=0.75),
+                ci_lower=0.5,
+                ci_upper=1.0,
+            ),
+        )
+        evaluated = SimpleNamespace(
+            games=tuple(object() for _ in range(4)),
+            metrics=SimpleNamespace(
+                to_dict=lambda: {
+                    "parallel_games": 2,
+                    "worker_processes": 2,
+                    "games": 4,
+                    "replicated_workers": [],
+                    "inference_services": [],
+                }
+            ),
+        )
+        source = EvaluationModelSource("random", "", "candidate")
+        runtime_records = []
+        with (
+            mock.patch(
+                "training.v3.pipeline.play_paired_openings_replicated",
+                return_value=evaluated,
+            ) as replicated,
+            mock.patch("training.v3.pipeline.play_paired_openings_parallel") as central,
+            mock.patch("training.v3.pipeline.play_paired_openings") as serial,
+            mock.patch("training.v3.pipeline.evaluate_gate", return_value=decision),
+        ):
+            results, final_decision, _looks = _run_sequential_gate(
+                config,
+                generation=0,
+                openings=list(range(2)),
+                candidate_predictor=object(),
+                incumbent_predictor=None,
+                candidate_source=source,
+                incumbent_source=None,
+                runtime_records=runtime_records,
+            )
+
+        replicated.assert_called_once()
+        central.assert_not_called()
+        serial.assert_not_called()
+        self.assertEqual(len(results), 4)
+        self.assertEqual(final_decision.verdict, "accept")
+        self.assertEqual(runtime_records[0]["worker_processes"], 2)
 
     def test_cli_print_config_and_guarded_run(self) -> None:
         output = io.StringIO()

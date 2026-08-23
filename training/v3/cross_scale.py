@@ -24,7 +24,11 @@ import numpy as np
 from connect4_core.rules import DEFAULT_RULE_REGISTRY
 
 from .evaluation import Opening, play_paired_openings
-from .evaluation_runtime import play_paired_openings_parallel
+from .evaluation_runtime import (
+    EvaluationModelSource,
+    play_paired_openings_parallel,
+    play_paired_openings_replicated,
+)
 from .gate import GateGameResult, evaluate_gate
 from .replay import (
     ARRAY_SCHEMA,
@@ -765,6 +769,7 @@ def write_donor_qualification(
     parallel_games: int = 1,
     inference_batch_size: int = 1,
     inference_batch_timeout_s: float = 0.001,
+    replica_devices: Sequence[str] = (),
 ) -> Path:
     """Run and immutably write a cross-size qualification gate artifact."""
 
@@ -793,7 +798,20 @@ def write_donor_qualification(
         raise ValueError("qualification donor checksum differs from the bundle attestation")
     if parallel_games < 1 or inference_batch_size < 1 or inference_batch_timeout_s < 0.0:
         raise ValueError("qualification evaluation parallel/batch settings are invalid")
-    if parallel_games == 1 and inference_batch_size == 1:
+    if replica_devices and (parallel_games != 1 or inference_batch_size != 1):
+        raise ValueError("replicated and central-batched evaluation modes cannot be combined")
+    if replica_devices:
+        evaluated = play_paired_openings_replicated(
+            openings,
+            candidate_source=EvaluationModelSource.from_identity(dict(candidate_identity)),
+            incumbent_source=EvaluationModelSource.from_identity(dict(donor_identity)),
+            search_sims=search_sims,
+            cpuct=cpuct,
+            worker_devices=replica_devices,
+        )
+        results = evaluated.games
+        evaluation_runtime = evaluated.metrics.to_dict()
+    elif parallel_games == 1 and inference_batch_size == 1:
         started = time.perf_counter()
         results = play_paired_openings(
             openings,

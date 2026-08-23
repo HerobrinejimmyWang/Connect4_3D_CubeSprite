@@ -351,6 +351,8 @@ class RuntimeConfig:
     evaluation_parallel_games: int = 1
     evaluation_inference_batch_size: int = 1
     evaluation_inference_batch_timeout_ms: float = 1.0
+    evaluation_devices: tuple[str, ...] = ()
+    evaluation_replicas_per_device: int = 1
     num_workers: int = 0
     torch_threads: int = 1
     deterministic: bool = True
@@ -375,6 +377,22 @@ class RuntimeConfig:
             raise ValueError("runtime evaluation parallel and batch sizes must be positive.")
         if self.evaluation_inference_batch_timeout_ms < 0.0:
             raise ValueError("runtime evaluation batch timeout must be non-negative.")
+        if any(
+            device != "cpu" and cuda_pattern.fullmatch(device) is None
+            for device in self.evaluation_devices
+        ):
+            raise ValueError("runtime.evaluation_devices contains an invalid device name.")
+        if len(set(self.evaluation_devices)) != len(self.evaluation_devices):
+            raise ValueError("runtime.evaluation_devices cannot contain duplicates.")
+        if self.evaluation_replicas_per_device < 1:
+            raise ValueError("runtime evaluation replicas per device must be positive.")
+        if self.evaluation_devices and (
+            self.evaluation_parallel_games != 1
+            or self.evaluation_inference_batch_size != 1
+        ):
+            raise ValueError(
+                "runtime replicated and central-batched evaluation modes cannot be combined."
+            )
         if self.num_workers < 0 or self.torch_threads < 1:
             raise ValueError("runtime.num_workers must be non-negative and torch_threads positive.")
         if self.device == "cpu" and self.learner_amp:

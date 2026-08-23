@@ -83,6 +83,15 @@ class ConfigTests(unittest.TestCase):
             ),
         )
         self.assertEqual(config_hash(config), config_hash(topology_change))
+        replicated_evaluation_change = replace(
+            config,
+            runtime=replace(
+                config.runtime,
+                evaluation_devices=("cuda:0", "cuda:1"),
+                evaluation_replicas_per_device=4,
+            ),
+        )
+        self.assertEqual(config_hash(config), config_hash(replicated_evaluation_change))
         lane_change = replace(
             config,
             runtime=replace(config.runtime, mcts_lanes_per_actor=2),
