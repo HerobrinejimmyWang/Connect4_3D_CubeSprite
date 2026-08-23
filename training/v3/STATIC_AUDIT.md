@@ -111,8 +111,22 @@ two seeds x five variants x 40,000 train positions. The frozen Stage 1 losses
 remain `reply=0.15`, `future_occupancy=0.15`, `moves_left=0.05`; occupancy class
 weights are `5.0/5.0/0.35561042132416815`. All-head policy loss improved under
 both seeds, while WDL was mixed, so this is learning-system calibration rather
-than strength evidence. The next admission evidence is the bounded target-GPU
-scheduler canary and its verified local archive receipt.
+than strength evidence.
+
+The bounded two-GPU scheduler canary then committed generation 0 at exactly 256
+consumed positions and restored it for generation 1, reaching 512 positions and
+490 cumulative raw positions. A CUDA-mapped checkpoint initially exposed that
+CPU RNG state needed explicit normalization back to a CPU ByteTensor; commit
+`3b49ed2` fixed it and added a CUDA regression. The resumed generation committed
+before the consecutive random-bootstrap warnings requested `stability_pause`.
+The canary archive materialized and verified 36 local files; cloud pruning kept
+both resume generations and removed only the receipt-confirmed staging tar.
+
+The P6 pools and screens were also materialized locally with receipts. Exact
+receipt-gated pruning removed the 12 and 14 raw replay triplets from the two
+cloud calibration pools only after local verification. The failed and successful
+screen weights/reports remain locally traceable. The target volume still had
+approximately 50 GiB free after cleanup.
 
 ## Minimal CUDA effectiveness result
 

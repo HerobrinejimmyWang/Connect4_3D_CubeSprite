@@ -353,6 +353,15 @@ both seeds; WDL evidence was mixed, so this freezes a learning-system starting
 point rather than claiming playing-strength improvement. P7 scheduler/archive
 connections are executable and regression-tested.
 
+A two-generation target-GPU canary consumed exactly 256 then 512 cumulative
+train positions, restored checkpoint/RNG/optimizer/scaler/replay state, and
+committed the second generation before a correlated random-bootstrap stability
+pause. Its 36-file archive was fully materialized and verified locally; prune
+kept both current resume generations and removed only the acknowledged staging
+copy. P6 raw pools, all ten successful screen weights, the partial failed screen,
+reports, and receipts were likewise retained locally before eligible cloud raw
+shards were removed.
+
 ### Stage 1 stability and 256-sim target audit
 
 `stability.py` evaluates correlated behavioral symptoms over consecutive

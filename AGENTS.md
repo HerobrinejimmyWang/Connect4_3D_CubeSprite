@@ -58,10 +58,11 @@ Legacy runbooks and old experiment logs are historical context only.
   The bounded synchronous scheduler is connected to cumulative replay,
   candidate cadence, accepted-champion self-play, generation-boundary signal
   drain, checksum journal publication, and the single-coordinator lock.
-- Current Stage 1 configs still contain provisional P6 auxiliary weights, so
-  formal execution intentionally refuses them. Do not bypass that guard: collect
-  the calibration-only pool, run the frozen P6 screen, review/freeze weights,
-  and rerun the complete V3 regression first.
+- Stage 1 loss weights were frozen by the 2026-08-23 P6 screen at
+  `reply=0.15`, `future_occupancy=0.15`, `moves_left=0.05`, with occupancy
+  weights `5.0/5.0/0.35561042132416815`. P6 is learning-system calibration,
+  not playing-strength evidence; continue the 256-simulation policy-quality
+  audits at selected checkpoints.
 - Formal runs require `archive_ack_prune`, a hard free-space reserve of at least
   10 GiB, and explicit bounded execution. The target presets pause for archive
   around 70% disk use or when 4-GiB staging headroom above the reserve is gone.
@@ -131,7 +132,7 @@ python tools\export_model_pth.py save_model\v2.2_large\best.pth.tar
 ```
 
 The V3 `run` command without `--execute` prints a guarded plan. Explicit
-execution still refuses provisional P6 weights, non-archival storage, and a
+execution still refuses placeholder P6 weights, non-archival storage, and a
 hard reserve below 10 GiB. `python training\main_train.py` is intentionally omitted
 because it is a Legacy entry point. Run it only when the requested task is
 explicitly scoped to Legacy reproduction or compatibility.
