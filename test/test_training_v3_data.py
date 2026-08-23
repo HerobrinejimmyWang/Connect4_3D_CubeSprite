@@ -370,6 +370,7 @@ class LearnerCheckpointTests(unittest.TestCase):
 
         self.assertEqual(skipped.steps, 0)
         self.assertEqual(skipped.positions, 0)
+        self.assertEqual(skipped.grad_norm, 0.0)
         self.assertEqual(learner.global_step, 0)
         self.assertEqual(learner.sample_cursor, 0)
         self.assertEqual(learner.last_sample_ids, [])

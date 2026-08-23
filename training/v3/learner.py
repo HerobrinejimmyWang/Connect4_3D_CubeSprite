@@ -732,13 +732,13 @@ class V3Learner:
                 )
                 self.optimizer.step()
                 optimizer_step_applied = True
-            last_grad_norm = float(torch.as_tensor(grad_norm).detach().cpu())
             if not optimizer_step_applied:
                 # GradScaler found non-finite gradients and intentionally skipped
                 # optimizer.step(). Do not consume replay budget or advance any
                 # resumable cursor; the next call retries the same deterministic
                 # sample IDs with the reduced scale.
                 break
+            last_grad_norm = float(torch.as_tensor(grad_norm).detach().cpu())
             if self.scheduler is not None:
                 self.scheduler.step()
 

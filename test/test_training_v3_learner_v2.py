@@ -206,6 +206,7 @@ class ReplayV2LearnerTests(unittest.TestCase):
 
         metrics = learner.train_steps(dataset, steps=1, token_bucket=bucket)
         self.assertEqual(metrics.steps, 0)
+        self.assertEqual(metrics.grad_norm, 0.0)
         self.assertEqual(learner.global_step, 0)
         self.assertEqual(learner.sample_cursor, 0)
         self.assertEqual(bucket.state_dict(), initial_bucket)
