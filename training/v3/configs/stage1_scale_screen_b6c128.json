@@ -23,7 +23,7 @@
     ],
     "weight_decay": 0.0001, "grad_clip_norm": 1.0, "policy_loss_weight": 1.0, "wdl_loss_weight": 1.0,
     "opponent_reply_loss_weight": 0.15, "future_occupancy_loss_weight": 0.15, "moves_left_loss_weight": 0.05,
-    "future_occupancy_class_weights": [1.0, 1.0, 1.0]
+    "future_occupancy_class_weights": [5.0, 5.0, 0.35561042132416815]
   },
   "gate": {
     "bootstrap_candidate_train_positions": 25000, "candidate_train_positions": 100000,

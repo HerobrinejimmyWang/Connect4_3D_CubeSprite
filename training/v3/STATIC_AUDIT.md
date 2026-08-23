@@ -74,9 +74,9 @@ uncontended cloud session can be reserved for meaningful measurements.
 ## Round 3: static acceptance state
 
 The framework supports CPU correctness smoke and an explicitly bounded,
-synchronous multi-generation runner. Formal execution is still readiness-gated:
-the current Stage 1 configs retain provisional P6 auxiliary weights and are
-rejected until the calibration screen is reviewed and frozen.
+synchronous multi-generation runner. The Stage 1 configs now contain reviewed
+P6 auxiliary and occupancy weights; execution remains opt-in and bounded, with
+CUDA, archive mode, and disk-reserve preflight.
 
 The third review also closed issues found only after integration:
 
@@ -105,9 +105,14 @@ Completed P7 connections:
 4. B4/B6 target GPU batch fill, throughput, learner throughput, and lane quality
    were measured on 2026-08-23.
 
-Remaining readiness gate: collect at least 768 games/12,000 Replay V2 samples,
-run the two-seed five-way P6 screen, review the learning/validation evidence, and
-freeze auxiliary loss plus occupancy class weights before Stage 1 execution.
+P6 completed on 2026-08-23 with 896 games/13,255 Replay V2 positions, dataset
+fingerprint `d117c989c6d6c588e62687d667095a5b234882371920375d386e68b453458e82`, and
+two seeds x five variants x 40,000 train positions. The frozen Stage 1 losses
+remain `reply=0.15`, `future_occupancy=0.15`, `moves_left=0.05`; occupancy class
+weights are `5.0/5.0/0.35561042132416815`. All-head policy loss improved under
+both seeds, while WDL was mixed, so this is learning-system calibration rather
+than strength evidence. The next admission evidence is the bounded target-GPU
+scheduler canary and its verified local archive receipt.
 
 ## Minimal CUDA effectiveness result
 

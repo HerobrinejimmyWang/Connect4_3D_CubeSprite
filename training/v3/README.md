@@ -10,8 +10,8 @@ consumed-position candidate cadence, committed-champion-only self-play,
 generation-boundary signal drain, a checksum-bound pre-commit journal,
 single-coordinator locking, and receipt-gated archive pruning. `run` remains
 plan-only unless `--execute` and an absolute `--max-train-positions` bound are
-both supplied. Current Stage 1 configs are still rejected by the execution path
-because their P6 auxiliary weights are explicitly provisional.
+both supplied. Stage 1 configs contain the reviewed P6 loss and occupancy
+weights; target execution still requires the explicit bound and preflight.
 
 ## Commands
 
@@ -42,8 +42,8 @@ change visit targets; shard size remains operational.
 |---|---|---:|---|---|
 | `smoke_cpu.json` | Correctness and recovery | 16 channels, 1 block | 4 games, 8/2 full/fast sims | Executable |
 | `pilot_gpu_64x4.json` | Historical cloud throughput and learning-signal check | 64 channels, 4 blocks | 64 games, 128/32 sims | Pilot evidence |
-| `stage1_scale_screen_b4c64_2x3080ti.json` | Stage 1 canary on the target host | 64 channels, 4 blocks | 64 games, 128/32 sims | Executable after P6 freeze |
-| `stage1_scale_screen_b6c128_2x3080ti.json` | Stage 1 medium-capacity target | 128 channels, 6 blocks | 160 games, 128/32 sims | Executable after P6 freeze |
+| `stage1_scale_screen_b4c64_2x3080ti.json` | Stage 1 canary on the target host | 64 channels, 4 blocks | 64 games, 128/32 sims | Executable with an explicit bound |
+| `stage1_scale_screen_b6c128_2x3080ti.json` | Stage 1 medium-capacity target | 128 channels, 6 blocks | 160 games, 128/32 sims | Executable with an explicit bound |
 
 The old ambiguous `v3_1_small.json` was removed. A 64x4 network is a pilot, not
 a full-run target. The 128x6 Mini is about 1.82 million parameters, close to the
@@ -311,10 +311,11 @@ board, and remaining turns. Full placements have policy weight 1; fast
 placements and forced-pass rows have policy weight 0. Pass rows retain WDL and
 auxiliary supervision with zero visits. Replay V1 and V2 are rejected if mixed.
 
-All explicit V3 configs currently use `classic` and provisional auxiliary loss
-weights `1.0/1.0/0.15/0.15/0.05`. Occupancy class weights are explicitly
-`1.0/1.0/1.0` only as a pre-calibration placeholder. They must be calibrated
-and frozen by the pre-Stage-1 ablation before formal training.
+Stage 1 scale configs use `classic`, auxiliary loss weights
+`1.0/1.0/0.15/0.15/0.05`, and P6-frozen future-occupancy class weights
+`5.0/5.0/0.35561042132416815`. Smoke and historical pilot/Mini configs retain
+neutral occupancy weights because they are correctness or historical evidence,
+not formal Stage 1 lineages.
 
 ### Bounded local P6/P7 validation
 
@@ -332,9 +333,9 @@ The frozen P6 screening floor is 768 games and 12,000 samples. Collect the pool
 without learner promotion, then run the same-position two-seed five-way screen:
 
 ```powershell
-python tools\collect_v3_p6_replay.py --config training\v3\configs\stage1_scale_screen_b4c64_2x3080ti.json --output training\runs\p6_aux_calibration_768_v1
-python -B -m training.v3 validate-local --config training\v3\configs\stage1_scale_screen_b4c64_2x3080ti.json --replay-dir training\runs\p6_aux_calibration_768_v1\replay\raw --minimum-replay-games 768 --minimum-replay-samples 12000
-python tools\run_v3_p6_screen.py --config training\v3\configs\stage1_scale_screen_b4c64_2x3080ti.json --replay-dir training\runs\p6_aux_calibration_768_v1\replay\raw --output training\runs\p6_aux_screen_v1
+python tools\collect_v3_p6_replay.py --config training\v3\configs\stage1_scale_screen_b4c64_2x3080ti.json --output training\runs\p6_aux_calibration_896_v1 --games 896
+python -B -m training.v3 validate-local --config training\v3\configs\stage1_scale_screen_b4c64_2x3080ti.json --replay-dir training\runs\p6_aux_calibration_896_v1 --minimum-replay-games 768 --minimum-replay-samples 12000
+python tools\run_v3_p6_screen.py --config training\v3\configs\stage1_scale_screen_b4c64_2x3080ti.json --replay-dir training\runs\p6_aux_calibration_896_v1 --output training\runs\p6_aux_screen_896_v2
 ```
 
 Add `--replay-dir <directory>` once a Replay V2 dataset has been selected. The
@@ -345,10 +346,12 @@ Dataset integrity and P6 screening readiness are separate. To assert the latter,
 pass both `--minimum-replay-games` and `--minimum-replay-samples`; the validator
 does not invent those experiment-size thresholds.
 
-The report distinguishes `local_contract_passed`, dataset integrity, explicit
-P6 screening readiness, and `stage1_ready`. P7 scheduler/archive connections
-are now executable and regression-tested; Stage 1 remains blocked until the P6
-screen is reviewed and its loss/class weights are frozen in the explicit configs.
+The 2026-08-23 screen used 896 games/13,255 positions (dataset fingerprint
+`d117c989c6d6c588e62687d667095a5b234882371920375d386e68b453458e82`) and two
+seeds at 40,000 positions per variant. All-head policy validation improved for
+both seeds; WDL evidence was mixed, so this freezes a learning-system starting
+point rather than claiming playing-strength improvement. P7 scheduler/archive
+connections are executable and regression-tested.
 
 ### Stage 1 stability and 256-sim target audit
 
