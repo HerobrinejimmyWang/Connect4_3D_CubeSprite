@@ -215,3 +215,10 @@ repeated 256 against 512 using `tools/run_v3_policy_target_quality.py`. The
 budget may be raised only when the 256-to-512 delta exceeds the repeated-256
 variability envelope and higher-budget targets improve held-out policy fit or
 paired strength; entropy or target sharpness alone is insufficient.
+
+The tool's `generate` command materializes those targets from the immutable
+anchored-opening manifest. Primary/reference runs share an audit seed and root
+noise, while the repeated-primary run changes only that seed. Every diagnostic
+replay records the checkpoint and opening checksums, exact MCTS/lane/noise
+contract, and is stored outside formal self-play replay so it cannot become a
+training producer by directory discovery.

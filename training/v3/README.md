@@ -386,17 +386,40 @@ and top-1/top-2 gap. At selected accepted checkpoints, generate the same fixed
 positions at 256, repeated 256, and 512 sims, then run:
 
 ```powershell
+python tools\run_v3_policy_target_quality.py generate `
+  --checkpoint path\to\accepted.pt `
+  --openings training\v3\evaluation\anchored_openings_classic_v1.json `
+  --position-count 50 --search-sims 256 --audit-seed 314159 `
+  --mcts-lanes 4 --device cuda:0 --run-id milestone-33k-primary `
+  --output path\to\fixed_256.npz
+python tools\run_v3_policy_target_quality.py generate `
+  --checkpoint path\to\accepted.pt `
+  --openings training\v3\evaluation\anchored_openings_classic_v1.json `
+  --position-count 50 --search-sims 256 --audit-seed 271828 `
+  --mcts-lanes 4 --device cuda:0 --run-id milestone-33k-repeat `
+  --output path\to\fixed_256_repeat.npz
+python tools\run_v3_policy_target_quality.py generate `
+  --checkpoint path\to\accepted.pt `
+  --openings training\v3\evaluation\anchored_openings_classic_v1.json `
+  --position-count 50 --search-sims 512 --audit-seed 314159 `
+  --mcts-lanes 4 --device cuda:0 --run-id milestone-33k-reference `
+  --output path\to\fixed_512.npz
 python tools\run_v3_policy_target_quality.py compare `
   --primary path\to\fixed_256.npz `
   --reference path\to\fixed_512.npz `
   --output path\to\policy_target_quality.json
 ```
 
-The tool verifies replay triplets and exact paired-position identity, then
-reports top-action agreement, total variation, Jensen-Shannon divergence, and
-reference top-1 regret. It never changes a search budget. Raise 256 only when
-its 512 delta exceeds repeated-256 variability and the 512 targets also improve
-held-out policy fit or paired strength.
+Primary and reference use the same audit seed so each position receives the
+same Dirichlet draw; the repeated primary uses a different seed to measure
+stochastic target variability. The generator records model/opening checksums,
+rule registry, lane semantics, noise, exact budget, and inference batching in
+an immutable diagnostic-only replay triplet. The comparison verifies triplets
+and exact paired-position identity, then reports top-action agreement, total
+variation, Jensen-Shannon divergence, and reference top-1 regret. It never
+changes a search budget. Raise 256 only when its 512 delta exceeds repeated-256
+variability and the 512 targets also improve held-out policy fit or paired
+strength.
 
 ## Smoke artifacts
 

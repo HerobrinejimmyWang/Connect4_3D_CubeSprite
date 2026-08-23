@@ -11,7 +11,10 @@ from training.v3.policy_target_quality import (
     compare_visit_targets,
     summarize_visit_targets,
 )
+from training.v3.evaluation import build_openings
+from training.v3.policy_target_audit import generate_fixed_opening_targets
 from training.v3.replay import ReplayShard
+from training.v3.search import RandomPredictor
 from training.v3.stability import GenerationStabilityMetrics, assess_stability
 
 
@@ -107,6 +110,27 @@ class HistoricalStabilityRegressionTests(unittest.TestCase):
 
 
 class PolicyTargetQualityTests(unittest.TestCase):
+    def test_fixed_opening_targets_preserve_identity_across_budgets(self) -> None:
+        openings = build_openings(4, run_seed=1234)
+        primary = generate_fixed_opening_targets(
+            openings,
+            predictor=RandomPredictor(),
+            search_sims=16,
+            audit_seed=99,
+            mcts_lanes=4,
+        ).replay
+        reference = generate_fixed_opening_targets(
+            openings,
+            predictor=RandomPredictor(),
+            search_sims=32,
+            audit_seed=99,
+            mcts_lanes=4,
+        ).replay
+        self.assertTrue(np.all(primary.visit_counts.sum(axis=1) == 16))
+        self.assertTrue(np.all(reference.visit_counts.sum(axis=1) == 32))
+        result = compare_replay_policy_targets(primary, reference)
+        self.assertEqual(result["positions"], 4)
+
     def test_visit_target_summary_checks_budget_and_shape(self) -> None:
         counts = np.zeros((2, 25), dtype=np.uint32)
         counts[0, :2] = (192, 64)
