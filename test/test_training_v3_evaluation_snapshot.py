@@ -29,6 +29,7 @@ class EvaluationSnapshotTests(unittest.TestCase):
             candidate_model_id=None,
             config_hash="config-hash",
             code_version="test-code",
+            recent_evaluation=None,
             extra_state={
                 "model_config": asdict(config),
                 "train_positions_consumed": 1234,
@@ -51,10 +52,12 @@ class EvaluationSnapshotTests(unittest.TestCase):
 
     def test_snapshot_refuses_to_overwrite(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "source.pt"
+            source.write_bytes(b"not-read-because-target-exists")
             target = Path(directory) / "exists.pt"
             target.write_bytes(b"preserve")
             with self.assertRaises(FileExistsError):
-                export_evaluation_snapshot(Path(directory) / "missing.pt", target)
+                export_evaluation_snapshot(source, target)
             self.assertEqual(target.read_bytes(), b"preserve")
 
 
