@@ -244,13 +244,18 @@ independent stop rules:
 - low value loss combined with short or repetitive games;
 - weak anchor/teacher score, non-finite loss, worker death, or checkpoint error.
 
-V3 emits the first three as watch warnings. `stability.py` now combines at
-least two behavioral symptoms across at least two consecutive generations and
-is regression-checked against the archived collapse/recovery traces. The bounded
-formal scheduler persists that history and, when the assessment requests a
-pause, commits the active generation before stopping at its boundary. It does
-not change parameters automatically; the operator still combines this evidence
-with validation, gate, historical-milestone, and tactical-suite results.
+V3 emits the first three as watch warnings. `stability.py` combines at least two
+behavioral symptoms across consecutive generations, and requires a material
+adverse trend (10% mean-length drop or 10-point short-game-rate rise) or
+collapsed value loss before escalating the repeated watch to a pause. This
+keeps the frozen Stage 1 champion's deliberate high-exploration distribution
+observable without treating identical stochastic samples as continued model
+deterioration. The rule is regression-checked against the archived
+collapse/recovery traces. The bounded formal scheduler persists that history
+and, when the assessment requests a pause, commits the active generation before
+stopping at its boundary. It does not change parameters automatically; the
+operator still combines this evidence with validation, gate,
+historical-milestone, and tactical-suite results.
 
 ## Two-GPU plan (P2)
 

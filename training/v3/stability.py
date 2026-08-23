@@ -17,6 +17,8 @@ class StabilityThresholds:
     game_length_variance_watch: float = 50.0
     game_length_variance_critical: float = 30.0
     short_game_rate_watch: float = 0.10
+    mean_game_length_drop_fraction_watch: float = 0.10
+    short_game_rate_rise_watch: float = 0.10
     value_loss_watch: float = 0.20
     consecutive_generations_to_pause: int = 2
     correlated_behavior_signals_to_pause: int = 2
@@ -32,6 +34,10 @@ class StabilityThresholds:
             raise ValueError("stability thresholds must be positive")
         if not 0.0 < self.short_game_rate_watch < 1.0:
             raise ValueError("short-game threshold must be in (0, 1)")
+        if not 0.0 < self.mean_game_length_drop_fraction_watch < 1.0:
+            raise ValueError("mean-game-length drop threshold must be in (0, 1)")
+        if not 0.0 < self.short_game_rate_rise_watch < 1.0:
+            raise ValueError("short-game rise threshold must be in (0, 1)")
         if self.game_length_variance_critical >= self.game_length_variance_watch:
             raise ValueError("critical variance must be below the watch threshold")
         if self.consecutive_generations_to_pause < 2:
@@ -106,7 +112,12 @@ def _signals_for(
     contextual: list[str] = []
     if row.mean_game_length < thresholds.mean_game_length_watch:
         behavioral.append("mean_game_length_low")
-        if previous is not None and row.mean_game_length < previous.mean_game_length:
+        if (
+            previous is not None
+            and row.mean_game_length
+            < previous.mean_game_length
+            * (1.0 - thresholds.mean_game_length_drop_fraction_watch)
+        ):
             contextual.append("mean_game_length_falling")
     if row.game_length_variance < thresholds.game_length_variance_watch:
         behavioral.append("game_length_variance_low")
@@ -114,6 +125,12 @@ def _signals_for(
             contextual.append("game_length_variance_critical")
     if row.short_game_rate > thresholds.short_game_rate_watch:
         behavioral.append("short_game_rate_high")
+        if (
+            previous is not None
+            and row.short_game_rate - previous.short_game_rate
+            >= thresholds.short_game_rate_rise_watch
+        ):
+            contextual.append("short_game_rate_rising")
     # Low value loss can accompany a collapsed, easy replay distribution, but
     # it is never a stop signal without the behavioral evidence above.
     if row.value_loss is not None and row.value_loss < thresholds.value_loss_watch:
@@ -142,7 +159,28 @@ def assess_stability(
         previous = rows[index - 1] if index else None
         behavioral, contextual = _signals_for(row, previous, thresholds)
         correlated = len(behavioral) >= thresholds.correlated_behavior_signals_to_pause
-        consecutive = consecutive + 1 if correlated else 0
+        escalating = any(
+            signal
+            in {
+                "mean_game_length_falling",
+                "short_game_rate_rising",
+                "value_loss_low",
+            }
+            for signal in contextual
+        )
+        if not correlated:
+            consecutive = 0
+        elif consecutive == 0:
+            consecutive = 1
+        elif escalating:
+            consecutive += 1
+        else:
+            # A frozen champion under a deliberately exploratory schedule can
+            # repeatedly cross absolute game-length watch thresholds without
+            # deteriorating. Keep the condition visible, but require a
+            # material adverse trend (or collapsed value loss) before an
+            # automatic pause is armed.
+            consecutive = 1
         if (
             first_pause_generation is None
             and consecutive >= thresholds.consecutive_generations_to_pause

@@ -47,6 +47,55 @@ class HistoricalStabilityRegressionTests(unittest.TestCase):
         self.assertEqual(result.action, "watch")
         self.assertIsNone(result.first_pause_generation)
 
+    def test_stable_high_exploration_distribution_stays_watch(self) -> None:
+        rows = (
+            GenerationStabilityMetrics(
+                generation=2,
+                games=64,
+                mean_game_length=12.859375,
+                game_length_variance=20.464599609375,
+                short_game_rate=0.5625,
+                mean_policy_entropy=2.598018764701392,
+                value_loss=0.6571766083759062,
+            ),
+            GenerationStabilityMetrics(
+                generation=3,
+                games=64,
+                mean_game_length=13.21875,
+                game_length_variance=17.3583984375,
+                short_game_rate=0.453125,
+                mean_policy_entropy=2.6309109264167496,
+                value_loss=0.6455787241317984,
+            ),
+        )
+        result = assess_stability(rows)
+        self.assertEqual(result.action, "watch")
+        self.assertEqual(result.consecutive_behavioral_alerts, 1)
+        self.assertIsNone(result.first_pause_generation)
+
+    def test_material_short_game_deterioration_still_pauses(self) -> None:
+        rows = (
+            GenerationStabilityMetrics(
+                generation=10,
+                games=240,
+                mean_game_length=16.4,
+                game_length_variance=80.0,
+                short_game_rate=0.54,
+                value_loss=0.46,
+            ),
+            GenerationStabilityMetrics(
+                generation=11,
+                games=240,
+                mean_game_length=11.3,
+                game_length_variance=39.0,
+                short_game_rate=0.77,
+                value_loss=0.29,
+            ),
+        )
+        result = assess_stability(rows)
+        self.assertEqual(result.action, "pause")
+        self.assertEqual(result.first_pause_generation, 11)
+
 
 class PolicyTargetQualityTests(unittest.TestCase):
     def test_visit_target_summary_checks_budget_and_shape(self) -> None:

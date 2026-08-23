@@ -368,12 +368,17 @@ shards were removed.
 ### Stage 1 stability and 256-sim target audit
 
 `stability.py` evaluates correlated behavioral symptoms over consecutive
-generations. The regression fixture in
+generations. Repeated absolute short-game/low-variance watch thresholds do not
+alone pause a frozen champion under the Stage 1 high-exploration schedule: the
+second correlated generation must also show a material adverse trend (at least
+a 10% mean-length drop or a 10-point short-game-rate rise), or collapsed value
+loss. The regression fixture in
 `test/fixtures/v3_historical_stability_trace_v1.json` is aggregate Legacy
 evidence only: it stops the high-temperature 253-264 branch at 254 while not
-stopping the controlled 249-260 recovery. A single short-game spike remains a
-watch. The scheduler records the health decision; correlated instability still
-requires a safe-boundary operator pause rather than automatic parameter changes.
+stopping the controlled 249-260 recovery. A single spike or a stable exploratory
+short-game distribution remains a watch. The scheduler records the health
+decision; escalating correlated instability still requires a safe-boundary
+operator pause rather than automatic parameter changes.
 
 Every new self-play health artifact includes full/fast visit-target summaries:
 visit-budget integrity, entropy, effective action count, support, top-1 mass,
