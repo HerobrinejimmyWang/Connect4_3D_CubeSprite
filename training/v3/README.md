@@ -156,6 +156,15 @@ eight outcomes; process-plus-central-batch was 1.07x at 4 workers for the heavy
 anchor pair but 0.73x for B4-vs-v2.2. Do not raise MCTS lanes to improve
 evaluation utilization.
 
+On the target two-3080-Ti host, four replicas per GPU preserved every result in
+the fixed serial comparison and in all three 50-pair anchor calibrations. A
+post-load full-queue sample during calibration reached 91%/95% GPU utilization
+at about 192/197 W, used 1.67 GiB per GPU, and kept all eight single-lane
+workers active. On the same eight B4-vs-v2.2 opening pairs, eight workers took
+26.83 seconds versus 36.91 seconds for four workers; the heavier anchor pair
+took 80.57 versus 88.22 seconds. This supports the target preset without using
+host-wide CPU utilization as a proxy for search quality.
+
 Use the common fixed-profile sweep before changing a GPU preset:
 
 ```powershell
@@ -169,8 +178,8 @@ the serial games, every parallel game, exact-result mismatch count, effective
 inference batches, wall-time speedup, cgroup CPU quota/use, and sampled GPU
 utilization, memory, and power. Run it only in an uncontended hardware window.
 For the adopted replicated path, use
-`match --devices cuda:0,cuda:1 --replicas-per-device 4`; a single immutable batch dynamically balances whole
-opening pairs across eight workers.
+`match --devices cuda:0,cuda:1 --replicas-per-device 4`; a single immutable
+batch dynamically balances whole opening pairs across eight workers.
 
 ## Historical anchored Elo
 
@@ -467,6 +476,18 @@ variation, Jensen-Shannon divergence, and reference top-1 regret. It never
 changes a search budget. Raise 256 only when its 512 delta exceeds repeated-256
 variability and the 512 targets also improve held-out policy fit or paired
 strength.
+
+The accepted B4 checkpoint near 35k train positions produced the following
+fixed 50-position diagnostic. The current 128-sim full-search targets agreed
+with 256 sims on only 60% of top actions (TV 0.199, JS 0.0319). The 256-sim
+targets agreed with 512 sims on 74% (TV 0.171, JS 0.0271), while the independent
+256 repeat agreed on 94% (TV 0.0416, JS 0.00492). Thus 128 is a deliberately
+coarse research-line target, not a quality-saturated target. Keep 128/32 frozen
+for the B4-to-B6 controlled scale screen; treat 256 as the practical-line
+candidate and require held-out learning or paired-strength evidence before
+paying for 512. Fast-search positions have policy weight zero, so this decision
+concerns the full-search policy targets rather than the 32-sim action-selection
+path.
 
 ## Smoke artifacts
 
