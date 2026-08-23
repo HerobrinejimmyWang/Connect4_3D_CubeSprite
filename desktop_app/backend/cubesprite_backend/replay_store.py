@@ -14,6 +14,14 @@ from typing import Any
 import numpy as np
 
 from connect4_core import GameRules
+from connect4_core.rules import (
+    DEFAULT_RULE_REGISTRY,
+    MAX_TURNS,
+    GameOutcome,
+    RuleEngine,
+    TurnAction,
+    TurnKind,
+)
 
 if os.name == "nt":
     import msvcrt
@@ -23,6 +31,7 @@ else:  # pragma: no cover - exercised by non-Windows development environments.
 
 REPLAY_FORMAT = "cubesprite.replay"
 REPLAY_PROTOCOL_VERSION = 1
+REPLAY_PROTOCOL_V2 = 2
 RULES_FORMAT = "connect4-3d-gravity"
 RULES_VERSION = 1
 ANALYSIS_FORMAT = "cubesprite.win-rate-analysis"
@@ -33,6 +42,7 @@ MAX_REPLAY_BYTES = 512 * 1024
 MAX_REPLAY_NAME_LENGTH = 120
 REPLAY_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+CONTROLLER_TYPES = {"model", "human", "random", "external"}
 
 
 class ReplayStoreError(RuntimeError):
@@ -260,6 +270,15 @@ class ReplayStore:
             if path.exists():
                 existing = self._read_replay(path)
                 if existing["fingerprint"] == replay["fingerprint"]:
+                    if (
+                        replay.get("protocol_version") == REPLAY_PROTOCOL_V2
+                        and existing.get("participant_provenance_hash")
+                        != replay.get("participant_provenance_hash")
+                    ):
+                        raise ReplayStoreError(
+                            "REPLAY_ID_CONFLICT",
+                            f"Replay id {replay['id']} has different participant provenance.",
+                        )
                     # The fingerprint deliberately identifies the rules and
                     # move sequence, not mutable display metadata. Return the
                     # document that is actually persisted so the caller never
@@ -366,6 +385,18 @@ class ReplayStore:
 
 
 def validate_replay(payload: Any, game: GameRules) -> dict[str, Any]:
+    """Validate a replay using its exact, version-specific document contract."""
+
+    if not isinstance(payload, dict):
+        raise ReplayStoreError("INVALID_REPLAY", "Replay document must be a JSON object.")
+    if payload.get("protocol_version") == REPLAY_PROTOCOL_V2:
+        return _validate_replay_v2(payload, game)
+    return _validate_replay_v1(payload, game)
+
+
+def _validate_replay_v1(payload: Any, game: GameRules) -> dict[str, Any]:
+    """The original exact-key V1 validator; keep this path behavior stable."""
+
     if not isinstance(payload, dict):
         raise ReplayStoreError("INVALID_REPLAY", "Replay document must be a JSON object.")
     required = {
@@ -429,6 +460,136 @@ def validate_replay(payload: Any, game: GameRules) -> dict[str, Any]:
     if payload["fingerprint"] != fingerprint:
         raise ReplayStoreError("REPLAY_FINGERPRINT_MISMATCH", "Replay fingerprint does not match its move sequence.")
     normalized["fingerprint"] = fingerprint
+    return normalized
+
+
+def _validate_replay_v2(payload: dict[str, Any], game: GameRules) -> dict[str, Any]:
+    required = {
+        "format",
+        "protocol_version",
+        "id",
+        "name",
+        "saved_at",
+        "rules",
+        "rule_id",
+        "rule_version",
+        "participants",
+        "turns",
+        "turn_count",
+        "placement_count",
+        "status",
+        "winner",
+        "fingerprint",
+        "participant_provenance_hash",
+    }
+    _require_exact_keys(payload, required, "replay")
+    if (
+        payload["format"] != REPLAY_FORMAT
+        or _strict_int(payload["protocol_version"], "protocol_version") != REPLAY_PROTOCOL_V2
+    ):
+        raise ReplayStoreError(
+            "UNSUPPORTED_REPLAY_PROTOCOL",
+            "Replay protocol v2 has an invalid format or version.",
+        )
+    replay_id = _normalize_replay_id(payload["id"])
+    name = _normalize_name(payload["name"])
+    saved_at = _normalize_timestamp(payload["saved_at"], "saved_at")
+    rules = _validate_rules(payload["rules"], game)
+    rule_id = payload["rule_id"]
+    if not isinstance(rule_id, str) or not rule_id:
+        raise ReplayStoreError("UNSUPPORTED_REPLAY_RULES", "rule_id must be a registered rule.")
+    try:
+        rule_spec = DEFAULT_RULE_REGISTRY.get(rule_id)
+    except (KeyError, TypeError) as exc:
+        raise ReplayStoreError(
+            "UNSUPPORTED_REPLAY_RULES",
+            f"Replay uses unknown rule_id {rule_id!r}.",
+        ) from exc
+    rule_version = _strict_int(payload["rule_version"], "rule_version")
+    if rule_version != rule_spec.rule_version:
+        raise ReplayStoreError(
+            "UNSUPPORTED_REPLAY_RULES",
+            f"Replay rule version {rule_version} does not match {rule_id!r}.",
+        )
+    participants = _normalize_participants(payload["participants"])
+    turns = payload["turns"]
+    if not isinstance(turns, list) or len(turns) > MAX_TURNS:
+        raise ReplayStoreError(
+            "INVALID_REPLAY",
+            f"turns must contain at most {MAX_TURNS} entries.",
+        )
+
+    engine = RuleEngine(rule_spec)
+    state = engine.initial_state()
+    normalized_turns: list[dict[str, Any]] = []
+    for index, raw_turn in enumerate(turns):
+        if state.terminal:
+            raise ReplayStoreError("INVALID_REPLAY", "Replay contains turns after the game ended.")
+        turn = _normalize_protocol_turn_v2(raw_turn, index, state, engine, game)
+        try:
+            if turn["kind"] == TurnKind.PLACE.value:
+                action = TurnAction.place(turn["column"])
+            else:
+                action = TurnAction.forced_pass()
+            state = engine.step(state, action)
+        except (TypeError, ValueError) as exc:
+            raise ReplayStoreError(
+                "INVALID_REPLAY_MOVE",
+                f"Turn {index + 1} is illegal: {exc}",
+            ) from exc
+        normalized_turns.append(turn)
+
+    turn_count = _strict_int(payload["turn_count"], "turn_count")
+    placement_count = _strict_int(payload["placement_count"], "placement_count")
+    expected_placements = sum(
+        turn["kind"] == TurnKind.PLACE.value for turn in normalized_turns
+    )
+    status, winner = _v2_outcome_summary(state.outcome)
+    declared_winner = payload["winner"]
+    if isinstance(declared_winner, bool) or declared_winner not in (None, -1, 0, 1):
+        raise ReplayStoreError("INVALID_REPLAY", "winner must be null, -1, 0, or +1.")
+    if (
+        turn_count != len(normalized_turns)
+        or placement_count != expected_placements
+        or placement_count != state.placement_count
+        or payload["status"] != status
+        or declared_winner != winner
+    ):
+        raise ReplayStoreError(
+            "INVALID_REPLAY",
+            "Replay summary does not match the validated turn sequence.",
+        )
+
+    normalized = {
+        "format": REPLAY_FORMAT,
+        "protocol_version": REPLAY_PROTOCOL_V2,
+        "id": replay_id,
+        "name": name,
+        "saved_at": saved_at,
+        "rules": rules,
+        "rule_id": rule_spec.rule_id,
+        "rule_version": rule_spec.rule_version,
+        "participants": participants,
+        "turns": normalized_turns,
+        "turn_count": len(normalized_turns),
+        "placement_count": expected_placements,
+        "status": status,
+        "winner": winner,
+    }
+    fingerprint = replay_fingerprint(normalized)
+    if payload["fingerprint"] != fingerprint:
+        raise ReplayStoreError(
+            "REPLAY_FINGERPRINT_MISMATCH",
+            "Replay fingerprint does not match its rule and turn sequence.",
+        )
+    provenance_hash = participant_provenance_hash(normalized)
+    if payload["participant_provenance_hash"] != provenance_hash:
+        raise ReplayStoreError(
+            "PARTICIPANT_PROVENANCE_MISMATCH",
+            "Participant provenance hash does not match the stable participant identities.",
+        )
+    normalized["fingerprint"] = fingerprint
+    normalized["participant_provenance_hash"] = provenance_hash
     return normalized
 
 
@@ -502,7 +663,7 @@ def validate_analysis(payload: Any, replay: dict[str, Any]) -> dict[str, Any]:
     if duration_ms < 0:
         raise ReplayStoreError("INVALID_ANALYSIS", "duration_ms must not be negative.")
     points = payload["points"]
-    if not isinstance(points, list) or len(points) != replay["move_count"] + 1:
+    if not isinstance(points, list) or len(points) != _replay_step_count(replay) + 1:
         raise ReplayStoreError("INVALID_ANALYSIS", "Analysis must contain one point for every replay step, including step 0.")
     normalized_points = []
     for index, point in enumerate(points):
@@ -544,7 +705,7 @@ def replay_summary(replay: dict[str, Any]) -> dict[str, Any]:
         "id": replay["id"],
         "name": replay["name"],
         "saved_at": replay["saved_at"],
-        "move_count": replay["move_count"],
+        "move_count": _replay_step_count(replay),
         "status": replay["status"],
         "winner": replay["winner"],
         "fingerprint": replay["fingerprint"],
@@ -552,17 +713,69 @@ def replay_summary(replay: dict[str, Any]) -> dict[str, Any]:
 
 
 def replay_fingerprint(replay: dict[str, Any]) -> str:
+    if replay.get("protocol_version") == REPLAY_PROTOCOL_V2:
+        canonical = {
+            "format": REPLAY_FORMAT,
+            "protocol_version": REPLAY_PROTOCOL_V2,
+            "rules": replay["rules"],
+            "rule_id": replay["rule_id"],
+            "rule_version": replay["rule_version"],
+            "turns": replay["turns"],
+        }
+    else:
+        canonical = {
+            "format": REPLAY_FORMAT,
+            "protocol_version": REPLAY_PROTOCOL_VERSION,
+            "rules": replay["rules"],
+            "moves": replay["moves"],
+        }
+    raw = json.dumps(canonical, sort_keys=True, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def participant_provenance_hash(replay: dict[str, Any]) -> str:
+    """Hash stable participant provenance while excluding mutable display names."""
+
+    participants = replay.get("participants")
+    if not isinstance(participants, list):
+        raise ReplayStoreError("INVALID_REPLAY", "participants must be a list.")
+    try:
+        ordered = sorted(
+            participants,
+            key=lambda participant: {"FIRST": 0, "SECOND": 1}[participant["seat"]],
+        )
+    except (KeyError, TypeError) as exc:
+        raise ReplayStoreError("INVALID_REPLAY", "participants have invalid seats.") from exc
+    stable_fields = (
+        "seat",
+        "player",
+        "controller_type",
+        "controller_id",
+        "model_id",
+        "lineage_hash",
+        "artifact_sha256",
+    )
     canonical = {
         "format": REPLAY_FORMAT,
-        "protocol_version": REPLAY_PROTOCOL_VERSION,
-        "rules": replay["rules"],
-        "moves": replay["moves"],
+        "protocol_version": REPLAY_PROTOCOL_V2,
+        "participants": [
+            {field: participant[field] for field in stable_fields}
+            for participant in ordered
+        ],
     }
     raw = json.dumps(canonical, sort_keys=True, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+def _replay_step_count(replay: dict[str, Any]) -> int:
+    if replay.get("protocol_version") == REPLAY_PROTOCOL_V2:
+        return int(replay["turn_count"])
+    return int(replay["move_count"])
+
+
 def build_replay_frames(replay: dict[str, Any], game: GameRules) -> list[dict[str, Any]]:
+    if replay.get("protocol_version") == REPLAY_PROTOCOL_V2:
+        return _build_replay_frames_v2(replay, game)
     board = game.get_init_board()
     current_player = 1
     status = "playing"
@@ -586,6 +799,49 @@ def build_replay_frames(replay: dict[str, Any], game: GameRules) -> list[dict[st
         frames.append(
             _frame_snapshot(
                 replay, step, board, current_player, status, winner, last_move, winning_line, game
+            )
+        )
+    return frames
+
+
+def _build_replay_frames_v2(replay: dict[str, Any], game: GameRules) -> list[dict[str, Any]]:
+    engine = RuleEngine(replay["rule_id"])
+    state = engine.initial_state()
+    frames = [
+        _frame_snapshot(replay, 0, state.board, 1, "playing", None, None, [], game)
+    ]
+    for step, turn in enumerate(replay["turns"], start=1):
+        acting_player = state.player_to_move
+        action = (
+            TurnAction.place(turn["column"])
+            if turn["kind"] == TurnKind.PLACE.value
+            else TurnAction.forced_pass()
+        )
+        state = engine.step(state, action)
+        status, winner = _v2_outcome_summary(state.outcome)
+        current_player = (
+            winner
+            if status == "won"
+            else acting_player
+            if status == "draw"
+            else state.player_to_move
+        )
+        winning_line = (
+            find_winning_line(state.board, acting_player, game.connect_n)
+            if status == "won"
+            else []
+        )
+        frames.append(
+            _frame_snapshot(
+                replay,
+                step,
+                state.board,
+                int(current_player),
+                status,
+                winner,
+                deepcopy(turn),
+                winning_line,
+                game,
             )
         )
     return frames
@@ -626,7 +882,7 @@ def _frame_snapshot(
     current_player: int,
     status: str,
     winner: int | None,
-    last_move: dict[str, int] | None,
+    last_move: dict[str, Any] | None,
     winning_line: list[dict[str, int]],
     game: GameRules,
 ) -> dict[str, Any]:
@@ -651,7 +907,7 @@ def _frame_snapshot(
         "can_undo": False,
         "replay_id": replay["id"],
         "replay_step": step,
-        "replay_total_steps": replay["move_count"],
+        "replay_total_steps": _replay_step_count(replay),
     }
 
 
@@ -703,6 +959,181 @@ def _normalize_protocol_move(move: Any, index: int, game: GameRules) -> dict[str
         if _strict_int(move[coordinate], coordinate) != normalized[coordinate]:
             raise ReplayStoreError("INVALID_REPLAY", f"Move {index + 1} coordinates do not match its action.")
     return normalized
+
+
+def _normalize_protocol_turn_v2(
+    turn: Any,
+    index: int,
+    state: Any,
+    engine: RuleEngine,
+    game: GameRules,
+) -> dict[str, Any]:
+    if not isinstance(turn, dict):
+        raise ReplayStoreError("INVALID_REPLAY", f"Turn {index + 1} must be an object.")
+    kind = turn.get("kind")
+    common = {"ply", "kind", "player"}
+    if kind == TurnKind.PLACE.value:
+        _require_exact_keys(
+            turn,
+            common | {"column", "action", "layer", "row", "col"},
+            f"turn {index + 1}",
+        )
+    elif kind == TurnKind.FORCED_PASS.value:
+        _require_exact_keys(turn, common, f"turn {index + 1}")
+    else:
+        raise ReplayStoreError(
+            "INVALID_REPLAY",
+            f"Turn {index + 1} kind must be 'place' or 'forced_pass'.",
+        )
+    ply = _strict_int(turn["ply"], "ply")
+    player = _strict_int(turn["player"], "player")
+    if ply != index + 1:
+        raise ReplayStoreError("INVALID_REPLAY", f"Turn {index + 1} has an invalid ply number.")
+    if player != state.player_to_move:
+        raise ReplayStoreError("INVALID_REPLAY", f"Turn {index + 1} does not alternate players.")
+    if kind == TurnKind.FORCED_PASS.value:
+        return {"ply": ply, "kind": kind, "player": player}
+
+    column = _strict_int(turn["column"], "column")
+    action = _strict_int(turn["action"], "action")
+    try:
+        expected_action = engine.legacy_action_for_column(state, column)
+        layer, row, col = game.action_to_coords(action)
+    except (TypeError, ValueError) as exc:
+        raise ReplayStoreError(
+            "INVALID_REPLAY_MOVE",
+            f"Turn {index + 1} is invalid: {exc}",
+        ) from exc
+    if action != expected_action:
+        raise ReplayStoreError(
+            "INVALID_REPLAY_MOVE",
+            f"Turn {index + 1} action does not match its gravity-legal column.",
+        )
+    coordinates = {"layer": layer, "row": row, "col": col}
+    for name, expected in coordinates.items():
+        if _strict_int(turn[name], name) != expected:
+            raise ReplayStoreError(
+                "INVALID_REPLAY",
+                f"Turn {index + 1} coordinates do not match its action.",
+            )
+    return {
+        "ply": ply,
+        "kind": kind,
+        "player": player,
+        "column": column,
+        "action": action,
+        **coordinates,
+    }
+
+
+def _normalize_participants(payload: Any) -> list[dict[str, Any]]:
+    if not isinstance(payload, list) or len(payload) != 2:
+        raise ReplayStoreError(
+            "INVALID_REPLAY",
+            "participants must contain exactly FIRST and SECOND.",
+        )
+    expected_keys = {
+        "seat",
+        "player",
+        "controller_type",
+        "controller_id",
+        "display_name",
+        "model_id",
+        "lineage_hash",
+        "artifact_sha256",
+    }
+    by_seat: dict[str, dict[str, Any]] = {}
+    for index, participant in enumerate(payload):
+        if not isinstance(participant, dict):
+            raise ReplayStoreError("INVALID_REPLAY", f"Participant {index + 1} must be an object.")
+        _require_exact_keys(participant, expected_keys, f"participant {index + 1}")
+        seat = participant["seat"]
+        if seat not in {"FIRST", "SECOND"} or seat in by_seat:
+            raise ReplayStoreError(
+                "INVALID_REPLAY",
+                "participants must use unique FIRST and SECOND seats.",
+            )
+        player = _strict_int(participant["player"], "player")
+        expected_player = 1 if seat == "FIRST" else -1
+        if player != expected_player:
+            raise ReplayStoreError(
+                "INVALID_REPLAY",
+                f"Participant {seat} must use player {expected_player:+d}.",
+            )
+        controller_type = participant["controller_type"]
+        if controller_type not in CONTROLLER_TYPES:
+            raise ReplayStoreError(
+                "INVALID_REPLAY",
+                f"Participant {seat} has an unsupported controller_type.",
+            )
+        display_name = _normalize_display_name(participant["display_name"], seat)
+        by_seat[seat] = {
+            "seat": seat,
+            "player": player,
+            "controller_type": controller_type,
+            "controller_id": _normalize_optional_identifier(
+                participant["controller_id"], f"participant {seat} controller_id"
+            ),
+            "display_name": display_name,
+            "model_id": _normalize_optional_identifier(
+                participant["model_id"], f"participant {seat} model_id"
+            ),
+            "lineage_hash": _normalize_optional_digest(
+                participant["lineage_hash"], f"participant {seat} lineage_hash"
+            ),
+            "artifact_sha256": _normalize_optional_digest(
+                participant["artifact_sha256"], f"participant {seat} artifact_sha256"
+            ),
+        }
+    if set(by_seat) != {"FIRST", "SECOND"}:
+        raise ReplayStoreError(
+            "INVALID_REPLAY",
+            "participants must contain exactly FIRST and SECOND.",
+        )
+    return [by_seat["FIRST"], by_seat["SECOND"]]
+
+
+def _normalize_display_name(value: Any, seat: str) -> str:
+    if not isinstance(value, str):
+        raise ReplayStoreError("INVALID_REPLAY", f"Participant {seat} display_name must be a string.")
+    display_name = value.strip()
+    if not display_name or len(display_name) > MAX_REPLAY_NAME_LENGTH:
+        raise ReplayStoreError(
+            "INVALID_REPLAY",
+            f"Participant {seat} display_name must contain 1 to {MAX_REPLAY_NAME_LENGTH} characters.",
+        )
+    if any(ord(char) < 32 for char in display_name):
+        raise ReplayStoreError("INVALID_REPLAY", f"Participant {seat} display_name is invalid.")
+    return display_name
+
+
+def _normalize_optional_identifier(value: Any, label: str) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ReplayStoreError("INVALID_REPLAY", f"{label} must be a string or null.")
+    normalized = value.strip()
+    if not normalized or len(normalized) > MAX_REPLAY_NAME_LENGTH or any(
+        ord(char) < 32 for char in normalized
+    ):
+        raise ReplayStoreError("INVALID_REPLAY", f"{label} is invalid.")
+    return normalized
+
+
+def _normalize_optional_digest(value: Any, label: str) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or SHA256_PATTERN.fullmatch(value) is None:
+        raise ReplayStoreError("INVALID_REPLAY", f"{label} must be a lowercase SHA-256 digest or null.")
+    return value
+
+
+def _v2_outcome_summary(outcome: GameOutcome) -> tuple[str, int | None]:
+    if outcome == GameOutcome.ONGOING:
+        return "playing", None
+    if outcome == GameOutcome.DRAW:
+        return "draw", 0
+    return "won", outcome.winner
 
 
 def _rules_document(game: GameRules) -> dict[str, Any]:

@@ -8,7 +8,11 @@
   "model": {
     "architecture": "gravity_resnet",
     "channels": 16,
-    "blocks": 1
+    "blocks": 1,
+    "global_input_schema": "role_rule_v1",
+    "output_schema": "policy_wdl_aux_v1",
+    "rule_feature_dim": 32,
+    "moves_left_classes": 301
   },
   "selfplay": {
     "search_schedule": [
@@ -35,7 +39,9 @@
       }
     ],
     "cpuct": 1.5,
-    "virtual_loss": 1.0
+    "virtual_loss": 1.0,
+    "rule_id": "classic",
+    "rule_registry_hash": "4c21f13e4e5c9529f0a2a3695bb70015893191bdad65a4208076438e79db90ca"
   },
   "replay": {
     "train_fraction": 0.95,
@@ -55,7 +61,13 @@
       }
     ],
     "weight_decay": 0.0001,
-    "grad_clip_norm": 1.0
+    "grad_clip_norm": 1.0,
+    "policy_loss_weight": 1.0,
+    "wdl_loss_weight": 1.0,
+    "opponent_reply_loss_weight": 0.15,
+    "future_occupancy_loss_weight": 0.15,
+    "moves_left_loss_weight": 0.05,
+    "future_occupancy_class_weights": [1.0, 1.0, 1.0]
   },
   "gate": {
     "bootstrap_candidate_train_positions": 8,

@@ -6,37 +6,116 @@ from typing import Protocol
 
 import numpy as np
 
-from connect4_core import GameRules
-
-from .model import (
-    COLUMN_COUNT,
-    legal_column_mask,
-    wdl_expected_value,
+from connect4_core.rules import (
+    FEATURE_DIM,
+    GameOutcome,
+    GameState,
+    RuleEngine,
+    TurnAction,
+    TurnKind,
 )
+
+from .model import COLUMN_COUNT, ROLE_FEATURE_COUNT, wdl_expected_value
 
 
 SEARCH_FAST = "fast"
 SEARCH_FULL = "full"
+SEARCH_NONE = "none"
+PASS_ACTION = -1
+
+
+def role_features_for_player(player_to_move: int) -> np.ndarray:
+    """Encode the absolute starter role separately from the canonical board."""
+
+    if int(player_to_move) not in (-1, 1):
+        raise ValueError("player_to_move must be +1 (FIRST) or -1 (SECOND).")
+    return np.asarray((1.0, 0.0) if int(player_to_move) == 1 else (0.0, 1.0), dtype=np.float32)
+
+
+def canonical_board_for_state(state: GameState) -> np.ndarray:
+    """Return a board where +1 is the side to move without losing absolute role."""
+
+    if not isinstance(state, GameState):
+        raise TypeError("state must be a GameState.")
+    return np.asarray(state.board * state.player_to_move, dtype=np.int8)
+
+
+def _validate_predictor_context(
+    canonical_boards: np.ndarray,
+    role_to_play: np.ndarray,
+    rule_features: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    boards = np.asarray(canonical_boards)
+    roles = np.asarray(role_to_play, dtype=np.float32)
+    rules = np.asarray(rule_features, dtype=np.float32)
+    if boards.ndim != 4 or boards.shape[1:] != (6, 5, 5) or boards.shape[0] < 1:
+        raise ValueError("canonical_boards must have shape [N,6,5,5] with N >= 1.")
+    if roles.shape != (boards.shape[0], ROLE_FEATURE_COUNT):
+        raise ValueError(f"role_to_play must have shape [N,{ROLE_FEATURE_COUNT}].")
+    if rules.shape != (boards.shape[0], FEATURE_DIM):
+        raise ValueError(f"rule_features must have shape [N,{FEATURE_DIM}].")
+    if not np.all(np.isfinite(roles)) or not np.all(np.isin(roles, (0.0, 1.0))):
+        raise ValueError("role_to_play must be a finite one-hot array.")
+    if not np.allclose(roles.sum(axis=1), 1.0):
+        raise ValueError("role_to_play must contain exactly one active role per row.")
+    if not np.all(np.isfinite(rules)):
+        raise ValueError("rule_features must be finite.")
+    return boards, roles, rules
 
 
 class Predictor(Protocol):
-    def predict(self, canonical_board: np.ndarray) -> tuple[np.ndarray, np.ndarray | float]: ...
+    def predict(
+        self,
+        canonical_board: np.ndarray,
+        *,
+        role_to_play: np.ndarray,
+        rule_features: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray | float]: ...
+
+    def predict_batch(
+        self,
+        canonical_boards: np.ndarray,
+        *,
+        role_to_play: np.ndarray,
+        rule_features: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]: ...
 
 
 class RandomPredictor:
     """Neutral prior/value predictor used only to bootstrap the first generation."""
 
-    def predict(self, canonical_board: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        del canonical_board
+    def predict(
+        self,
+        canonical_board: np.ndarray,
+        *,
+        role_to_play: np.ndarray,
+        rule_features: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        boards, _roles, _rules = _validate_predictor_context(
+            np.asarray(canonical_board)[None, ...],
+            np.asarray(role_to_play)[None, ...]
+            if np.asarray(role_to_play).ndim == 1
+            else np.asarray(role_to_play),
+            np.asarray(rule_features)[None, ...]
+            if np.asarray(rule_features).ndim == 1
+            else np.asarray(rule_features),
+        )
+        del boards
         return (
             np.full(COLUMN_COUNT, 1.0 / COLUMN_COUNT, dtype=np.float32),
             np.asarray((0.5, 0.0, 0.5), dtype=np.float32),
         )
 
-    def predict_batch(self, canonical_boards: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        boards = np.asarray(canonical_boards)
-        if boards.ndim != 4 or boards.shape[0] < 1:
-            raise ValueError("canonical_boards must be a non-empty board batch")
+    def predict_batch(
+        self,
+        canonical_boards: np.ndarray,
+        *,
+        role_to_play: np.ndarray,
+        rule_features: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        boards, _roles, _rules = _validate_predictor_context(
+            canonical_boards, role_to_play, rule_features
+        )
         count = boards.shape[0]
         return (
             np.full((count, COLUMN_COUNT), 1.0 / COLUMN_COUNT, dtype=np.float32),
@@ -46,7 +125,10 @@ class RandomPredictor:
 
 @dataclass
 class TreeNode:
-    board: np.ndarray | None
+    # ``board`` remains available for diagnostics and the existing PUCT unit
+    # tests. Search-created nodes also retain the authoritative absolute state.
+    board: np.ndarray | None = None
+    state: GameState | None = None
     prior: float = 1.0
     action_from_parent: int | None = None
     legacy_action_from_parent: int | None = None
@@ -63,12 +145,8 @@ class TreeNode:
         return self.value_sum / self.visit_count if self.visit_count else 0.0
 
     def apply_virtual_loss(self, amount: float) -> None:
-        """Penalize this action in its parent's perspective.
+        """Penalize this action in its parent's perspective."""
 
-        Values are stored from this node's side-to-move perspective. A parent uses
-        ``-child.q_value``, so adding a positive virtual value to the child lowers
-        the parent's selection score.
-        """
         self.virtual_loss_count += 1
         self.visit_count += 1
         self.value_sum += float(amount)
@@ -134,42 +212,30 @@ def _value_from_prediction(value: np.ndarray | float) -> float:
 
 
 class MCTS:
-    """Deterministic reference MCTS over 25 gravity columns.
-
-    ``num_threads`` controls deterministic virtual-loss lanes. The implementation
-    stays single-process and evaluates lanes in a fixed order, making smoke runs
-    exactly reproducible while exercising the same selection semantics needed by
-    a later parallel inference implementation.
-    """
+    """Deterministic 25-column MCTS over an explicit versioned rule state."""
 
     def __init__(
         self,
         predictor: Predictor,
         *,
+        engine: RuleEngine,
         cpuct: float = 1.5,
         virtual_loss: float = 1.0,
         num_threads: int = 1,
-        game: GameRules | None = None,
     ) -> None:
         if not hasattr(predictor, "predict"):
-            raise TypeError("MCTS predictor must implement predict(canonical_board).")
+            raise TypeError("MCTS predictor must implement predict with role/rule context.")
+        if not isinstance(engine, RuleEngine):
+            raise TypeError("MCTS requires an explicit RuleEngine.")
         if cpuct <= 0.0 or virtual_loss < 0.0 or num_threads < 1:
             raise ValueError("Invalid MCTS cpuct, virtual_loss, or num_threads.")
         self.predictor = predictor
+        self.engine = engine
         self.cpuct = float(cpuct)
         self.virtual_loss = float(virtual_loss)
         self.num_threads = int(num_threads)
-        self.game = game or GameRules()
-        self._get_next_state = getattr(self.game, "get_next_state_fast", self.game.get_next_state)
-        self._get_canonical_form = getattr(
-            self.game,
-            "get_canonical_form_fast",
-            self.game.get_canonical_form,
-        )
-        self._get_game_ended_after_action = getattr(
-            self.game,
-            "get_game_ended_after_action_fast",
-            None,
+        self._rule_features = np.asarray(
+            self.engine.registry.features(self.engine.spec), dtype=np.float32
         )
         self.inference_calls = 0
         self.inference_positions = 0
@@ -177,7 +243,7 @@ class MCTS:
 
     def search(
         self,
-        canonical_board: np.ndarray,
+        state: GameState,
         simulations: int,
         *,
         rng: np.random.Generator,
@@ -187,24 +253,23 @@ class MCTS:
     ) -> SearchResult:
         if simulations < 1:
             raise ValueError("simulations must be positive.")
-        raw_board = np.asarray(canonical_board)
-        if raw_board.shape != self.game.board_shape:
-            raise ValueError(f"Canonical board shape must be {self.game.board_shape}, got {raw_board.shape}.")
-        if not np.all(np.isin(raw_board, (-1, 0, 1))):
-            raise ValueError("Canonical board cells must contain only -1, 0, or 1.")
-        board = np.asarray(raw_board, dtype=np.int8)
-        root_terminal = self._terminal_value(board)
-        if root_terminal is not None:
-            raise ValueError("Cannot search a terminal board.")
+        if not isinstance(state, GameState):
+            raise TypeError("MCTS.search requires an explicit GameState.")
+        if state.rule_id != self.engine.spec.rule_id:
+            raise ValueError("MCTS state and RuleEngine use different rules.")
+        if state.terminal:
+            raise ValueError("Cannot search a terminal state.")
+        if self.engine.required_action(state) is not None:
+            raise ValueError("A forced-pass state must be advanced without a policy search.")
 
         inference_before = self.inference_calls
         inference_positions_before = self.inference_positions
-        root = TreeNode(board=np.array(board, copy=True))
+        root = TreeNode(board=canonical_board_for_state(state), state=state)
         self._expand(root)
         if add_root_noise and root.children and dirichlet_epsilon > 0.0:
             if dirichlet_alpha <= 0.0 or not 0.0 <= dirichlet_epsilon <= 1.0:
                 raise ValueError("Invalid Dirichlet noise parameters.")
-            actions = sorted(root.children)
+            actions = sorted(action for action in root.children if action != PASS_ACTION)
             noise = rng.dirichlet(np.full(len(actions), dirichlet_alpha, dtype=np.float64))
             for action, sampled in zip(actions, noise, strict=True):
                 child = root.children[action]
@@ -221,13 +286,11 @@ class MCTS:
             seen: set[int] = set()
             for path, _virtual_nodes in lanes:
                 leaf = path[-1]
-                terminal = self._terminal_value(
-                    leaf.board,
-                    last_action=leaf.legacy_action_from_parent,
-                )
+                terminal = self._terminal_value(leaf.state)
                 if terminal is not None:
                     leaf.terminal_value = terminal
                     leaf.initial_value = terminal
+                    leaf.expanded = True
                 elif not leaf.expanded and id(leaf) not in seen:
                     seen.add(id(leaf))
                     pending.append(leaf)
@@ -243,7 +306,8 @@ class MCTS:
 
         counts = np.zeros(COLUMN_COUNT, dtype=np.uint32)
         for action, child in root.children.items():
-            counts[action] = child.visit_count
+            if action != PASS_ACTION:
+                counts[action] = child.visit_count
         total = int(counts.sum())
         if total != simulations:
             raise RuntimeError(f"MCTS visit accounting error: expected {simulations}, got {total}.")
@@ -258,23 +322,18 @@ class MCTS:
             max_inference_batch=self.max_inference_batch,
         )
 
-    def _terminal_value(
-        self,
-        board: np.ndarray | None,
-        *,
-        last_action: int | None = None,
-    ) -> float | None:
-        if board is None:
+    @staticmethod
+    def _terminal_value(state: GameState | None) -> float | None:
+        if state is None:
             raise RuntimeError("Cannot evaluate an unmaterialized MCTS node.")
-        if last_action is not None and self._get_game_ended_after_action is not None:
-            result = float(self._get_game_ended_after_action(board, 1, last_action))
-        else:
-            result = float(self.game.get_game_ended(board, 1))
-        if result == 0.0:
+        if state.outcome == GameOutcome.ONGOING:
             return None
-        if math.isclose(result, 1e-4, rel_tol=0.0, abs_tol=1e-9):
+        if state.outcome == GameOutcome.DRAW:
             return 0.0
-        return float(np.clip(result, -1.0, 1.0))
+        winner = state.outcome.winner
+        if winner is None:
+            raise RuntimeError(f"Unsupported terminal outcome {state.outcome!r}.")
+        return 1.0 if winner == state.player_to_move else -1.0
 
     def _expand(self, node: TreeNode) -> float:
         if node.expanded:
@@ -286,57 +345,90 @@ class MCTS:
         nodes = [node for node in nodes if not node.expanded]
         if not nodes:
             return
-        if any(node.board is None for node in nodes):
-            raise RuntimeError("Cannot expand an unmaterialized MCTS node.")
-        boards = np.stack([node.board for node in nodes], axis=0)
+        decision_nodes: list[TreeNode] = []
+        for node in nodes:
+            if node.state is None:
+                raise RuntimeError("Cannot expand an MCTS node without an authoritative state.")
+            terminal = self._terminal_value(node.state)
+            if terminal is not None:
+                node.terminal_value = terminal
+                node.initial_value = terminal
+                node.expanded = True
+                continue
+            required = self.engine.required_action(node.state)
+            if required is not None:
+                self._expand_forced_pass(node, required)
+                continue
+            decision_nodes.append(node)
+        if not decision_nodes:
+            return
+
+        boards = np.stack([canonical_board_for_state(node.state) for node in decision_nodes], axis=0)
+        roles = np.stack(
+            [role_features_for_player(node.state.player_to_move) for node in decision_nodes], axis=0
+        )
+        rules = np.tile(self._rule_features, (len(decision_nodes), 1))
         batch_predict = getattr(self.predictor, "predict_batch", None)
         if callable(batch_predict):
-            raw_policies, raw_values = batch_predict(boards)
+            raw_policies, raw_values = batch_predict(
+                boards, role_to_play=roles, rule_features=rules
+            )
             policies = np.asarray(raw_policies)
             values = np.asarray(raw_values)
             self.inference_calls += 1
         else:
-            predictions = [self.predictor.predict(board) for board in boards]
+            predictions = [
+                self.predictor.predict(
+                    board, role_to_play=role, rule_features=rule
+                )
+                for board, role, rule in zip(boards, roles, rules, strict=True)
+            ]
             policies = np.stack([prediction[0] for prediction in predictions], axis=0)
-            values = np.stack(
-                [np.asarray(prediction[1]) for prediction in predictions], axis=0
-            )
-            self.inference_calls += len(nodes)
-        if policies.shape != (len(nodes), COLUMN_COUNT):
+            values = np.stack([np.asarray(prediction[1]) for prediction in predictions], axis=0)
+            self.inference_calls += len(decision_nodes)
+        if policies.shape != (len(decision_nodes), COLUMN_COUNT):
             raise ValueError(
                 "Batch predictor policy must have shape "
-                f"[{len(nodes)},{COLUMN_COUNT}], got {policies.shape}."
+                f"[{len(decision_nodes)},{COLUMN_COUNT}], got {policies.shape}."
             )
-        if values.shape not in {(len(nodes),), (len(nodes), 3)}:
+        if values.shape not in {(len(decision_nodes),), (len(decision_nodes), 3)}:
             raise ValueError(
                 "Batch predictor value must have shape [N] or [N,3], "
                 f"got {values.shape}."
             )
-        self.inference_positions += len(nodes)
-        self.max_inference_batch = max(self.max_inference_batch, len(nodes))
-        for index, node in enumerate(nodes):
-            valid = legal_column_mask(node.board).reshape(-1)
+        self.inference_positions += len(decision_nodes)
+        self.max_inference_batch = max(self.max_inference_batch, len(decision_nodes))
+        for index, node in enumerate(decision_nodes):
+            assert node.state is not None
+            valid = self.engine.legal_column_mask(node.state).astype(bool)
             policy = _normalize_policy(policies[index], valid)
             for action in np.flatnonzero(valid):
                 column = int(action)
                 node.children[column] = TreeNode(
-                    board=None,
-                    prior=float(policy[column]),
-                    action_from_parent=column,
+                    prior=float(policy[column]), action_from_parent=column
                 )
             node.initial_value = _value_from_prediction(values[index])
             node.expanded = True
+
+    def _expand_forced_pass(self, node: TreeNode, action: TurnAction) -> None:
+        if action.kind != TurnKind.FORCED_PASS:
+            raise RuntimeError("RuleEngine.required_action returned a non-pass action.")
+        child = TreeNode(prior=1.0, action_from_parent=PASS_ACTION)
+        node.children[PASS_ACTION] = child
+        self._materialize_child(node, child)
+        self._expand_many([child])
+        node.initial_value = -child.initial_value
+        node.expanded = True
 
     def _select_lane(self, root: TreeNode) -> tuple[list[TreeNode], list[TreeNode]]:
         path = [root]
         virtual_nodes: list[TreeNode] = []
         node = root
         while node.expanded and node.children:
-            action, child = max(
+            _action, child = max(
                 node.children.items(),
                 key=lambda item: (puct_score(node, item[1], self.cpuct), -item[0]),
             )
-            del action
             self._materialize_child(node, child)
             child.apply_virtual_loss(self.virtual_loss)
             virtual_nodes.append(child)
@@ -346,23 +438,22 @@ class MCTS:
                 break
         return path, virtual_nodes
 
-    def _materialize_child(self, parent: TreeNode, child: TreeNode) -> np.ndarray:
-        if child.board is not None:
-            return child.board
-        if parent.board is None or child.action_from_parent is None:
-            raise RuntimeError("Cannot materialize a child without its parent board and action.")
-        row, col = divmod(int(child.action_from_parent), self.game.board_size)
-        layer = int(np.count_nonzero(parent.board[:, row, col]))
-        legacy_action = layer * self.game.board_size * self.game.board_size + int(
-            child.action_from_parent
-        )
-        next_board, next_player = self._get_next_state(parent.board, 1, legacy_action)
-        child.board = np.asarray(
-            self._get_canonical_form(next_board, next_player),
-            dtype=np.int8,
-        )
-        child.legacy_action_from_parent = legacy_action
-        return child.board
+    def _materialize_child(self, parent: TreeNode, child: TreeNode) -> GameState:
+        if child.state is not None:
+            return child.state
+        if parent.state is None or child.action_from_parent is None:
+            raise RuntimeError("Cannot materialize a child without its parent state and action.")
+        if child.action_from_parent == PASS_ACTION:
+            action = TurnAction.forced_pass()
+        else:
+            action = TurnAction.place(int(child.action_from_parent))
+            child.legacy_action_from_parent = self.engine.legacy_action_for_column(
+                parent.state, int(child.action_from_parent)
+            )
+        child.state = self.engine.step(parent.state, action)
+        child.board = canonical_board_for_state(child.state)
+        child.terminal_value = self._terminal_value(child.state)
+        return child.state
 
     @staticmethod
     def _backup(path: list[TreeNode], leaf_value: float) -> None:
@@ -381,7 +472,11 @@ def policy_from_visits(
     counts = np.asarray(visit_counts, dtype=np.float64).reshape(-1)
     if counts.shape != (COLUMN_COUNT,) or np.any(counts < 0.0):
         raise ValueError(f"visit_counts must contain {COLUMN_COUNT} non-negative entries.")
-    valid = np.ones(COLUMN_COUNT, dtype=bool) if valid_mask is None else np.asarray(valid_mask, dtype=bool).reshape(-1)
+    valid = (
+        np.ones(COLUMN_COUNT, dtype=bool)
+        if valid_mask is None
+        else np.asarray(valid_mask, dtype=bool).reshape(-1)
+    )
     if valid.shape != (COLUMN_COUNT,):
         raise ValueError(f"valid_mask must contain {COLUMN_COUNT} entries.")
     counts = np.where(valid, counts, 0.0)
@@ -411,12 +506,16 @@ def policy_from_visits(
 
 __all__ = [
     "MCTS",
+    "PASS_ACTION",
     "Predictor",
     "RandomPredictor",
     "SEARCH_FAST",
     "SEARCH_FULL",
+    "SEARCH_NONE",
     "SearchResult",
     "TreeNode",
+    "canonical_board_for_state",
     "policy_from_visits",
     "puct_score",
+    "role_features_for_player",
 ]

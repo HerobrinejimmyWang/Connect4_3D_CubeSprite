@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "donor_run_id": "replace-with-donor-run-id",
+  "qualification_donor_model_id": "replace-with-strong-accepted-model-id",
+  "rule_id": "classic",
+  "strata": {
+    "early": [
+      {
+        "shard_path": "replace/early-shard.npz",
+        "accepted_model_artifact": "replace/early-accepted.pt"
+      }
+    ],
+    "middle": [
+      {
+        "shard_path": "replace/middle-shard.npz",
+        "accepted_model_artifact": "replace/middle-accepted.pt"
+      }
+    ],
+    "late": [
+      {
+        "shard_path": "replace/late-shard.npz",
+        "accepted_model_artifact": "replace/late-accepted.pt"
+      }
+    ],
+    "strong": [
+      {
+        "shard_path": "replace/strong-shard.npz",
+        "accepted_model_artifact": "replace/strong-accepted.pt"
+      }
+    ]
+  }
+}

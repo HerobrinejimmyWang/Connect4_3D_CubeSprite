@@ -35,6 +35,7 @@ from .hardware_plan import plan_hardware
 from .layout import RunLayout
 from .learner import OnlineD4Dataset, V3Learner, build_adamw
 from .model import TorchPredictor, build_model
+from .policy_target_quality import summarize_visit_targets
 from .replay import (
     ReplayShard,
     TrainTokenBucket,
@@ -476,12 +477,17 @@ def _d4_column_sequence(columns: tuple[int, ...]) -> tuple[int, ...]:
     return min(variants)
 
 
-def _selfplay_health(games: Iterable[GameRecord]) -> dict[str, Any]:
+def _selfplay_health(
+    games: Iterable[GameRecord],
+    *,
+    expected_search_sims: Mapping[str, int] | None = None,
+) -> dict[str, Any]:
     rows = tuple(games)
     if not rows:
         raise ValueError("self-play health requires at least one game")
     lengths = np.asarray([len(game.moves) for game in rows], dtype=np.float64)
     entropies: dict[str, list[float]] = {"full": [], "fast": []}
+    visit_targets: dict[str, list[np.ndarray]] = {"full": [], "fast": []}
     wdl_counts = {"win": 0, "draw": 0, "loss": 0}
     for game in rows:
         for sample in game.samples:
@@ -490,6 +496,7 @@ def _selfplay_health(games: Iterable[GameRecord]) -> dict[str, Any]:
             positive = probabilities > 0.0
             entropy = -float(np.sum(probabilities[positive] * np.log(probabilities[positive])))
             entropies[sample.search_kind].append(entropy)
+            visit_targets[sample.search_kind].append(sample.visit_counts)
             label = {0: "win", 1: "draw", 2: "loss"}[int(sample.wdl)]
             wdl_counts[label] += 1
     diversity: dict[str, dict[str, int | float]] = {}
@@ -531,6 +538,19 @@ def _selfplay_health(games: Iterable[GameRecord]) -> dict[str, Any]:
         "mean_policy_entropy": {
             kind: (float(np.mean(values)) if values else 0.0)
             for kind, values in entropies.items()
+        },
+        "policy_target_quality": {
+            kind: (
+                summarize_visit_targets(
+                    np.stack(values),
+                    expected_simulations=(
+                        None if expected_search_sims is None else expected_search_sims.get(kind)
+                    ),
+                )
+                if values
+                else None
+            )
+            for kind, values in visit_targets.items()
         },
         "wdl_labels": wdl_counts,
         "watch_warnings": warnings,
@@ -631,6 +651,12 @@ def _build_learner(
         sample_seed=config.run.seed + 1701,
         num_workers=config.runtime.num_workers,
         amp=config.runtime.learner_amp,
+        policy_loss_weight=config.learner.policy_loss_weight,
+        wdl_loss_weight=config.learner.wdl_loss_weight,
+        opponent_reply_loss_weight=config.learner.opponent_reply_loss_weight,
+        future_occupancy_loss_weight=config.learner.future_occupancy_loss_weight,
+        moves_left_loss_weight=config.learner.moves_left_loss_weight,
+        future_occupancy_class_weights=config.learner.future_occupancy_class_weights,
         learning_rate_schedule=tuple(
             (stage.start_train_positions, stage.learning_rate)
             for stage in config.learner.lr_schedule
@@ -652,6 +678,15 @@ def _evaluate_validation(
     policy_positions = 0
     policy_loss_sum = 0.0
     wdl_loss_sum = 0.0
+    opponent_reply_loss_sum = 0.0
+    opponent_reply_positions = 0
+    opponent_reply_correct = 0
+    future_occupancy_loss_sum = 0.0
+    future_occupancy_weight_sum = 0.0
+    future_occupancy_cells = 0
+    future_occupancy_correct = 0
+    moves_left_loss_sum = 0.0
+    moves_left_correct = 0
     brier_sum = 0.0
     correct = 0
     confidence_rows: list[np.ndarray] = []
@@ -668,7 +703,26 @@ def _evaluate_validation(
             policy_weight = torch.stack([item["policy_weight"] for item in items]).to(device)
             labels = torch.stack([item["wdl"] for item in items]).to(device)
             legal = torch.stack([item["legal_mask"] for item in items]).to(device)
-            policy_logits, wdl_logits = model(boards)
+            roles = torch.stack([item["role_to_play"] for item in items]).to(device)
+            rules = torch.stack([item["rule_features"] for item in items]).to(device)
+            opponent_reply = torch.stack([item["opponent_reply"] for item in items]).to(device)
+            opponent_reply_mask = torch.stack(
+                [item["opponent_reply_mask"] for item in items]
+            ).to(device)
+            future_occupancy = torch.stack(
+                [item["future_occupancy"] for item in items]
+            ).to(device)
+            future_occupancy_mask = torch.stack(
+                [item["future_occupancy_mask"] for item in items]
+            ).to(device)
+            moves_left = torch.stack([item["moves_left"] for item in items]).to(device)
+            output = model(
+                boards,
+                role_to_play=roles,
+                rule_features=rules,
+            )
+            policy_logits = output.policy_logits
+            wdl_logits = output.wdl_logits
             policy_logits = policy_logits.float().masked_fill(~legal, -torch.inf)
             wdl_logits = wdl_logits.float()
             safe_log_policy = torch.where(
@@ -680,6 +734,55 @@ def _evaluate_validation(
             policy_loss_sum += float((per_position_policy * policy_weight).sum().cpu())
             policy_positions += int(policy_weight.sum().cpu())
             wdl_loss_sum += float(F.cross_entropy(wdl_logits, labels, reduction="sum").cpu())
+            reply_loss = F.cross_entropy(
+                output.opponent_reply_logits.float(), opponent_reply, reduction="none"
+            )
+            opponent_reply_loss_sum += float(
+                (reply_loss * opponent_reply_mask).sum().cpu()
+            )
+            opponent_reply_positions += int(opponent_reply_mask.sum().cpu())
+            opponent_reply_correct += int(
+                (
+                    output.opponent_reply_logits.argmax(dim=1).eq(opponent_reply)
+                    * opponent_reply_mask.bool()
+                ).sum().cpu()
+            )
+            occupancy_class_weights = torch.as_tensor(
+                config.learner.future_occupancy_class_weights,
+                dtype=torch.float32,
+                device=device,
+            )
+            occupancy_loss = F.cross_entropy(
+                output.future_occupancy_logits.float(),
+                future_occupancy,
+                weight=occupancy_class_weights,
+                reduction="none",
+            )
+            occupancy_mask_float = future_occupancy_mask.float()
+            future_occupancy_loss_sum += float(
+                (occupancy_loss * occupancy_mask_float).sum().cpu()
+            )
+            future_occupancy_weight_sum += float(
+                (
+                    occupancy_class_weights[future_occupancy]
+                    * occupancy_mask_float
+                ).sum().cpu()
+            )
+            future_occupancy_cells += int(future_occupancy_mask.sum().cpu())
+            future_occupancy_correct += int(
+                (
+                    output.future_occupancy_logits.argmax(dim=1).eq(future_occupancy)
+                    & future_occupancy_mask
+                ).sum().cpu()
+            )
+            moves_left_loss_sum += float(
+                F.cross_entropy(
+                    output.moves_left_logits.float(), moves_left, reduction="sum"
+                ).cpu()
+            )
+            moves_left_correct += int(
+                output.moves_left_logits.argmax(dim=1).eq(moves_left).sum().cpu()
+            )
             probabilities = F.softmax(wdl_logits, dim=1)
             one_hot = F.one_hot(labels, num_classes=3).float()
             brier_sum += float(((probabilities - one_hot) ** 2).sum(dim=1).sum().cpu())
@@ -704,6 +807,18 @@ def _evaluate_validation(
     elapsed = max(time.perf_counter() - started, 1e-12)
     policy_loss = policy_loss_sum / max(policy_positions, 1)
     wdl_loss = wdl_loss_sum / positions
+    opponent_reply_loss = opponent_reply_loss_sum / max(opponent_reply_positions, 1)
+    future_occupancy_loss = future_occupancy_loss_sum / max(
+        future_occupancy_weight_sum, 1.0
+    )
+    moves_left_loss = moves_left_loss_sum / positions
+    total_loss = (
+        config.learner.policy_loss_weight * policy_loss
+        + config.learner.wdl_loss_weight * wdl_loss
+        + config.learner.opponent_reply_loss_weight * opponent_reply_loss
+        + config.learner.future_occupancy_loss_weight * future_occupancy_loss
+        + config.learner.moves_left_loss_weight * moves_left_loss
+    )
     return {
         "status": "complete",
         "positions": positions,
@@ -711,10 +826,18 @@ def _evaluate_validation(
         "value_positions": positions,
         "policy_loss": policy_loss,
         "wdl_loss": wdl_loss,
-        "total_loss": policy_loss + wdl_loss,
+        "opponent_reply_loss": opponent_reply_loss,
+        "future_occupancy_loss": future_occupancy_loss,
+        "moves_left_loss": moves_left_loss,
+        "total_loss": total_loss,
         "brier_score": brier_sum / positions,
         "calibration_error": calibration_error,
         "wdl_accuracy": correct / positions,
+        "opponent_reply_accuracy": opponent_reply_correct
+        / max(opponent_reply_positions, 1),
+        "future_occupancy_accuracy_unweighted": future_occupancy_correct
+        / max(future_occupancy_cells, 1),
+        "moves_left_accuracy": moves_left_correct / positions,
         "positions_per_second": positions / elapsed,
     }
 
@@ -1033,6 +1156,7 @@ def run_smoke(config: V3Config) -> dict[str, Any]:
                         "virtual_loss": config.selfplay.virtual_loss,
                         "mcts_lanes_per_actor": config.runtime.mcts_lanes_per_actor,
                     },
+                    "rule_registry_hash": config.selfplay.rule_registry_hash,
                     "config_hash": expected_hash,
                     "git_commit": code_commit,
                 },
@@ -1044,7 +1168,13 @@ def run_smoke(config: V3Config) -> dict[str, Any]:
         if not np.any(replay.search_kind == 1):
             raise RuntimeError("Self-play produced no full-search policy target.")
 
-        health = _selfplay_health(games)
+        health = _selfplay_health(
+            games,
+            expected_search_sims={
+                "full": search_stage.full_search_sims,
+                "fast": search_stage.fast_search_sims,
+            },
+        )
         _append_metric(
             layout,
             {
@@ -1132,6 +1262,7 @@ def run_smoke(config: V3Config) -> dict[str, Any]:
             config.gate.max_opening_pairs,
             run_seed=config.run.seed,
             prefix_lengths=config.gate.opening_depths,
+            rule_id=config.selfplay.rule_id,
         )
         opening_manifest_path = layout.manifests / "gate_openings.json"
         write_opening_manifest(opening_manifest_path, openings)
@@ -1461,7 +1592,7 @@ def formal_run_status(config: V3Config) -> dict[str, Any]:
             "formal generation scheduler is not connected to the cumulative replay cursor",
             "candidate cadence state and gate pair extension are not connected to formal run",
             "archive catalog, transfer receipts, and explicit prune command are not integrated",
-            "pre-commit crash reconciliation and a single-coordinator no-clobber lock are not implemented",
+            "generation journal and coordinator lock exist but are not yet wrapped around the formal multi-generation writer",
             "shared inference CUDA throughput and queue sizes require a short on-machine benchmark",
         ],
         "message": (

@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from connect4_core import GameRules
+from connect4_core import GameRules, RuleEngine
 from training.v3.config import (
     ExplorationPhaseConfig,
     ModelConfig,
@@ -28,6 +28,7 @@ from training.v3.model import (
     LegacyPolicyValueAdapter,
     TorchPredictor,
     build_model,
+    classic_rule_features,
     column_policy_to_legacy,
     column_to_legacy_action,
     legacy_action_to_column,
@@ -122,12 +123,20 @@ class ConfigTests(unittest.TestCase):
 class ModelAndAdapterTests(unittest.TestCase):
     def test_model_outputs_column_policy_and_wdl_logits(self) -> None:
         model = build_model(ModelConfig(channels=8, blocks=1))
-        policy, wdl = model(torch.zeros((2, 6, 5, 5), dtype=torch.float32))
+        roles = torch.tensor([[1.0, 0.0], [0.0, 1.0]])
+        rules = classic_rule_features(2)
+        policy, wdl = model(
+            torch.zeros((2, 6, 5, 5), dtype=torch.float32),
+            role_to_play=roles,
+            rule_features=rules,
+        )
         self.assertEqual(tuple(policy.shape), (2, 25))
         self.assertEqual(tuple(wdl.shape), (2, 3))
         self.assertFalse(any(isinstance(module, torch.nn.modules.batchnorm._BatchNorm) for module in model.modules()))
         policy_batch, wdl_batch = TorchPredictor(model).predict_batch(
-            np.zeros((3, 6, 5, 5), dtype=np.int8)
+            np.zeros((3, 6, 5, 5), dtype=np.int8),
+            role_to_play=np.asarray([[1.0, 0.0]] * 3, dtype=np.float32),
+            rule_features=classic_rule_features(3).numpy(),
         )
         self.assertEqual(policy_batch.shape, (3, 25))
         self.assertEqual(wdl_batch.shape, (3, 3))
@@ -178,10 +187,11 @@ class SearchTests(unittest.TestCase):
         self.assertEqual(child.value_sum, 0.0)
 
     def test_single_and_virtual_lane_search_count_exact_simulations(self) -> None:
-        board = np.zeros((6, 5, 5), dtype=np.int8)
+        engine = RuleEngine("classic")
+        state = engine.initial_state()
         for threads in (1, 4):
-            result = MCTS(RandomPredictor(), num_threads=threads).search(
-                board,
+            result = MCTS(RandomPredictor(), engine=engine, num_threads=threads).search(
+                state,
                 8,
                 rng=np.random.default_rng(123),
             )
@@ -195,10 +205,11 @@ class SearchTests(unittest.TestCase):
             def __init__(self):
                 self.batch_sizes = []
 
-            def predict(self, board):
+            def predict(self, board, *, role_to_play, rule_features):
                 raise AssertionError("batch predictor should be preferred")
 
-            def predict_batch(self, boards):
+            def predict_batch(self, boards, *, role_to_play, rule_features):
+                self.assert_context = (role_to_play.shape, rule_features.shape)
                 self.batch_sizes.append(len(boards))
                 return (
                     np.full((len(boards), 25), 1.0 / 25, dtype=np.float32),
@@ -206,8 +217,9 @@ class SearchTests(unittest.TestCase):
                 )
 
         predictor = BatchOnlyPredictor()
-        result = MCTS(predictor, num_threads=4).search(
-            np.zeros((6, 5, 5), dtype=np.int8),
+        engine = RuleEngine("classic")
+        result = MCTS(predictor, engine=engine, num_threads=4).search(
+            engine.initial_state(),
             8,
             rng=np.random.default_rng(9),
         )
@@ -217,8 +229,10 @@ class SearchTests(unittest.TestCase):
         self.assertGreater(result.max_inference_batch, 1)
 
     def test_unvisited_v3_children_do_not_materialize_boards(self) -> None:
-        search = MCTS(RandomPredictor(), num_threads=1)
-        root = TreeNode(board=np.zeros((6, 5, 5), dtype=np.int8))
+        engine = RuleEngine("classic")
+        search = MCTS(RandomPredictor(), engine=engine, num_threads=1)
+        state = engine.initial_state()
+        root = TreeNode(board=np.zeros((6, 5, 5), dtype=np.int8), state=state)
         search._expand(root)
         self.assertTrue(root.children)
         self.assertTrue(all(child.board is None for child in root.children.values()))
@@ -262,8 +276,12 @@ class SearchTests(unittest.TestCase):
 
 class OpeningSuiteTests(unittest.TestCase):
     def test_openings_are_deterministic_and_d4_deduplicated(self) -> None:
-        first = build_openings(20, run_seed=77, prefix_lengths=(0, 2, 4, 6, 8))
-        second = build_openings(20, run_seed=77, prefix_lengths=(0, 2, 4, 6, 8))
+        first = build_openings(
+            20, run_seed=77, rule_id="classic", prefix_lengths=(0, 2, 4, 6, 8)
+        )
+        second = build_openings(
+            20, run_seed=77, rule_id="classic", prefix_lengths=(0, 2, 4, 6, 8)
+        )
         self.assertEqual(first, second)
         self.assertEqual(sum(not opening.columns for opening in first), 1)
         game = GameRules()
@@ -285,6 +303,7 @@ class OpeningSuiteTests(unittest.TestCase):
         maximum_suite = build_openings(
             200,
             run_seed=314159,
+            rule_id="classic",
             prefix_lengths=(0, 2, 4, 6, 8, 10, 12),
         )
         self.assertEqual(len(maximum_suite), 200)

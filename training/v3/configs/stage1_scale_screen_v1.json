@@ -1,0 +1,75 @@
+{
+  "format": "stage1_scale_screen_v1",
+  "schema_version": 1,
+  "experiment_id": "stage1_independent_scale_screen_v1",
+  "rule_id": "classic",
+  "levels": [
+    {
+      "scale_id": "b4c64",
+      "channels": 64,
+      "blocks": 4,
+      "config": "training/v3/configs/stage1_scale_screen_b4c64.json",
+      "seed_budgets": [{"seed": 314159, "max_train_positions": 60000, "condition": "always"}],
+      "evaluation_milestones": [8000, 33000, 58000],
+      "purpose": "short pipeline and health canary",
+      "topology_status": "validated_only_for_2026_08_16_local_plateau"
+    },
+    {
+      "scale_id": "b6c128",
+      "channels": 128,
+      "blocks": 6,
+      "config": "training/v3/configs/stage1_scale_screen_b6c128.json",
+      "seed_budgets": [
+        {"seed": 314159, "max_train_positions": 500000, "condition": "always"},
+        {"seed": 271828, "max_train_positions": 250000, "condition": "primary_seed_stable"}
+      ],
+      "evaluation_milestones": [100000, 250000, 500000],
+      "purpose": "stability reference and medium-capacity baseline",
+      "topology_status": "target_hardware_calibration_required"
+    },
+    {
+      "scale_id": "b8c192",
+      "channels": 192,
+      "blocks": 8,
+      "config": "training/v3/configs/stage1_scale_screen_b8c192.json",
+      "seed_budgets": [
+        {"seed": 314159, "max_train_positions": 500000, "condition": "b6_primary_stable"},
+        {"seed": 271828, "max_train_positions": 250000, "condition": "b8_primary_continuation_pass"}
+      ],
+      "evaluation_milestones": [100000, 250000, 500000],
+      "purpose": "first capacity-scaling probe above the historical size",
+      "topology_status": "target_hardware_calibration_required"
+    }
+  ],
+  "frozen_training_contract": {
+    "full_search_sims": 128,
+    "fast_search_sims": 32,
+    "full_probability": 0.5,
+    "cpuct": 1.5,
+    "virtual_loss": 1.0,
+    "train_tokens_per_raw_position": 4.0,
+    "learner_batch_size": 256,
+    "gate_search_sims": 256
+  },
+  "policy_target_quality": {
+    "primary_search_sims": 256,
+    "reference_search_sims": 512,
+    "repeat_primary_search": true,
+    "fixed_position_source": "accepted checkpoints at each evaluation milestone using the frozen opening manifest",
+    "metrics": ["exact_budget_fraction", "target_entropy", "effective_action_count", "top1_probability", "top1_agreement", "total_variation", "jensen_shannon_divergence", "reference_top1_regret", "heldout_policy_loss"],
+    "escalation_rule": "increase the primary search budget only when the 256-vs-512 delta exceeds the repeated-256 variability envelope and the 512 targets improve heldout policy fit or paired strength"
+  },
+  "continuation_rule": {
+    "direct_pairing": "b8c192_vs_b6c128_at_matched_train_positions_and_256_sims",
+    "anchored_elo_required": true,
+    "role_splits_required": true,
+    "compute_normalized_learning_slope_required": true,
+    "inconclusive_extension_count": 1,
+    "final_confirmation_search_sims": 512
+  },
+  "readiness": {
+    "p6_auxiliary_calibration": "required_before_formal_scale_screen",
+    "formal_scheduler": "required_before_unattended_run",
+    "target_hardware_topology": "required_per_model_size"
+  }
+}

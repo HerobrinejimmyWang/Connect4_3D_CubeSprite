@@ -19,6 +19,8 @@ class RunLayout:
     rejected: Path
     samples: Path
     generation_commits: Path
+    generation_drafts: Path
+    coordinator_lock: Path
     archive_staging: Path
     archive_receipts: Path
     resolved_config: Path
@@ -40,6 +42,8 @@ class RunLayout:
             rejected=root_path / "rejected",
             samples=root_path / "samples",
             generation_commits=root_path / "manifests" / "generations",
+            generation_drafts=root_path / "manifests" / "generation_drafts",
+            coordinator_lock=root_path / "manifests" / "coordinator.lock",
             archive_staging=root_path / "archive_staging",
             archive_receipts=root_path / "archive_receipts",
             resolved_config=root_path / "resolved_config.json",
@@ -59,6 +63,7 @@ class RunLayout:
             self.rejected,
             self.samples,
             self.generation_commits,
+            self.generation_drafts,
             self.archive_staging,
             self.archive_receipts,
         ):

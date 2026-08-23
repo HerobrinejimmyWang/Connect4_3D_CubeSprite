@@ -1,0 +1,46 @@
+{
+  "format": "v3_historical_stability_trace_v1",
+  "schema_version": 1,
+  "lineage": "legacy_evidence_only",
+  "source": "Connect4_3D_AI_v2.2 gravity_balanced iter_0260 archived train_info.log",
+  "traces": [
+    {
+      "trace_id": "high_temperature_collapse_253_264",
+      "expected_first_pause_generation": 254,
+      "expected_terminal_action": "pause",
+      "points": [
+        {"generation": 253, "games": 240, "mean_game_length": 16.41, "game_length_variance": 109.74, "short_game_rate": 0.5458333333, "mean_policy_entropy": 1.1945, "value_loss": 0.461296},
+        {"generation": 254, "games": 240, "mean_game_length": 11.39, "game_length_variance": 39.97, "short_game_rate": 0.775, "mean_policy_entropy": 1.3436, "value_loss": 0.294060},
+        {"generation": 255, "games": 240, "mean_game_length": 12.22, "game_length_variance": 59.72, "short_game_rate": 0.7583333333, "mean_policy_entropy": 1.4046, "value_loss": 0.252550},
+        {"generation": 256, "games": 240, "mean_game_length": 10.95, "game_length_variance": 33.80, "short_game_rate": 0.8041666667, "mean_policy_entropy": 1.4847, "value_loss": 0.219200},
+        {"generation": 257, "games": 240, "mean_game_length": 10.28, "game_length_variance": 29.98, "short_game_rate": 0.8166666667, "mean_policy_entropy": 1.4704, "value_loss": 0.191150},
+        {"generation": 258, "games": 240, "mean_game_length": 10.49, "game_length_variance": 31.85, "short_game_rate": 0.8375, "mean_policy_entropy": 1.5618, "value_loss": 0.190032},
+        {"generation": 259, "games": 240, "mean_game_length": 10.58, "game_length_variance": 43.48, "short_game_rate": 0.8416666667, "mean_policy_entropy": 1.5500, "value_loss": 0.187247},
+        {"generation": 260, "games": 240, "mean_game_length": 10.86, "game_length_variance": 40.51, "short_game_rate": 0.8416666667, "mean_policy_entropy": 1.5262, "value_loss": 0.178625},
+        {"generation": 261, "games": 240, "mean_game_length": 10.12, "game_length_variance": 26.69, "short_game_rate": 0.7958333333, "mean_policy_entropy": 1.5644, "value_loss": 0.163333},
+        {"generation": 262, "games": 240, "mean_game_length": 9.92, "game_length_variance": 24.18, "short_game_rate": 0.8833333333, "mean_policy_entropy": 1.5690, "value_loss": 0.166181},
+        {"generation": 263, "games": 240, "mean_game_length": 9.82, "game_length_variance": 21.47, "short_game_rate": 0.8541666667, "mean_policy_entropy": 1.5629, "value_loss": 0.153025},
+        {"generation": 264, "games": 240, "mean_game_length": 9.51, "game_length_variance": 15.95, "short_game_rate": 0.8541666667, "mean_policy_entropy": 1.5579, "value_loss": 0.149996}
+      ]
+    },
+    {
+      "trace_id": "controlled_temperature_recovery_249_260",
+      "expected_first_pause_generation": null,
+      "expected_terminal_action": "continue",
+      "points": [
+        {"generation": 249, "games": 240, "mean_game_length": 27.30, "game_length_variance": 130.81, "short_game_rate": 0.1375, "mean_policy_entropy": 0.7056, "value_loss": 0.556367},
+        {"generation": 250, "games": 240, "mean_game_length": 29.62, "game_length_variance": 96.55, "short_game_rate": 0.0625, "mean_policy_entropy": 0.6650, "value_loss": 0.489087},
+        {"generation": 251, "games": 240, "mean_game_length": 29.45, "game_length_variance": 94.77, "short_game_rate": 0.0625, "mean_policy_entropy": 0.6448, "value_loss": 0.440774},
+        {"generation": 252, "games": 240, "mean_game_length": 29.55, "game_length_variance": 96.53, "short_game_rate": 0.0458333333, "mean_policy_entropy": 0.6669, "value_loss": 0.442697},
+        {"generation": 253, "games": 240, "mean_game_length": 29.06, "game_length_variance": 101.46, "short_game_rate": 0.0666666667, "mean_policy_entropy": 0.6709, "value_loss": 0.440040},
+        {"generation": 254, "games": 240, "mean_game_length": 29.16, "game_length_variance": 95.12, "short_game_rate": 0.0458333333, "mean_policy_entropy": 0.6583, "value_loss": 0.438665},
+        {"generation": 255, "games": 240, "mean_game_length": 29.16, "game_length_variance": 96.62, "short_game_rate": 0.075, "mean_policy_entropy": 0.6466, "value_loss": 0.427376},
+        {"generation": 256, "games": 240, "mean_game_length": 30.82, "game_length_variance": 101.17, "short_game_rate": 0.0416666667, "mean_policy_entropy": 0.6663, "value_loss": 0.432341},
+        {"generation": 257, "games": 240, "mean_game_length": 29.83, "game_length_variance": 103.24, "short_game_rate": 0.05, "mean_policy_entropy": 0.6637, "value_loss": 0.426843},
+        {"generation": 258, "games": 240, "mean_game_length": 29.82, "game_length_variance": 105.22, "short_game_rate": 0.0666666667, "mean_policy_entropy": 0.6522, "value_loss": 0.432846},
+        {"generation": 259, "games": 240, "mean_game_length": 29.21, "game_length_variance": 92.12, "short_game_rate": 0.0541666667, "mean_policy_entropy": 0.6633, "value_loss": 0.437640},
+        {"generation": 260, "games": 240, "mean_game_length": 29.23, "game_length_variance": 87.58, "short_game_rate": 0.0333333333, "mean_policy_entropy": 0.6588, "value_loss": 0.442511}
+      ]
+    }
+  ]
+}

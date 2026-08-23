@@ -8,6 +8,8 @@ from dataclasses import asdict, dataclass, field, fields, is_dataclass, replace
 from pathlib import Path
 from typing import Any, Mapping, TypeVar, get_args, get_origin, get_type_hints
 
+from connect4_core.rules import DEFAULT_RULE_REGISTRY
+
 
 @dataclass(frozen=True)
 class RunConfig:
@@ -28,6 +30,10 @@ class ModelConfig:
     architecture: str = "gravity_resnet"
     channels: int = 16
     blocks: int = 1
+    global_input_schema: str = "role_rule_v1"
+    output_schema: str = "policy_wdl_aux_v1"
+    rule_feature_dim: int = 32
+    moves_left_classes: int = 301
 
     def __post_init__(self) -> None:
         if self.architecture != "gravity_resnet":
@@ -36,6 +42,14 @@ class ModelConfig:
             raise ValueError("model.channels must be at least 4.")
         if self.blocks < 1:
             raise ValueError("model.blocks must be at least 1.")
+        if self.global_input_schema != "role_rule_v1":
+            raise ValueError("model.global_input_schema must be 'role_rule_v1'.")
+        if self.output_schema != "policy_wdl_aux_v1":
+            raise ValueError("model.output_schema must be 'policy_wdl_aux_v1'.")
+        if self.rule_feature_dim != 32:
+            raise ValueError("model.rule_feature_dim must be 32 for role_rule_v1.")
+        if self.moves_left_classes != 301:
+            raise ValueError("model.moves_left_classes must be 301 for policy_wdl_aux_v1.")
 
 
 @dataclass(frozen=True)
@@ -88,6 +102,8 @@ class SelfPlayConfig:
     )
     cpuct: float = 1.5
     virtual_loss: float = 1.0
+    rule_id: str = "classic"
+    rule_registry_hash: str = DEFAULT_RULE_REGISTRY.registry_hash
 
     def __post_init__(self) -> None:
         _validate_starts(
@@ -102,6 +118,14 @@ class SelfPlayConfig:
         )
         if self.cpuct <= 0.0 or self.virtual_loss < 0.0:
             raise ValueError("selfplay.cpuct must be positive and virtual_loss non-negative.")
+        try:
+            DEFAULT_RULE_REGISTRY.get(self.rule_id)
+        except (KeyError, TypeError) as exc:
+            raise ValueError(f"selfplay.rule_id is unknown: {self.rule_id!r}.") from exc
+        if self.rule_registry_hash != DEFAULT_RULE_REGISTRY.registry_hash:
+            raise ValueError(
+                "selfplay.rule_registry_hash does not match the executable V1 registry."
+            )
 
     def stage_for_generation(self, generation: int) -> SearchStageConfig:
         if generation < 0:
@@ -165,6 +189,12 @@ class LearnerConfig:
     )
     weight_decay: float = 1e-4
     grad_clip_norm: float = 1.0
+    policy_loss_weight: float = 1.0
+    wdl_loss_weight: float = 1.0
+    opponent_reply_loss_weight: float = 0.15
+    future_occupancy_loss_weight: float = 0.15
+    moves_left_loss_weight: float = 0.05
+    future_occupancy_class_weights: tuple[float, float, float] = (1.0, 1.0, 1.0)
 
     def __post_init__(self) -> None:
         if self.max_optimizer_steps_per_cycle < 0 or self.batch_size < 1:
@@ -176,6 +206,24 @@ class LearnerConfig:
         )
         if self.weight_decay < 0.0 or self.grad_clip_norm <= 0.0:
             raise ValueError("learner weight_decay or grad_clip_norm is invalid.")
+        loss_weights = (
+            self.policy_loss_weight,
+            self.wdl_loss_weight,
+            self.opponent_reply_loss_weight,
+            self.future_occupancy_loss_weight,
+            self.moves_left_loss_weight,
+        )
+        if any(not math.isfinite(weight) or weight < 0.0 for weight in loss_weights):
+            raise ValueError("learner loss weights must be finite and non-negative.")
+        if self.policy_loss_weight <= 0.0 or self.wdl_loss_weight <= 0.0:
+            raise ValueError("learner policy and WDL loss weights must be positive.")
+        if len(self.future_occupancy_class_weights) != 3 or any(
+            not math.isfinite(weight) or weight <= 0.0
+            for weight in self.future_occupancy_class_weights
+        ):
+            raise ValueError(
+                "learner.future_occupancy_class_weights must contain three positive values."
+            )
 
     def learning_rate_for_positions(self, train_positions: int) -> float:
         if train_positions < 0:
@@ -397,12 +445,15 @@ def _decode_value(value: Any, expected_type: Any, label: str) -> Any:
     if origin is tuple:
         if not isinstance(value, (list, tuple)):
             raise TypeError(f"{label} must be a JSON array, got {value!r}.")
-        if len(args) != 2 or args[1] is not Ellipsis:
-            raise TypeError(f"Unsupported tuple field type for {label}: {expected_type!r}")
-        item_type = args[0]
+        if len(args) == 2 and args[1] is Ellipsis:
+            item_types = (args[0],) * len(value)
+        else:
+            if len(value) != len(args):
+                raise TypeError(f"{label} must contain exactly {len(args)} items.")
+            item_types = args
         return tuple(
             _decode_value(item, item_type, f"{label}[{index}]")
-            for index, item in enumerate(value)
+            for index, (item, item_type) in enumerate(zip(value, item_types, strict=True))
         )
     if isinstance(expected_type, type) and is_dataclass(expected_type):
         return _decode_dataclass(expected_type, value, label)

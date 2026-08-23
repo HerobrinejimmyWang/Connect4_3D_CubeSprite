@@ -203,9 +203,12 @@ independent stop rules:
 - low value loss combined with short or repetitive games;
 - weak anchor/teacher score, non-finite loss, worker death, or checkpoint error.
 
-V3 emits the first three as watch warnings. A formal scheduler should combine
-them with validation, gate, historical milestone, and tactical-suite evidence
-before stopping or changing parameters.
+V3 emits the first three as watch warnings. `stability.py` now combines at
+least two behavioral symptoms across at least two consecutive generations and
+is regression-checked against the archived collapse/recovery traces. It still
+does not stop formal work because the multi-generation scheduler is disabled;
+that scheduler must combine the decision with validation, gate, historical
+milestone, and tactical-suite evidence before changing parameters.
 
 ## Two-GPU plan (P2)
 
@@ -242,8 +245,10 @@ is deliberately no automatic deletion command in this revision.
 The committed-generation validator now authenticates the checkpoint cursor,
 every replay NPZ/manifest/ready triplet, model artifacts, audit index, and each
 CubeSprite replay, and it can fall back to an older complete generation. Before
-formal training is enabled, add a single-coordinator no-clobber lock and a
-pre-commit draft/reconcile journal so a crash between individual artifact
-publishes can be retried safely. Linux is the durability target because its
+`formal_journal.py` adds the single-coordinator no-clobber lock and a
+checksum-bound pre-commit draft/reconcile journal. Both are locally tested, but
+formal training remains disabled until the multi-generation writer is wrapped
+by them and fault-tested across partial artifact publication. Linux is the
+durability target because its
 directory renames are followed by `fsync`; Windows is supported for smoke and
 logical recovery checks, not a sudden-power-loss durability guarantee.

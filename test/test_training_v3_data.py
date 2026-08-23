@@ -42,14 +42,27 @@ def _make_replay(count: int = 12, *, search_kind: int = SEARCH_FULL) -> ReplaySh
         row, column = divmod(index % 25, 5)
         board[index, 0, row, column] = 1 if index % 2 == 0 else -1
         visits[index, (index * 7 + 3) % 25] = np.uint32(index + 1)
+    players = np.asarray(
+        [1 if index % 2 == 0 else -1 for index in range(count)], dtype=np.int8
+    )
     return ReplayShard(
         board=board,
         visit_counts=visits,
+        policy_weight=np.full(
+            (count,), 1.0 if search_kind == SEARCH_FULL else 0.0, dtype=np.float32
+        ),
         wdl=np.asarray([index % 3 for index in range(count)], dtype=np.uint8),
         game_id=np.asarray([index // 3 for index in range(count)], dtype=np.uint64),
-        ply=np.asarray([index % 3 for index in range(count)], dtype=np.uint16),
-        player=np.asarray([1 if index % 2 == 0 else -1 for index in range(count)], dtype=np.int8),
+        turn_index=np.asarray([index % 3 + 1 for index in range(count)], dtype=np.uint16),
+        player_to_move=players,
         search_kind=np.full((count,), search_kind, dtype=np.uint8),
+        rule_code=np.zeros((count,), dtype=np.uint16),
+        turn_kind=np.zeros((count,), dtype=np.uint8),
+        placement_count=np.ones((count,), dtype=np.uint16),
+        opponent_reply_column=np.full((count,), -1, dtype=np.int8),
+        opponent_reply_mask=np.zeros((count,), dtype=np.uint8),
+        terminal_board=board * players[:, None, None, None],
+        remaining_turns=np.full((count,), 3, dtype=np.uint16),
     )
 
 
@@ -61,6 +74,7 @@ def _manifest_metadata() -> dict:
         "seed_range": {"start": 100, "end": 103},
         "results": {"p1_wins": 1, "p2_wins": 1, "draws": 2},
         "search_config": {"full_search_sims": 8, "fast_search_sims": 2},
+        "rule_registry_hash": "4c21f13e4e5c9529f0a2a3695bb70015893191bdad65a4208076438e79db90ca",
         "config_hash": "abc123",
         "git_commit": "test-tree",
     }
@@ -71,17 +85,13 @@ class ReplayShardTests(unittest.TestCase):
         source = _make_replay(2)
         samples = []
         for index, kind in enumerate(("full", "fast")):
-            samples.append(
-                {
-                    "board": source.board[index],
-                    "visit_counts": source.visit_counts[index],
-                    "wdl": int(source.wdl[index]),
-                    "game_id": int(source.game_id[index]),
-                    "ply": int(source.ply[index]),
-                    "player": int(source.player[index]),
-                    "search_kind": kind,
-                }
-            )
+            row = {
+                name: value[index]
+                for name, value in source.as_dict().items()
+            }
+            row["search_kind"] = kind
+            row["policy_weight"] = 1.0 if kind == "full" else 0.0
+            samples.append(row)
         all_positions = ReplayShard.from_samples(samples)
         full_positions = ReplayShard.from_samples(samples, full_only=True)
         np.testing.assert_array_equal(
@@ -98,7 +108,7 @@ class ReplayShardTests(unittest.TestCase):
             manifest = write_replay_shard(first, replay, _manifest_metadata())
             second_manifest = write_replay_shard(second, replay, _manifest_metadata())
 
-            self.assertEqual(manifest["schema_version"], 1)
+            self.assertEqual(manifest["schema_version"], 2)
             self.assertEqual(manifest["sample_count"], len(replay))
             self.assertEqual(manifest["checksum_sha256"], second_manifest["checksum_sha256"])
             self.assertTrue(replay_manifest_path(first).is_file())

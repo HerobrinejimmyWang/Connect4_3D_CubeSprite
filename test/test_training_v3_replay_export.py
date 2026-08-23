@@ -23,7 +23,7 @@ from cubesprite_backend.replay_store import (  # noqa: E402
     validate_replay as app_validate_replay,
 )
 from training.v3.replay_export import (  # noqa: E402
-    MOVE_KEYS,
+    PLACE_TURN_KEYS,
     REPLAY_KEYS,
     build_audit_index,
     game_record_to_replay,
@@ -86,9 +86,15 @@ class V3ReplayExportTests(unittest.TestCase):
         document = game_record_to_replay(game, run_id="audit-run", saved_at=saved_at)
 
         self.assertEqual(set(document), REPLAY_KEYS)
-        self.assertTrue(all(set(move) == MOVE_KEYS for move in document["moves"]))
-        self.assertEqual([move["ply"] for move in document["moves"]], list(range(1, 8)))
-        self.assertEqual([move["action"] for move in document["moves"]], list(P1_WIN_ACTIONS))
+        self.assertTrue(
+            all(set(turn) == PLACE_TURN_KEYS for turn in document["turns"])
+        )
+        self.assertEqual(
+            [turn["ply"] for turn in document["turns"]], list(range(1, 8))
+        )
+        self.assertEqual(
+            [turn["action"] for turn in document["turns"]], list(P1_WIN_ACTIONS)
+        )
         self.assertEqual(document["saved_at"], "2026-08-11T12:34:56Z")
         self.assertEqual(document["status"], "won")
         self.assertEqual(document["winner"], 1)

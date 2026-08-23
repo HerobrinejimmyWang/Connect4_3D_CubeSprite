@@ -19,7 +19,7 @@ import numpy as np
 import torch
 
 from .config import ModelConfig, SelfPlayConfig, V3Config
-from .model import TorchPredictor, build_model
+from .model import ROLE_FEATURE_COUNT, RULE_FEATURE_COUNT, TorchPredictor, build_model
 from .search import RandomPredictor
 from .selfplay import GameRecord, run_self_play_game
 
@@ -89,17 +89,61 @@ class RemotePredictor:
         self.response_timeout_s = float(response_timeout_s)
         self.request_id = 0
 
-    def predict(self, canonical_board: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        policies, values = self.predict_batch(np.asarray(canonical_board)[None, ...])
+    def predict(
+        self,
+        canonical_board: np.ndarray,
+        *,
+        role_to_play: np.ndarray,
+        rule_features: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        role = np.asarray(role_to_play)
+        rules = np.asarray(rule_features)
+        policies, values = self.predict_batch(
+            np.asarray(canonical_board)[None, ...],
+            role_to_play=role[None, ...] if role.ndim == 1 else role,
+            rule_features=rules[None, ...] if rules.ndim == 1 else rules,
+        )
         return policies[0], values[0]
 
-    def predict_batch(self, canonical_boards: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    def predict_batch(
+        self,
+        canonical_boards: np.ndarray,
+        *,
+        role_to_play: np.ndarray,
+        rule_features: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
         boards = np.asarray(canonical_boards, dtype=np.int8)
         if boards.ndim != 4 or boards.shape[0] < 1 or boards.shape[1:] != (6, 5, 5):
             raise ValueError(f"remote inference boards must have shape [N,6,5,5], got {boards.shape}")
+        roles = np.asarray(role_to_play, dtype=np.float32)
+        rules = np.asarray(rule_features, dtype=np.float32)
+        expected_roles = (boards.shape[0], ROLE_FEATURE_COUNT)
+        expected_rules = (boards.shape[0], RULE_FEATURE_COUNT)
+        if roles.shape != expected_roles:
+            raise ValueError(
+                f"remote role_to_play must have shape {expected_roles}, got {roles.shape}"
+            )
+        if rules.shape != expected_rules:
+            raise ValueError(
+                f"remote rule_features must have shape {expected_rules}, got {rules.shape}"
+            )
+        if not np.all(np.isfinite(roles)) or not np.all(
+            np.logical_or(roles == 0.0, roles == 1.0)
+        ) or not np.all(roles.sum(axis=1) == 1.0):
+            raise ValueError("remote role_to_play rows must be finite FIRST/SECOND one-hot vectors")
+        if not np.all(np.isfinite(rules)):
+            raise ValueError("remote rule_features must contain finite values")
         request_id = self.request_id
         self.request_id += 1
-        self.request_queue.put((self.actor_id, request_id, np.array(boards, copy=True)))
+        self.request_queue.put(
+            (
+                self.actor_id,
+                request_id,
+                np.array(boards, copy=True),
+                np.array(roles, copy=True),
+                np.array(rules, copy=True),
+            )
+        )
         try:
             response_id, policies, values, error = self.response_queue.get(
                 timeout=self.response_timeout_s
@@ -156,6 +200,11 @@ def _inference_service_main(
                 break
             pending = [message]
             pending_positions = len(message[2])
+            if pending_positions > batch_limit:
+                raise ValueError(
+                    f"inference request of {pending_positions} positions exceeds hard batch "
+                    f"limit {batch_limit}"
+                )
             deadline = time.perf_counter() + max(0.0, float(batch_timeout_s))
             while pending_positions < batch_limit:
                 remaining = deadline - time.perf_counter()
@@ -176,9 +225,15 @@ def _inference_service_main(
                 pending_positions += next_positions
 
             boards = np.concatenate([item[2] for item in pending], axis=0)
-            policies, values = predictor.predict_batch(boards)
+            roles = np.concatenate([item[3] for item in pending], axis=0)
+            rules = np.concatenate([item[4] for item in pending], axis=0)
+            policies, values = predictor.predict_batch(
+                boards,
+                role_to_play=roles,
+                rule_features=rules,
+            )
             offset = 0
-            for actor_id, request_id, request_boards in pending:
+            for actor_id, request_id, request_boards, _request_roles, _request_rules in pending:
                 count = len(request_boards)
                 response_queues[int(actor_id)].put(
                     (

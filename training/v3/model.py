@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import asdict
-from typing import Any, Mapping
+from dataclasses import asdict, dataclass
+from typing import Any, Iterator, Mapping
 
 import numpy as np
 import torch
@@ -18,6 +18,62 @@ LEGACY_ACTION_COUNT = MAX_LAYERS * COLUMN_COUNT
 WDL_WIN = 0
 WDL_DRAW = 1
 WDL_LOSS = 2
+ROLE_FEATURE_COUNT = 2
+RULE_FEATURE_COUNT = 32
+MOVES_LEFT_CLASSES = 301
+GLOBAL_INPUT_SCHEMA = "role_rule_v1"
+OUTPUT_SCHEMA = "policy_wdl_aux_v1"
+ROLE_FEATURE_NAMES = ("to_play_first", "to_play_second")
+RULE_FEATURE_NAMES = (
+    "first_vertical_normal",
+    "first_vertical_ignored",
+    "first_vertical_illegal",
+    "first_layer0_normal",
+    "first_layer0_ignored",
+    "no_legal_placement_draw",
+    "no_legal_placement_loss",
+    "no_legal_placement_forced_pass",
+) + tuple(f"reserved_{index}" for index in range(8, RULE_FEATURE_COUNT))
+
+
+@dataclass(frozen=True)
+class SearchOutput:
+    policy_logits: torch.Tensor
+    wdl_logits: torch.Tensor
+
+    def __iter__(self) -> Iterator[torch.Tensor]:
+        yield self.policy_logits
+        yield self.wdl_logits
+
+
+@dataclass(frozen=True)
+class ModelOutput:
+    policy_logits: torch.Tensor
+    wdl_logits: torch.Tensor
+    opponent_reply_logits: torch.Tensor
+    future_occupancy_logits: torch.Tensor
+    moves_left_logits: torch.Tensor
+
+    def __iter__(self) -> Iterator[torch.Tensor]:
+        """Preserve historical two-value unpacking during contract migration."""
+
+        yield self.policy_logits
+        yield self.wdl_logits
+
+
+def classic_rule_features(
+    batch_size: int,
+    *,
+    dtype: torch.dtype = torch.float32,
+    device: torch.device | str | None = None,
+) -> torch.Tensor:
+    """Return the frozen V1 feature vector for the classic rule."""
+
+    if batch_size < 1:
+        raise ValueError("batch_size must be positive.")
+    features = torch.zeros((batch_size, RULE_FEATURE_COUNT), dtype=dtype, device=device)
+    features[:, (0, 3, 5)] = 1.0
+    return features
 
 
 def _group_count(channels: int) -> int:
@@ -45,6 +101,43 @@ def canonical_board_to_planes(board: torch.Tensor) -> torch.Tensor:
     return torch.cat((current, opponent, normalized_height, legal_column), dim=1)
 
 
+def _validate_global_inputs(
+    role_to_play: torch.Tensor,
+    rule_features: torch.Tensor,
+    *,
+    batch_size: int,
+    dtype: torch.dtype,
+    device: torch.device,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    if not torch.is_tensor(role_to_play):
+        raise TypeError("role_to_play must be a tensor with shape [N,2].")
+    if not torch.is_tensor(rule_features):
+        raise TypeError("rule_features must be a tensor with shape [N,32].")
+    if role_to_play.ndim == 1 and batch_size == 1:
+        role_to_play = role_to_play.unsqueeze(0)
+    if rule_features.ndim == 1 and batch_size == 1:
+        rule_features = rule_features.unsqueeze(0)
+    if tuple(role_to_play.shape) != (batch_size, ROLE_FEATURE_COUNT):
+        raise ValueError(
+            f"role_to_play must have shape [{batch_size},{ROLE_FEATURE_COUNT}], "
+            f"got {tuple(role_to_play.shape)}."
+        )
+    if tuple(rule_features.shape) != (batch_size, RULE_FEATURE_COUNT):
+        raise ValueError(
+            f"rule_features must have shape [{batch_size},{RULE_FEATURE_COUNT}], "
+            f"got {tuple(rule_features.shape)}."
+        )
+    role = role_to_play.to(device=device, dtype=dtype)
+    rules = rule_features.to(device=device, dtype=dtype)
+    if not torch.isfinite(role).all():
+        raise ValueError("role_to_play must contain finite values.")
+    if not torch.all((role == 0.0) | (role == 1.0)) or not torch.all(role.sum(dim=1) == 1.0):
+        raise ValueError("role_to_play rows must be FIRST/SECOND one-hot vectors.")
+    if not torch.isfinite(rules).all():
+        raise ValueError("rule_features must contain finite values.")
+    return role, rules
+
+
 def legal_column_mask(board: np.ndarray) -> np.ndarray:
     raw = np.asarray(board)
     if raw.shape[-3:] != (MAX_LAYERS, BOARD_SIZE, BOARD_SIZE):
@@ -70,7 +163,7 @@ class _PreActBlock(nn.Module):
 
 
 class GravityPolicyValueNetV3(nn.Module):
-    """Small gravity-aware policy/WDL network with no hidden configuration."""
+    """Gravity-aware network with explicit role/rule conditioning and auxiliary heads."""
 
     def __init__(self, model_config: ModelConfig) -> None:
         super().__init__()
@@ -79,6 +172,14 @@ class GravityPolicyValueNetV3(nn.Module):
         self.model_config = model_config
         channels = model_config.channels
         self.stem = nn.Conv2d(2 * MAX_LAYERS + 2, channels, kernel_size=3, padding=1, bias=False)
+        global_hidden = max(16, channels)
+        self.global_encoder = nn.Sequential(
+            nn.Linear(ROLE_FEATURE_COUNT + RULE_FEATURE_COUNT, global_hidden),
+            nn.SiLU(),
+            nn.Linear(global_hidden, 2 * channels),
+        )
+        nn.init.zeros_(self.global_encoder[-1].weight)
+        nn.init.zeros_(self.global_encoder[-1].bias)
         self.blocks = nn.ModuleList(_PreActBlock(channels) for _ in range(model_config.blocks))
         self.final_norm = nn.GroupNorm(_group_count(channels), channels)
         self.policy_head = nn.Conv2d(channels, 1, kernel_size=1)
@@ -88,23 +189,98 @@ class GravityPolicyValueNetV3(nn.Module):
             nn.SiLU(),
             nn.Linear(value_hidden, 3),
         )
+        self.opponent_reply_head = nn.Conv2d(channels, 1, kernel_size=1)
+        self.future_occupancy_head = nn.Conv2d(channels, 3 * MAX_LAYERS, kernel_size=1)
+        self.moves_left_head = nn.Sequential(
+            nn.Linear(channels * 2, value_hidden),
+            nn.SiLU(),
+            nn.Linear(value_hidden, MOVES_LEFT_CLASSES),
+        )
 
-    def forward(self, canonical_board: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        x = self.stem(canonical_board_to_planes(canonical_board))
+    def _trunk_and_pooled(
+        self,
+        canonical_board: torch.Tensor,
+        *,
+        role_to_play: torch.Tensor,
+        rule_features: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        planes = canonical_board_to_planes(canonical_board)
+        role, rules = _validate_global_inputs(
+            role_to_play,
+            rule_features,
+            batch_size=planes.shape[0],
+            dtype=planes.dtype,
+            device=planes.device,
+        )
+        x = self.stem(planes)
+        scale, bias = self.global_encoder(torch.cat((role, rules), dim=1)).chunk(2, dim=1)
+        x = x * (1.0 + torch.tanh(scale).unsqueeze(-1).unsqueeze(-1))
+        x = x + bias.unsqueeze(-1).unsqueeze(-1)
         for block in self.blocks:
             x = block(x)
         x = F.silu(self.final_norm(x))
-        policy_logits = self.policy_head(x).flatten(1)
         pooled = torch.cat((x.mean(dim=(2, 3)), x.amax(dim=(2, 3))), dim=1)
+        return x, pooled
+
+    def forward_search(
+        self,
+        canonical_board: torch.Tensor,
+        *,
+        role_to_play: torch.Tensor,
+        rule_features: torch.Tensor,
+    ) -> SearchOutput:
+        """Compute only the policy and WDL heads used by MCTS."""
+
+        x, pooled = self._trunk_and_pooled(
+            canonical_board,
+            role_to_play=role_to_play,
+            rule_features=rule_features,
+        )
+        policy_logits = self.policy_head(x).flatten(1)
         wdl_logits = self.wdl_head(pooled)
-        return policy_logits, wdl_logits
+        return SearchOutput(policy_logits=policy_logits, wdl_logits=wdl_logits)
+
+    def forward(
+        self,
+        canonical_board: torch.Tensor,
+        *,
+        role_to_play: torch.Tensor,
+        rule_features: torch.Tensor,
+    ) -> ModelOutput:
+        x, pooled = self._trunk_and_pooled(
+            canonical_board,
+            role_to_play=role_to_play,
+            rule_features=rule_features,
+        )
+        batch_size = x.shape[0]
+        return ModelOutput(
+            policy_logits=self.policy_head(x).flatten(1),
+            wdl_logits=self.wdl_head(pooled),
+            opponent_reply_logits=self.opponent_reply_head(x).flatten(1),
+            future_occupancy_logits=self.future_occupancy_head(x).reshape(
+                batch_size,
+                3,
+                MAX_LAYERS,
+                BOARD_SIZE,
+                BOARD_SIZE,
+            ),
+            moves_left_logits=self.moves_left_head(pooled),
+        )
 
     def export_config(self) -> dict[str, Any]:
         return asdict(self.model_config)
 
 
 def _model_config_from_mapping(raw: Mapping[str, Any]) -> ModelConfig:
-    allowed = {"architecture", "channels", "blocks"}
+    allowed = {
+        "architecture",
+        "channels",
+        "blocks",
+        "global_input_schema",
+        "output_schema",
+        "rule_feature_dim",
+        "moves_left_classes",
+    }
     unknown = sorted(set(raw) - allowed)
     if unknown:
         raise ValueError(f"Unknown model config field(s): {', '.join(unknown)}")
@@ -223,7 +399,7 @@ def legacy_policy_to_columns(legacy_policy: np.ndarray, board: np.ndarray | None
 
 
 class TorchPredictor:
-    """Inference adapter exposing 25 policy probabilities and WDL probabilities."""
+    """Search inference adapter with mandatory absolute-role and rule context."""
 
     def __init__(self, model: GravityPolicyValueNetV3, device: str | torch.device = "cpu") -> None:
         self.model = model
@@ -231,11 +407,31 @@ class TorchPredictor:
         self.model.to(self.device)
         self.model.eval()
 
-    def predict(self, canonical_board: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        policies, wdl = self.predict_batch(np.asarray(canonical_board)[None, ...])
+    def predict(
+        self,
+        canonical_board: np.ndarray,
+        *,
+        role_to_play: np.ndarray,
+        rule_features: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        policies, wdl = self.predict_batch(
+            np.asarray(canonical_board)[None, ...],
+            role_to_play=np.asarray(role_to_play)[None, ...]
+            if np.asarray(role_to_play).ndim == 1
+            else np.asarray(role_to_play),
+            rule_features=np.asarray(rule_features)[None, ...]
+            if np.asarray(rule_features).ndim == 1
+            else np.asarray(rule_features),
+        )
         return policies[0], wdl[0]
 
-    def predict_batch(self, canonical_boards: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    def predict_batch(
+        self,
+        canonical_boards: np.ndarray,
+        *,
+        role_to_play: np.ndarray,
+        rule_features: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
         """Run one device forward pass for a batch of MCTS leaves."""
 
         raw = np.asarray(canonical_boards)
@@ -247,8 +443,15 @@ class TorchPredictor:
         if raw.shape[0] < 1:
             raise ValueError("canonical_boards must contain at least one board.")
         board = torch.as_tensor(raw, dtype=torch.float32, device=self.device)
+        role = torch.as_tensor(role_to_play, dtype=torch.float32, device=self.device)
+        rules = torch.as_tensor(rule_features, dtype=torch.float32, device=self.device)
         with torch.inference_mode():
-            policy_logits, wdl_logits = self.model(board)
+            output = self.model.forward_search(
+                board,
+                role_to_play=role,
+                rule_features=rules,
+            )
+            policy_logits, wdl_logits = output
             policy = torch.softmax(policy_logits.float(), dim=-1)
             wdl = torch.softmax(wdl_logits.float(), dim=-1)
         return (
@@ -283,7 +486,16 @@ class LegacyPolicyValueAdapter:
 
 __all__ = [
     "COLUMN_COUNT",
+    "GLOBAL_INPUT_SCHEMA",
     "LEGACY_ACTION_COUNT",
+    "MOVES_LEFT_CLASSES",
+    "ModelOutput",
+    "OUTPUT_SCHEMA",
+    "ROLE_FEATURE_COUNT",
+    "ROLE_FEATURE_NAMES",
+    "RULE_FEATURE_COUNT",
+    "RULE_FEATURE_NAMES",
+    "SearchOutput",
     "WDL_DRAW",
     "WDL_LOSS",
     "WDL_WIN",
@@ -292,6 +504,7 @@ __all__ = [
     "TorchPredictor",
     "build_model",
     "canonical_board_to_planes",
+    "classic_rule_features",
     "column_policy_to_legacy",
     "column_to_legacy_action",
     "legacy_action_to_column",

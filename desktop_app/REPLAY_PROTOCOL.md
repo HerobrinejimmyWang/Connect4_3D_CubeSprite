@@ -1,53 +1,101 @@
 # CubeSprite 回放协议
 
-CubeSprite 回放文件使用 UTF-8 JSON，建议扩展名为
-`.c4replay.json`。当前协议标识为：
+CubeSprite 回放文件使用 UTF-8 JSON，建议扩展名为 `.c4replay.json`。导入器按
+`protocol_version` 做严格的 exact-key 分派：V1 保持原样可读；新增的规则与
+参与者感知生产端应写 V2。
 
-- `format`: `cubesprite.replay`
-- `protocol_version`: `1`
-- `rules.format`: `connect4-3d-gravity`
-- `rules.version`: `1`
+## V2 顶层结构
 
-## 可分享回放文件
+V2 顶层字段固定为：
 
-回放文件只保存复现棋局所需的信息：
-
-- 唯一 ID、显示名称和保存时间；
-- 固定的 `6 × 5 × 5`、连四、逐层重力与红方先手规则描述；
-- 每一步的序号、动作索引、三维坐标和行棋方；
-- 落子总数、对局状态和胜者；
-- 对规则与完整落子序列计算的 SHA-256 `fingerprint`。
-
-文件不会保存原对局模式，也不会保存当时使用的 AI。导入端会从空棋盘
-逐步重放全部动作，并校验轮流行棋、动作与坐标映射、重力、终局位置和
-fingerprint。字段缺失、未知字段、重复 JSON 键、非法数值、越界或终局后
-继续落子的文件都会被拒绝。
-
-## 胜率分析旁车文件
-
-胜率曲线单独保存在应用数据目录的 `replay_analysis` 中，不会写回可分享
-回放。分析文件通过回放 ID 与 fingerprint 同时关联，包含：
-
-- 使用的模型 ID、显示名称、架构和不可变模型文件哈希；
-- MCTS 模拟次数与温度；
-- 用于阻止多个应用实例互相覆盖新结果的分析请求代际；
-- 开始、完成时间和执行耗时；
-- 从第 0 步到回放末步的红蓝双方胜率。
-
-重新计算会使用当前“AI 设置”中的胜率模型和配置，并原子覆盖原分析。
-如果回放内容已改变，旧分析不会被加载或写入。
-
-## 本地存储
-
-桌面应用在 Tauri `app_data_dir` 下使用两个互相独立的目录：
-
-```text
-replays/
-  <id>.c4replay.json
-replay_analysis/
-  <id>.winrate.json
-  .<id>.generation.json  # 内部并发代际标记
+```json
+{
+  "format": "cubesprite.replay",
+  "protocol_version": 2,
+  "id": "32 位小写 UUID hex",
+  "name": "可修改的显示标题",
+  "saved_at": "含时区的 ISO-8601 时间",
+  "rules": {},
+  "rule_id": "classic",
+  "rule_version": 1,
+  "participants": [],
+  "turns": [],
+  "turn_count": 0,
+  "placement_count": 0,
+  "status": "playing",
+  "winner": null,
+  "fingerprint": "小写 SHA-256",
+  "participant_provenance_hash": "小写 SHA-256"
+}
 ```
 
-所有写入先写临时文件，再以原子替换完成；跨线程与多个应用实例的写操作
-由同一存储锁串行化。
+`rules` 沿用 V1 的固定棋盘几何描述。`rule_id` 是稳定的规则标识，当前注册表
+包含 `classic`、`p1_vertical_ignored`、`p1_vertical_forbidden` 和
+`p1_layer0_ignored`；`rule_version` 必须与可执行规则注册表一致。
+
+## 对局双方
+
+`participants` 必须恰好包含 `FIRST/+1` 和 `SECOND/-1` 两项，每项字段固定为：
+
+```json
+{
+  "seat": "FIRST",
+  "player": 1,
+  "controller_type": "model",
+  "controller_id": "可选的稳定控制器 ID",
+  "display_name": "可修改的显示名",
+  "model_id": "可选的稳定模型 ID",
+  "lineage_hash": null,
+  "artifact_sha256": null
+}
+```
+
+`controller_type` 只能是 `model`、`human`、`random` 或 `external`。未知的可选
+标识与哈希写 JSON `null`；存在的 lineage/artifact 哈希必须是小写 SHA-256。
+这些身份仅用于记录，不进入神经网络输入。
+
+## 带标签的回合
+
+一次落子固定为：
+
+```json
+{
+  "ply": 1,
+  "kind": "place",
+  "player": 1,
+  "column": 7,
+  "action": 7,
+  "layer": 0,
+  "row": 1,
+  "col": 2
+}
+```
+
+模型与搜索只输出 `[0,24]` 的 `column`；`action` 和三维坐标由程序按重力
+确定地映射到 150 个棋盘坐标。
+
+强制 pass 固定为：
+
+```json
+{"ply": 87, "kind": "forced_pass", "player": 1}
+```
+
+它不能携带 column/action/坐标，仅在规则引擎判定无合法落子且要求 pass 时
+合法。pass 不改变棋盘、切换行棋方、计入 `turn_count`，但不计入
+`placement_count`；实际落子重置连续 pass，连续两次强制 pass 判和。
+
+## 完整性边界
+
+`fingerprint` 对 format、协议版本、棋盘几何、rule ID/version 和规范化 tagged
+turns 的紧凑 JSON 计算 SHA-256。它覆盖稳定的棋局语义，不覆盖回放 ID、标题、
+时间和参与者。
+
+`participant_provenance_hash` 单独覆盖双方的 seat、player、controller type/ID、
+model ID、lineage hash 与 artifact hash，并故意排除 `display_name`。因此显示名可
+本地化或修改，而稳定身份的变化必须重新计算 provenance hash。
+
+## V1 与分析旁车兼容
+
+V1 顶层和 move 的原 exact-key 校验路径保持不变，不会在读取时静默升级为 V2。
+胜率分析仍单独保存在 `replay_analysis`，通过 replay ID 与 gameplay fingerprint
+关联；重新计算和原子写入规则不变。

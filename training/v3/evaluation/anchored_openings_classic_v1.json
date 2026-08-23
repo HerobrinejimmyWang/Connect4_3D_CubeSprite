@@ -1,0 +1,2613 @@
+{
+  "openings": [
+    {
+      "columns": [],
+      "opening_id": "opening-0000",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314162
+    },
+    {
+      "columns": [
+        6,
+        12
+      ],
+      "opening_id": "opening-0001",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314163
+    },
+    {
+      "columns": [
+        3,
+        16,
+        0,
+        14
+      ],
+      "opening_id": "opening-0002",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314164
+    },
+    {
+      "columns": [
+        20,
+        1,
+        10,
+        3,
+        1,
+        10
+      ],
+      "opening_id": "opening-0003",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314165
+    },
+    {
+      "columns": [
+        3,
+        19,
+        12,
+        0,
+        13,
+        0,
+        20,
+        23
+      ],
+      "opening_id": "opening-0004",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314166
+    },
+    {
+      "columns": [
+        15,
+        14
+      ],
+      "opening_id": "opening-0005",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314167
+    },
+    {
+      "columns": [
+        0,
+        11,
+        8,
+        14
+      ],
+      "opening_id": "opening-0006",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314168
+    },
+    {
+      "columns": [
+        2,
+        14,
+        7,
+        20,
+        15,
+        4
+      ],
+      "opening_id": "opening-0007",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314169
+    },
+    {
+      "columns": [
+        23,
+        14,
+        23,
+        14,
+        16,
+        15,
+        23,
+        23
+      ],
+      "opening_id": "opening-0008",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314170
+    },
+    {
+      "columns": [
+        18,
+        15
+      ],
+      "opening_id": "opening-0009",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314171
+    },
+    {
+      "columns": [
+        8,
+        10,
+        16,
+        17
+      ],
+      "opening_id": "opening-0010",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314172
+    },
+    {
+      "columns": [
+        6,
+        14,
+        6,
+        22,
+        15,
+        23
+      ],
+      "opening_id": "opening-0011",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314173
+    },
+    {
+      "columns": [
+        7,
+        21,
+        3,
+        10,
+        24,
+        18,
+        22,
+        22
+      ],
+      "opening_id": "opening-0012",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314174
+    },
+    {
+      "columns": [
+        20,
+        15
+      ],
+      "opening_id": "opening-0013",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314175
+    },
+    {
+      "columns": [
+        1,
+        17,
+        1,
+        23
+      ],
+      "opening_id": "opening-0014",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314176
+    },
+    {
+      "columns": [
+        1,
+        17,
+        15,
+        10,
+        17,
+        4
+      ],
+      "opening_id": "opening-0015",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314177
+    },
+    {
+      "columns": [
+        23,
+        22,
+        20,
+        16,
+        12,
+        19,
+        18,
+        10
+      ],
+      "opening_id": "opening-0016",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314178
+    },
+    {
+      "columns": [
+        5,
+        19
+      ],
+      "opening_id": "opening-0017",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314179
+    },
+    {
+      "columns": [
+        4,
+        2,
+        20,
+        13
+      ],
+      "opening_id": "opening-0018",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314180
+    },
+    {
+      "columns": [
+        5,
+        13,
+        5,
+        19,
+        13,
+        9
+      ],
+      "opening_id": "opening-0019",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314181
+    },
+    {
+      "columns": [
+        10,
+        21,
+        17,
+        16,
+        4,
+        18,
+        9,
+        22
+      ],
+      "opening_id": "opening-0020",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314182
+    },
+    {
+      "columns": [
+        11,
+        14
+      ],
+      "opening_id": "opening-0021",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314183
+    },
+    {
+      "columns": [
+        4,
+        1,
+        6,
+        2
+      ],
+      "opening_id": "opening-0022",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314184
+    },
+    {
+      "columns": [
+        1,
+        16,
+        2,
+        16,
+        5,
+        9
+      ],
+      "opening_id": "opening-0023",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314185
+    },
+    {
+      "columns": [
+        16,
+        15,
+        5,
+        9,
+        5,
+        24,
+        23,
+        1
+      ],
+      "opening_id": "opening-0024",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314186
+    },
+    {
+      "columns": [
+        1,
+        24
+      ],
+      "opening_id": "opening-0025",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314187
+    },
+    {
+      "columns": [
+        8,
+        3,
+        5,
+        10
+      ],
+      "opening_id": "opening-0026",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314188
+    },
+    {
+      "columns": [
+        5,
+        20,
+        23,
+        15,
+        5,
+        0
+      ],
+      "opening_id": "opening-0027",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314189
+    },
+    {
+      "columns": [
+        4,
+        7,
+        23,
+        0,
+        20,
+        7,
+        18,
+        1
+      ],
+      "opening_id": "opening-0028",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314190
+    },
+    {
+      "columns": [
+        19,
+        13
+      ],
+      "opening_id": "opening-0029",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314191
+    },
+    {
+      "columns": [
+        15,
+        14,
+        7,
+        22
+      ],
+      "opening_id": "opening-0030",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314192
+    },
+    {
+      "columns": [
+        4,
+        10,
+        16,
+        5,
+        23,
+        11
+      ],
+      "opening_id": "opening-0031",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314193
+    },
+    {
+      "columns": [
+        23,
+        17,
+        3,
+        7,
+        19,
+        14,
+        19,
+        5
+      ],
+      "opening_id": "opening-0032",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314194
+    },
+    {
+      "columns": [
+        24,
+        1
+      ],
+      "opening_id": "opening-0033",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314195
+    },
+    {
+      "columns": [
+        21,
+        19,
+        16,
+        23
+      ],
+      "opening_id": "opening-0034",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314196
+    },
+    {
+      "columns": [
+        4,
+        15,
+        0,
+        23,
+        16,
+        16
+      ],
+      "opening_id": "opening-0035",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314197
+    },
+    {
+      "columns": [
+        20,
+        21,
+        8,
+        22,
+        23,
+        0,
+        8,
+        16
+      ],
+      "opening_id": "opening-0036",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314198
+    },
+    {
+      "columns": [
+        12,
+        13
+      ],
+      "opening_id": "opening-0037",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314199
+    },
+    {
+      "columns": [
+        18,
+        11,
+        6,
+        22
+      ],
+      "opening_id": "opening-0038",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314200
+    },
+    {
+      "columns": [
+        6,
+        24,
+        0,
+        10,
+        20,
+        7
+      ],
+      "opening_id": "opening-0039",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314201
+    },
+    {
+      "columns": [
+        3,
+        11,
+        1,
+        10,
+        22,
+        18,
+        18,
+        22
+      ],
+      "opening_id": "opening-0040",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314202
+    },
+    {
+      "columns": [
+        14,
+        8
+      ],
+      "opening_id": "opening-0041",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314203
+    },
+    {
+      "columns": [
+        7,
+        1,
+        18,
+        2
+      ],
+      "opening_id": "opening-0042",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314204
+    },
+    {
+      "columns": [
+        12,
+        23,
+        22,
+        2,
+        19,
+        9
+      ],
+      "opening_id": "opening-0043",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314205
+    },
+    {
+      "columns": [
+        24,
+        3,
+        11,
+        3,
+        2,
+        22,
+        14,
+        6
+      ],
+      "opening_id": "opening-0044",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314206
+    },
+    {
+      "columns": [
+        21,
+        5
+      ],
+      "opening_id": "opening-0045",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314207
+    },
+    {
+      "columns": [
+        5,
+        13,
+        16,
+        5
+      ],
+      "opening_id": "opening-0046",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314208
+    },
+    {
+      "columns": [
+        13,
+        13,
+        3,
+        10,
+        21,
+        10
+      ],
+      "opening_id": "opening-0047",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314209
+    },
+    {
+      "columns": [
+        19,
+        10,
+        21,
+        6,
+        12,
+        5,
+        22,
+        17
+      ],
+      "opening_id": "opening-0048",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314210
+    },
+    {
+      "columns": [
+        13,
+        15
+      ],
+      "opening_id": "opening-0049",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314211
+    },
+    {
+      "columns": [
+        19,
+        1,
+        10,
+        24
+      ],
+      "opening_id": "opening-0050",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314212
+    },
+    {
+      "columns": [
+        12,
+        6,
+        9,
+        4,
+        21,
+        17
+      ],
+      "opening_id": "opening-0051",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314213
+    },
+    {
+      "columns": [
+        16,
+        3,
+        17,
+        19,
+        13,
+        18,
+        16,
+        19
+      ],
+      "opening_id": "opening-0052",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314214
+    },
+    {
+      "columns": [
+        24,
+        8
+      ],
+      "opening_id": "opening-0053",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314215
+    },
+    {
+      "columns": [
+        22,
+        17,
+        6,
+        15
+      ],
+      "opening_id": "opening-0054",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314216
+    },
+    {
+      "columns": [
+        19,
+        3,
+        20,
+        13,
+        22,
+        16
+      ],
+      "opening_id": "opening-0055",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314217
+    },
+    {
+      "columns": [
+        5,
+        19,
+        3,
+        24,
+        10,
+        21,
+        22,
+        7
+      ],
+      "opening_id": "opening-0056",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314218
+    },
+    {
+      "columns": [
+        6,
+        22
+      ],
+      "opening_id": "opening-0057",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314219
+    },
+    {
+      "columns": [
+        11,
+        16,
+        24,
+        6
+      ],
+      "opening_id": "opening-0058",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314220
+    },
+    {
+      "columns": [
+        1,
+        9,
+        17,
+        20,
+        19,
+        1
+      ],
+      "opening_id": "opening-0059",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314221
+    },
+    {
+      "columns": [
+        7,
+        8,
+        5,
+        18,
+        15,
+        15,
+        4,
+        5
+      ],
+      "opening_id": "opening-0060",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314222
+    },
+    {
+      "columns": [
+        0,
+        3
+      ],
+      "opening_id": "opening-0061",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314223
+    },
+    {
+      "columns": [
+        23,
+        23,
+        15,
+        17
+      ],
+      "opening_id": "opening-0062",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314224
+    },
+    {
+      "columns": [
+        5,
+        20,
+        18,
+        17,
+        20,
+        6
+      ],
+      "opening_id": "opening-0063",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314225
+    },
+    {
+      "columns": [
+        8,
+        9,
+        14,
+        23,
+        0,
+        11,
+        20,
+        14
+      ],
+      "opening_id": "opening-0064",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314226
+    },
+    {
+      "columns": [
+        11,
+        11
+      ],
+      "opening_id": "opening-0065",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314227
+    },
+    {
+      "columns": [
+        6,
+        9,
+        12,
+        8
+      ],
+      "opening_id": "opening-0066",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314228
+    },
+    {
+      "columns": [
+        10,
+        6,
+        7,
+        16,
+        18,
+        11
+      ],
+      "opening_id": "opening-0067",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314229
+    },
+    {
+      "columns": [
+        19,
+        17,
+        17,
+        4,
+        19,
+        20,
+        21,
+        17
+      ],
+      "opening_id": "opening-0068",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314230
+    },
+    {
+      "columns": [
+        16,
+        11,
+        0,
+        7
+      ],
+      "opening_id": "opening-0069",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314232
+    },
+    {
+      "columns": [
+        21,
+        5,
+        7,
+        4,
+        18,
+        6
+      ],
+      "opening_id": "opening-0070",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314233
+    },
+    {
+      "columns": [
+        15,
+        18,
+        16,
+        7,
+        6,
+        19,
+        2,
+        19
+      ],
+      "opening_id": "opening-0071",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314234
+    },
+    {
+      "columns": [
+        20,
+        14
+      ],
+      "opening_id": "opening-0072",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314235
+    },
+    {
+      "columns": [
+        8,
+        4,
+        7,
+        23
+      ],
+      "opening_id": "opening-0073",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314236
+    },
+    {
+      "columns": [
+        20,
+        4,
+        17,
+        1,
+        8,
+        7
+      ],
+      "opening_id": "opening-0074",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314237
+    },
+    {
+      "columns": [
+        21,
+        23,
+        3,
+        11,
+        16,
+        8,
+        5,
+        24
+      ],
+      "opening_id": "opening-0075",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314238
+    },
+    {
+      "columns": [
+        18,
+        20
+      ],
+      "opening_id": "opening-0076",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314239
+    },
+    {
+      "columns": [
+        3,
+        12,
+        13,
+        0
+      ],
+      "opening_id": "opening-0077",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314240
+    },
+    {
+      "columns": [
+        20,
+        22,
+        8,
+        23,
+        10,
+        24
+      ],
+      "opening_id": "opening-0078",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314241
+    },
+    {
+      "columns": [
+        23,
+        10,
+        2,
+        12,
+        21,
+        11,
+        7,
+        21
+      ],
+      "opening_id": "opening-0079",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314242
+    },
+    {
+      "columns": [
+        15,
+        1
+      ],
+      "opening_id": "opening-0080",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314243
+    },
+    {
+      "columns": [
+        24,
+        5,
+        5,
+        12
+      ],
+      "opening_id": "opening-0081",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314244
+    },
+    {
+      "columns": [
+        23,
+        20,
+        4,
+        5,
+        17,
+        3
+      ],
+      "opening_id": "opening-0082",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314245
+    },
+    {
+      "columns": [
+        2,
+        24,
+        22,
+        5,
+        0,
+        1,
+        13,
+        16
+      ],
+      "opening_id": "opening-0083",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314246
+    },
+    {
+      "columns": [
+        8,
+        1
+      ],
+      "opening_id": "opening-0084",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314247
+    },
+    {
+      "columns": [
+        20,
+        14,
+        24,
+        2
+      ],
+      "opening_id": "opening-0085",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314248
+    },
+    {
+      "columns": [
+        16,
+        6,
+        23,
+        6,
+        22,
+        19
+      ],
+      "opening_id": "opening-0086",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314249
+    },
+    {
+      "columns": [
+        18,
+        11,
+        22,
+        8,
+        7,
+        11,
+        4,
+        7
+      ],
+      "opening_id": "opening-0087",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314250
+    },
+    {
+      "columns": [
+        12,
+        2
+      ],
+      "opening_id": "opening-0088",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314251
+    },
+    {
+      "columns": [
+        12,
+        13,
+        0,
+        24
+      ],
+      "opening_id": "opening-0089",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314252
+    },
+    {
+      "columns": [
+        24,
+        6,
+        10,
+        2,
+        14,
+        10
+      ],
+      "opening_id": "opening-0090",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314253
+    },
+    {
+      "columns": [
+        6,
+        2
+      ],
+      "opening_id": "opening-0091",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314255
+    },
+    {
+      "columns": [
+        3,
+        21,
+        0,
+        24
+      ],
+      "opening_id": "opening-0092",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314256
+    },
+    {
+      "columns": [
+        10,
+        9,
+        11,
+        15,
+        5,
+        2
+      ],
+      "opening_id": "opening-0093",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314257
+    },
+    {
+      "columns": [
+        3,
+        16,
+        12,
+        23,
+        14,
+        20,
+        6,
+        6
+      ],
+      "opening_id": "opening-0094",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314258
+    },
+    {
+      "columns": [
+        2,
+        21,
+        11,
+        15
+      ],
+      "opening_id": "opening-0095",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314260
+    },
+    {
+      "columns": [
+        13,
+        20,
+        14,
+        10,
+        2,
+        13
+      ],
+      "opening_id": "opening-0096",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314261
+    },
+    {
+      "columns": [
+        5,
+        13,
+        2,
+        14,
+        24,
+        9,
+        21,
+        16
+      ],
+      "opening_id": "opening-0097",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314262
+    },
+    {
+      "columns": [
+        3,
+        10
+      ],
+      "opening_id": "opening-0098",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314263
+    },
+    {
+      "columns": [
+        11,
+        15,
+        6,
+        11
+      ],
+      "opening_id": "opening-0099",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314264
+    },
+    {
+      "columns": [
+        16,
+        12,
+        16,
+        13,
+        12,
+        9
+      ],
+      "opening_id": "opening-0100",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314265
+    },
+    {
+      "columns": [
+        21,
+        5,
+        7,
+        4,
+        8,
+        2,
+        19,
+        3
+      ],
+      "opening_id": "opening-0101",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314266
+    },
+    {
+      "columns": [
+        14,
+        23
+      ],
+      "opening_id": "opening-0102",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314267
+    },
+    {
+      "columns": [
+        7,
+        8,
+        2,
+        15
+      ],
+      "opening_id": "opening-0103",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314268
+    },
+    {
+      "columns": [
+        3,
+        6,
+        3,
+        5,
+        16,
+        5
+      ],
+      "opening_id": "opening-0104",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314269
+    },
+    {
+      "columns": [
+        8,
+        4,
+        13,
+        0,
+        8,
+        13,
+        2,
+        5
+      ],
+      "opening_id": "opening-0105",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314270
+    },
+    {
+      "columns": [
+        14,
+        24
+      ],
+      "opening_id": "opening-0106",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314271
+    },
+    {
+      "columns": [
+        1,
+        9,
+        8,
+        18
+      ],
+      "opening_id": "opening-0107",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314272
+    },
+    {
+      "columns": [
+        11,
+        16,
+        16,
+        15,
+        9,
+        10
+      ],
+      "opening_id": "opening-0108",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314273
+    },
+    {
+      "columns": [
+        6,
+        19
+      ],
+      "opening_id": "opening-0109",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314275
+    },
+    {
+      "columns": [
+        5,
+        10,
+        0,
+        14
+      ],
+      "opening_id": "opening-0110",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314276
+    },
+    {
+      "columns": [
+        3,
+        10,
+        3,
+        13,
+        11,
+        4
+      ],
+      "opening_id": "opening-0111",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314277
+    },
+    {
+      "columns": [
+        4,
+        20,
+        6,
+        17,
+        8,
+        10,
+        24,
+        12
+      ],
+      "opening_id": "opening-0112",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314278
+    },
+    {
+      "columns": [
+        1,
+        0
+      ],
+      "opening_id": "opening-0113",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314279
+    },
+    {
+      "columns": [
+        11,
+        21,
+        14,
+        23
+      ],
+      "opening_id": "opening-0114",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314280
+    },
+    {
+      "columns": [
+        4,
+        13,
+        21,
+        16,
+        2,
+        20
+      ],
+      "opening_id": "opening-0115",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314281
+    },
+    {
+      "columns": [
+        23,
+        19,
+        22,
+        13,
+        10,
+        6,
+        3,
+        13
+      ],
+      "opening_id": "opening-0116",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314282
+    },
+    {
+      "columns": [
+        13,
+        3
+      ],
+      "opening_id": "opening-0117",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314283
+    },
+    {
+      "columns": [
+        18,
+        17,
+        11,
+        12
+      ],
+      "opening_id": "opening-0118",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314284
+    },
+    {
+      "columns": [
+        16,
+        8,
+        19,
+        6,
+        5,
+        18
+      ],
+      "opening_id": "opening-0119",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314285
+    },
+    {
+      "columns": [
+        21,
+        17,
+        6,
+        20,
+        6,
+        21,
+        12,
+        23
+      ],
+      "opening_id": "opening-0120",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314286
+    },
+    {
+      "columns": [
+        16,
+        4
+      ],
+      "opening_id": "opening-0121",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314287
+    },
+    {
+      "columns": [
+        21,
+        10,
+        18,
+        21
+      ],
+      "opening_id": "opening-0122",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314288
+    },
+    {
+      "columns": [
+        22,
+        6,
+        12,
+        22,
+        6,
+        21
+      ],
+      "opening_id": "opening-0123",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314289
+    },
+    {
+      "columns": [
+        15,
+        15,
+        19,
+        0
+      ],
+      "opening_id": "opening-0124",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314292
+    },
+    {
+      "columns": [
+        20,
+        24,
+        7,
+        5,
+        13,
+        11
+      ],
+      "opening_id": "opening-0125",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314293
+    },
+    {
+      "columns": [
+        4,
+        24,
+        23,
+        22,
+        7,
+        14,
+        14,
+        22
+      ],
+      "opening_id": "opening-0126",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314294
+    },
+    {
+      "columns": [
+        13,
+        12
+      ],
+      "opening_id": "opening-0127",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314295
+    },
+    {
+      "columns": [
+        9,
+        1,
+        10,
+        14
+      ],
+      "opening_id": "opening-0128",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314296
+    },
+    {
+      "columns": [
+        3,
+        2,
+        3,
+        5,
+        6,
+        13
+      ],
+      "opening_id": "opening-0129",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314297
+    },
+    {
+      "columns": [
+        23,
+        4,
+        12,
+        20,
+        0,
+        21,
+        3,
+        15
+      ],
+      "opening_id": "opening-0130",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314298
+    },
+    {
+      "columns": [
+        1,
+        1
+      ],
+      "opening_id": "opening-0131",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314299
+    },
+    {
+      "columns": [
+        21,
+        3,
+        4,
+        3
+      ],
+      "opening_id": "opening-0132",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314300
+    },
+    {
+      "columns": [
+        3,
+        13,
+        11,
+        10,
+        5,
+        0
+      ],
+      "opening_id": "opening-0133",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314301
+    },
+    {
+      "columns": [
+        0,
+        7
+      ],
+      "opening_id": "opening-0134",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314303
+    },
+    {
+      "columns": [
+        19,
+        4,
+        23,
+        0
+      ],
+      "opening_id": "opening-0135",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314304
+    },
+    {
+      "columns": [
+        17,
+        20,
+        10,
+        24,
+        8,
+        1
+      ],
+      "opening_id": "opening-0136",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314305
+    },
+    {
+      "columns": [
+        4,
+        11,
+        6,
+        2,
+        16,
+        8,
+        8,
+        19
+      ],
+      "opening_id": "opening-0137",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314306
+    },
+    {
+      "columns": [
+        13,
+        14
+      ],
+      "opening_id": "opening-0138",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314307
+    },
+    {
+      "columns": [
+        19,
+        16,
+        2,
+        6
+      ],
+      "opening_id": "opening-0139",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314308
+    },
+    {
+      "columns": [
+        16,
+        11,
+        20,
+        16,
+        23,
+        5
+      ],
+      "opening_id": "opening-0140",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314309
+    },
+    {
+      "columns": [
+        9,
+        0,
+        9,
+        23,
+        11,
+        10,
+        13,
+        15
+      ],
+      "opening_id": "opening-0141",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314310
+    },
+    {
+      "columns": [
+        9,
+        19,
+        18,
+        1
+      ],
+      "opening_id": "opening-0142",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314312
+    },
+    {
+      "columns": [
+        20,
+        16,
+        8,
+        11,
+        24,
+        18
+      ],
+      "opening_id": "opening-0143",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314313
+    },
+    {
+      "columns": [
+        11,
+        17
+      ],
+      "opening_id": "opening-0144",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314315
+    },
+    {
+      "columns": [
+        2,
+        19,
+        9,
+        3
+      ],
+      "opening_id": "opening-0145",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314316
+    },
+    {
+      "columns": [
+        12,
+        8,
+        22,
+        18,
+        24,
+        7
+      ],
+      "opening_id": "opening-0146",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314317
+    },
+    {
+      "columns": [
+        3,
+        9
+      ],
+      "opening_id": "opening-0147",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314319
+    },
+    {
+      "columns": [
+        6,
+        2,
+        21,
+        23
+      ],
+      "opening_id": "opening-0148",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314320
+    },
+    {
+      "columns": [
+        6,
+        24,
+        3,
+        14,
+        7,
+        11
+      ],
+      "opening_id": "opening-0149",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314321
+    },
+    {
+      "columns": [
+        22,
+        10,
+        16,
+        19,
+        14,
+        6,
+        24,
+        2
+      ],
+      "opening_id": "opening-0150",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314322
+    },
+    {
+      "columns": [
+        22,
+        9
+      ],
+      "opening_id": "opening-0151",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314323
+    },
+    {
+      "columns": [
+        10,
+        6,
+        24,
+        18
+      ],
+      "opening_id": "opening-0152",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314324
+    },
+    {
+      "columns": [
+        22,
+        9,
+        4,
+        23,
+        24,
+        24
+      ],
+      "opening_id": "opening-0153",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314325
+    },
+    {
+      "columns": [
+        9,
+        15,
+        23,
+        8,
+        6,
+        14,
+        7,
+        20
+      ],
+      "opening_id": "opening-0154",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314326
+    },
+    {
+      "columns": [
+        18,
+        23
+      ],
+      "opening_id": "opening-0155",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314327
+    },
+    {
+      "columns": [
+        4,
+        13,
+        24,
+        22
+      ],
+      "opening_id": "opening-0156",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314328
+    },
+    {
+      "columns": [
+        15,
+        13,
+        18,
+        5,
+        23,
+        17
+      ],
+      "opening_id": "opening-0157",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314329
+    },
+    {
+      "columns": [
+        6,
+        12,
+        18,
+        5,
+        20,
+        18,
+        10,
+        8
+      ],
+      "opening_id": "opening-0158",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314330
+    },
+    {
+      "columns": [
+        23,
+        6,
+        17,
+        13
+      ],
+      "opening_id": "opening-0159",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314332
+    },
+    {
+      "columns": [
+        19,
+        1,
+        13,
+        12,
+        9,
+        1
+      ],
+      "opening_id": "opening-0160",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314333
+    },
+    {
+      "columns": [
+        4,
+        3,
+        13,
+        10,
+        3,
+        7,
+        5,
+        3
+      ],
+      "opening_id": "opening-0161",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314334
+    },
+    {
+      "columns": [
+        14,
+        1,
+        2,
+        21
+      ],
+      "opening_id": "opening-0162",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314336
+    },
+    {
+      "columns": [
+        0,
+        13,
+        16,
+        8,
+        13,
+        11
+      ],
+      "opening_id": "opening-0163",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314337
+    },
+    {
+      "columns": [
+        15,
+        6,
+        7,
+        17,
+        8,
+        10,
+        10,
+        3
+      ],
+      "opening_id": "opening-0164",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314338
+    },
+    {
+      "columns": [
+        2,
+        11,
+        16,
+        17
+      ],
+      "opening_id": "opening-0165",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314340
+    },
+    {
+      "columns": [
+        22,
+        20,
+        14,
+        16,
+        1,
+        1
+      ],
+      "opening_id": "opening-0166",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314341
+    },
+    {
+      "columns": [
+        2,
+        7,
+        17,
+        17
+      ],
+      "opening_id": "opening-0167",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314344
+    },
+    {
+      "columns": [
+        15,
+        17,
+        12,
+        0,
+        14,
+        23
+      ],
+      "opening_id": "opening-0168",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314345
+    },
+    {
+      "columns": [
+        5,
+        0,
+        0,
+        18,
+        24,
+        4,
+        9,
+        10
+      ],
+      "opening_id": "opening-0169",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314346
+    },
+    {
+      "columns": [
+        3,
+        8,
+        19,
+        3
+      ],
+      "opening_id": "opening-0170",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314348
+    },
+    {
+      "columns": [
+        4,
+        24,
+        24,
+        9,
+        15,
+        7
+      ],
+      "opening_id": "opening-0171",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314349
+    },
+    {
+      "columns": [
+        2,
+        23,
+        2,
+        1,
+        22,
+        14,
+        8,
+        6
+      ],
+      "opening_id": "opening-0172",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314350
+    },
+    {
+      "columns": [
+        21,
+        8
+      ],
+      "opening_id": "opening-0173",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314351
+    },
+    {
+      "columns": [
+        4,
+        24,
+        2,
+        1
+      ],
+      "opening_id": "opening-0174",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314352
+    },
+    {
+      "columns": [
+        10,
+        4,
+        8,
+        6,
+        0,
+        20
+      ],
+      "opening_id": "opening-0175",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314353
+    },
+    {
+      "columns": [
+        15,
+        17,
+        4,
+        17
+      ],
+      "opening_id": "opening-0176",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314356
+    },
+    {
+      "columns": [
+        19,
+        0,
+        14,
+        9,
+        19,
+        9
+      ],
+      "opening_id": "opening-0177",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314357
+    },
+    {
+      "columns": [
+        2,
+        7,
+        14,
+        21
+      ],
+      "opening_id": "opening-0178",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314360
+    },
+    {
+      "columns": [
+        15,
+        24,
+        19,
+        24,
+        4,
+        22
+      ],
+      "opening_id": "opening-0179",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314361
+    },
+    {
+      "columns": [
+        5,
+        13,
+        12,
+        19,
+        8,
+        11,
+        15,
+        19
+      ],
+      "opening_id": "opening-0180",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314362
+    },
+    {
+      "columns": [
+        3,
+        24
+      ],
+      "opening_id": "opening-0181",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314363
+    },
+    {
+      "columns": [
+        15,
+        20,
+        22,
+        0
+      ],
+      "opening_id": "opening-0182",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314364
+    },
+    {
+      "columns": [
+        16,
+        9,
+        18,
+        7,
+        13,
+        18
+      ],
+      "opening_id": "opening-0183",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314365
+    },
+    {
+      "columns": [
+        1,
+        7,
+        9,
+        9,
+        24,
+        9,
+        6,
+        12
+      ],
+      "opening_id": "opening-0184",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314366
+    },
+    {
+      "columns": [
+        0,
+        12
+      ],
+      "opening_id": "opening-0185",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314367
+    },
+    {
+      "columns": [
+        4,
+        2,
+        7,
+        3
+      ],
+      "opening_id": "opening-0186",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314368
+    },
+    {
+      "columns": [
+        16,
+        1,
+        23,
+        23,
+        12,
+        2
+      ],
+      "opening_id": "opening-0187",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314369
+    },
+    {
+      "columns": [
+        7,
+        20,
+        3,
+        3,
+        13,
+        1,
+        3,
+        20
+      ],
+      "opening_id": "opening-0188",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314370
+    },
+    {
+      "columns": [
+        4,
+        23,
+        6,
+        14
+      ],
+      "opening_id": "opening-0189",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314372
+    },
+    {
+      "columns": [
+        2,
+        5,
+        23,
+        3,
+        17,
+        11
+      ],
+      "opening_id": "opening-0190",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314373
+    },
+    {
+      "columns": [
+        17,
+        18,
+        23,
+        21,
+        21,
+        11,
+        11,
+        10
+      ],
+      "opening_id": "opening-0191",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314374
+    },
+    {
+      "columns": [
+        21,
+        18,
+        13,
+        22
+      ],
+      "opening_id": "opening-0192",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314376
+    },
+    {
+      "columns": [
+        24,
+        16,
+        4,
+        22,
+        5,
+        14
+      ],
+      "opening_id": "opening-0193",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314377
+    },
+    {
+      "columns": [
+        8,
+        2,
+        22,
+        22,
+        19,
+        6,
+        17,
+        13
+      ],
+      "opening_id": "opening-0194",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314378
+    },
+    {
+      "columns": [
+        21,
+        4,
+        23,
+        18
+      ],
+      "opening_id": "opening-0195",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314380
+    },
+    {
+      "columns": [
+        16,
+        7,
+        4,
+        20,
+        9,
+        7
+      ],
+      "opening_id": "opening-0196",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314381
+    },
+    {
+      "columns": [
+        21,
+        17,
+        6,
+        23,
+        17,
+        11,
+        6,
+        14
+      ],
+      "opening_id": "opening-0197",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314382
+    },
+    {
+      "columns": [
+        9,
+        24
+      ],
+      "opening_id": "opening-0198",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314383
+    },
+    {
+      "columns": [
+        16,
+        5,
+        18,
+        12
+      ],
+      "opening_id": "opening-0199",
+      "rule_id": "classic",
+      "rule_version": 1,
+      "seed": 1314384
+    }
+  ],
+  "rule_id": "classic",
+  "rule_registry_hash": "4c21f13e4e5c9529f0a2a3695bb70015893191bdad65a4208076438e79db90ca",
+  "rule_version": 1,
+  "schema_version": 2
+}

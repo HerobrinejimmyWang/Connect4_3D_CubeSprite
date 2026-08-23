@@ -21,14 +21,29 @@ for import_root in (REPO_ROOT, BACKEND_ROOT):
         sys.path.insert(0, str(import_root))
 
 import cubesprite_backend.main as backend_main  # noqa: E402
+from connect4_core.rules import RULE2, RuleEngine, TurnAction  # noqa: E402
 from cubesprite_backend.replay_store import (  # noqa: E402
     MAX_REPLAY_BYTES,
     ReplayStore,
     ReplayStoreError,
+    build_replay_frames,
+    participant_provenance_hash,
     replay_fingerprint,
+    validate_replay,
 )
 from cubesprite_backend.search import SearchResult  # noqa: E402
 from cubesprite_backend.service import CubeSpriteService, ServiceError  # noqa: E402
+
+
+FULL_DRAW_COLUMNS = (
+    2, 0, 0, 0, 0, 0, 0, 1, 2, 1, 2, 1, 1, 1, 3, 1, 3, 2, 2, 3, 2, 3, 3, 4, 3,
+    5, 4, 5, 4, 4, 5, 4, 4, 5, 5, 7, 5, 7, 6, 11, 6, 6, 6, 12, 6, 6, 7, 13, 7, 7,
+    8, 7, 9, 8, 9, 8, 8, 8, 10, 8, 11, 9, 11, 9, 12, 9, 9, 10, 10, 10, 10, 10, 14,
+    11, 15, 11, 17, 11, 17, 12, 18, 12, 19, 12, 12, 13, 13, 14, 13, 15, 13, 13, 14,
+    15, 14, 14, 19, 14, 21, 15, 15, 16, 15, 18, 18, 18, 18, 20, 20, 16, 20, 16, 16,
+    17, 16, 17, 16, 17, 17, 18, 20, 20, 20, 21, 21, 22, 22, 19, 22, 19, 19, 21, 19,
+    22, 22, 23, 23, 23, 23, 21, 23, 21, 23, 24, 24, 22, 24, 24, 24, 24,
+)
 
 
 class ReplayServiceTests(unittest.TestCase):
@@ -68,6 +83,125 @@ class ReplayServiceTests(unittest.TestCase):
             "replay.save",
             self.token(state) | {"name": name},
         )["replay"]
+
+    def v2_payload(self) -> dict:
+        rules = {
+            "format": "connect4-3d-gravity",
+            "version": 1,
+            "board_layers": 6,
+            "board_size": 5,
+            "connect_n": 4,
+            "gravity": "layer_ascending",
+            "starting_player": 1,
+        }
+        participants = [
+            {
+                "seat": "FIRST",
+                "player": 1,
+                "controller_type": "model",
+                "controller_id": "accepted:first",
+                "display_name": "Red model",
+                "model_id": "starter-v3",
+                "lineage_hash": "1" * 64,
+                "artifact_sha256": "2" * 64,
+            },
+            {
+                "seat": "SECOND",
+                "player": -1,
+                "controller_type": "human",
+                "controller_id": "local:second",
+                "display_name": "Blue human",
+                "model_id": None,
+                "lineage_hash": None,
+                "artifact_sha256": None,
+            },
+        ]
+        turns = [
+            {
+                "ply": 1,
+                "kind": "place",
+                "player": 1,
+                "column": 0,
+                "action": 0,
+                "layer": 0,
+                "row": 0,
+                "col": 0,
+            },
+            {
+                "ply": 2,
+                "kind": "place",
+                "player": -1,
+                "column": 5,
+                "action": 5,
+                "layer": 0,
+                "row": 1,
+                "col": 0,
+            },
+        ]
+        payload = {
+            "format": "cubesprite.replay",
+            "protocol_version": 2,
+            "id": "a" * 32,
+            "name": "V2 portable",
+            "saved_at": "2026-08-19T12:00:00Z",
+            "rules": rules,
+            "rule_id": "classic",
+            "rule_version": 1,
+            "participants": participants,
+            "turns": turns,
+            "turn_count": 2,
+            "placement_count": 2,
+            "status": "playing",
+            "winner": None,
+        }
+        payload["fingerprint"] = replay_fingerprint(payload)
+        payload["participant_provenance_hash"] = participant_provenance_hash(payload)
+        return payload
+
+    def v2_forced_pass_payload(self) -> dict:
+        payload = self.v2_payload()
+        payload["rule_id"] = RULE2.rule_id
+        engine = RuleEngine(RULE2)
+        state = engine.initial_state()
+        turns = []
+        for ply, column in enumerate(FULL_DRAW_COLUMNS, start=1):
+            player = state.player_to_move
+            action = engine.legacy_action_for_column(state, column)
+            layer, row, col = self.service.game.action_to_coords(action)
+            turns.append(
+                {
+                    "ply": ply,
+                    "kind": "place",
+                    "player": player,
+                    "column": column,
+                    "action": action,
+                    "layer": layer,
+                    "row": row,
+                    "col": col,
+                }
+            )
+            state = engine.step(state, TurnAction.place(column))
+        for _ in range(2):
+            turns.append(
+                {
+                    "ply": len(turns) + 1,
+                    "kind": "forced_pass",
+                    "player": state.player_to_move,
+                }
+            )
+            state = engine.step(state, TurnAction.forced_pass())
+        payload.update(
+            {
+                "turns": turns,
+                "turn_count": len(turns),
+                "placement_count": len(FULL_DRAW_COLUMNS),
+                "status": "draw",
+                "winner": 0,
+            }
+        )
+        payload["fingerprint"] = replay_fingerprint(payload)
+        payload["participant_provenance_hash"] = participant_provenance_hash(payload)
+        return payload
 
     def install_fake_search(self, value: float) -> list[tuple[int, dict]]:
         calls: list[tuple[int, dict]] = []
@@ -305,6 +439,100 @@ class ReplayServiceTests(unittest.TestCase):
         payload["fingerprint"] = "0" * 64
         with self.assertRaises(ServiceError) as raised:
             self.service.handle("replay.import", {"content": json.dumps(payload)})
+        self.assertEqual(raised.exception.code, "REPLAY_FINGERPRINT_MISMATCH")
+
+    def test_v2_tagged_turns_and_participants_round_trip(self) -> None:
+        payload = self.v2_payload()
+        store = ReplayStore(self.data_dir / "v2-round-trip", self.service.game)
+        imported = store.import_content(json.dumps(payload), filename="v2.c4replay.json")
+        self.assertEqual(imported, validate_replay(payload, self.service.game))
+        self.assertEqual(imported["turn_count"], 2)
+        self.assertEqual(imported["placement_count"], 2)
+        self.assertNotIn("moves", imported)
+
+        frames = build_replay_frames(imported, self.service.game)
+        self.assertEqual(len(frames), 3)
+        self.assertEqual(frames[1]["board"][0][0][0], 1)
+        self.assertEqual(frames[2]["board"][0][1][0], -1)
+        self.assertEqual(frames[2]["replay_total_steps"], 2)
+
+        exported = store.export_replay(imported)
+        destination = ReplayStore(self.data_dir / "v2-exported", self.service.game)
+        round_tripped = destination.import_content(exported["content"], exported["filename"])
+        self.assertEqual(round_tripped, imported)
+
+    def test_v2_hashes_separate_game_semantics_from_participant_provenance(self) -> None:
+        payload = self.v2_payload()
+        original_game_hash = payload["fingerprint"]
+        original_provenance = payload["participant_provenance_hash"]
+
+        renamed = json.loads(json.dumps(payload))
+        renamed["participants"][0]["display_name"] = "Localized red name"
+        validated = validate_replay(renamed, self.service.game)
+        self.assertEqual(validated["fingerprint"], original_game_hash)
+        self.assertEqual(validated["participant_provenance_hash"], original_provenance)
+
+        tampered = json.loads(json.dumps(payload))
+        tampered["participants"][0]["controller_id"] = "different-controller"
+        self.assertEqual(replay_fingerprint(tampered), original_game_hash)
+        with self.assertRaises(ReplayStoreError) as raised:
+            validate_replay(tampered, self.service.game)
+        self.assertEqual(raised.exception.code, "PARTICIPANT_PROVENANCE_MISMATCH")
+
+        store = ReplayStore(self.data_dir / "v2-provenance-conflict", self.service.game)
+        store.import_content(json.dumps(payload))
+        tampered["participant_provenance_hash"] = participant_provenance_hash(tampered)
+        with self.assertRaises(ReplayStoreError) as raised:
+            store.import_content(json.dumps(tampered))
+        self.assertEqual(raised.exception.code, "REPLAY_ID_CONFLICT")
+
+    def test_v2_forced_pass_is_exact_and_rule_validated(self) -> None:
+        payload = self.v2_payload()
+        payload["turns"] = [
+            {"ply": 1, "kind": "forced_pass", "player": 1, "action": 0}
+        ]
+        payload["turn_count"] = 1
+        payload["placement_count"] = 0
+        payload["fingerprint"] = replay_fingerprint(payload)
+        with self.assertRaises(ReplayStoreError) as raised:
+            validate_replay(payload, self.service.game)
+        self.assertEqual(raised.exception.code, "INVALID_REPLAY")
+
+        del payload["turns"][0]["action"]
+        payload["fingerprint"] = replay_fingerprint(payload)
+        with self.assertRaises(ReplayStoreError) as raised:
+            validate_replay(payload, self.service.game)
+        self.assertEqual(raised.exception.code, "INVALID_REPLAY_MOVE")
+
+    def test_v2_forced_pass_round_trip_keeps_board_unchanged(self) -> None:
+        payload = self.v2_forced_pass_payload()
+        validated = validate_replay(payload, self.service.game)
+        self.assertEqual(validated["turn_count"], 152)
+        self.assertEqual(validated["placement_count"], 150)
+        self.assertEqual(validated["turns"][-2], {
+            "ply": 151,
+            "kind": "forced_pass",
+            "player": 1,
+        })
+        self.assertEqual(validated["turns"][-1], {
+            "ply": 152,
+            "kind": "forced_pass",
+            "player": -1,
+        })
+
+        frames = build_replay_frames(validated, self.service.game)
+        self.assertEqual(frames[150]["board"], frames[151]["board"])
+        self.assertEqual(frames[151]["board"], frames[152]["board"])
+        self.assertEqual(frames[150]["current_player"], 1)
+        self.assertEqual(frames[151]["current_player"], -1)
+        self.assertEqual(frames[152]["status"], "draw")
+        self.assertEqual(frames[152]["winner"], 0)
+
+    def test_v2_gameplay_tamper_requires_a_new_game_fingerprint(self) -> None:
+        payload = self.v2_payload()
+        payload["turns"][1].update({"column": 6, "action": 6, "row": 1, "col": 1})
+        with self.assertRaises(ReplayStoreError) as raised:
+            validate_replay(payload, self.service.game)
         self.assertEqual(raised.exception.code, "REPLAY_FINGERPRINT_MISMATCH")
 
     def test_export_returns_a_portable_document_that_round_trips(self) -> None:

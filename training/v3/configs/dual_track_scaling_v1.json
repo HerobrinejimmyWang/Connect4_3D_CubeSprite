@@ -1,0 +1,85 @@
+{
+  "format": "dual_track_scaling_v1",
+  "schema_version": 1,
+  "experiment_id": "stage1_dual_track_scaling_v1",
+  "rule_id": "classic",
+  "scale_levels": [
+    {
+      "scale_id": "starter_64x4",
+      "channels": 64,
+      "blocks": 4,
+      "v3_config": "training/v3/configs/stage1_scale_screen_b4c64.json",
+      "purpose": "short pipeline and health canary before independent scaling",
+      "status": "configured"
+    },
+    {
+      "scale_id": "mini_128x6",
+      "channels": 128,
+      "blocks": 6,
+      "v3_config": "training/v3/configs/stage1_scale_screen_b6c128.json",
+      "purpose": "stability reference, medium-capacity baseline, and first replay-transfer target",
+      "status": "configured"
+    },
+    {
+      "scale_id": "flagship_192x8",
+      "channels": 192,
+      "blocks": 8,
+      "v3_config": "training/v3/configs/stage1_scale_screen_b8c192.json",
+      "purpose": "base-model candidate and second replay-transfer target",
+      "status": "configured"
+    }
+  ],
+  "research_track": {
+    "seeds": [314159, 271828, 161803],
+    "inherit_weights": false,
+    "inherit_replay": false,
+    "evaluation_milestones": ["early", "middle", "final"],
+    "comparison_slices": [
+      "matched_train_positions",
+      "matched_total_compute",
+      "terminal_strength"
+    ],
+    "terminal_rule": "stop after the predeclared plateau window or when the next size has no meaningful anchored-Elo-per-compute gain"
+  },
+  "production_track": {
+    "transfer_weights": false,
+    "bundle_strata": ["early", "middle", "late", "strong"],
+    "bundle_sampling_weights": [0.1, 0.2, 0.3, 0.4],
+    "offline_bootstrap_train_tokens_per_donor_position": 4.0,
+    "online_transfer_schedule": [
+      {
+        "start_own_positions": 0,
+        "donor_fraction": 0.5
+      },
+      {
+        "start_own_positions": 250000,
+        "donor_fraction": 0.25
+      },
+      {
+        "start_own_positions": 1000000,
+        "donor_fraction": 0.1
+      },
+      {
+        "start_own_positions": 4000000,
+        "donor_fraction": 0.05
+      }
+    ],
+    "qualification": {
+      "opening_manifest": "training/v3/evaluation/anchored_openings_classic_v1.json",
+      "search_sims": 256,
+      "cpuct": 1.5,
+      "initial_pairs": 50,
+      "pair_increment": 50,
+      "max_pairs": 200,
+      "confidence": 0.95,
+      "bootstrap_samples": 10000,
+      "role_floor": 0.45,
+      "accept_threshold": 0.5
+    }
+  },
+  "shared_evaluation": {
+    "anchored_elo_config": "training/v3/configs/anchored_elo_historical_v1.json",
+    "promotion_gate_separate": true,
+    "report_role_splits": true
+  }
+}

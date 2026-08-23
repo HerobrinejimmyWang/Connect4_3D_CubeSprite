@@ -6,6 +6,7 @@ __pycache__/
 .ruff_cache/
 .tmp/
 tmp/
+tmp_models_plan/
 .codex/
 .vscode/
 .idea/
@@ -49,3 +50,11 @@ release/**/*.7z
 release/**/*.log
 release/**/~$*
 release/**/demo*
+
+# Experimental files
+training/v3/benchmarks/
+tools/benchmark_selfplay_topology.py
+tools/benchmark_thread_match.py
+tools/benchmark_v3_lane_fidelity.py
+tools/benchmark_v3_selfplay_topology.py
+tools/validate_v3_cuda_effectiveness.py

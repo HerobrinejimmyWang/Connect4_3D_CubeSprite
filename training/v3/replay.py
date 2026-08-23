@@ -20,7 +20,7 @@ from typing import Any, Iterable, Mapping, Sequence
 import numpy as np
 
 
-REPLAY_SCHEMA_VERSION = 1
+REPLAY_SCHEMA_VERSION = 2
 BOARD_SHAPE = (6, 5, 5)
 COLUMN_COUNT = 25
 REQUIRED_MANIFEST_METADATA = frozenset(
@@ -31,6 +31,7 @@ REQUIRED_MANIFEST_METADATA = frozenset(
         "seed_range",
         "results",
         "search_config",
+        "rule_registry_hash",
         "config_hash",
         "git_commit",
     }
@@ -42,22 +43,51 @@ WDL_LOSS = 2
 
 SEARCH_FAST = 0
 SEARCH_FULL = 1
+SEARCH_NONE = 2
+
+TURN_PLACE = 0
+TURN_FORCED_PASS = 1
+
+MAX_PLACEMENTS = int(np.prod(BOARD_SHAPE))
+MAX_TURNS = 2 * MAX_PLACEMENTS
 
 ARRAY_SCHEMA: dict[str, tuple[np.dtype[Any], tuple[int, ...]]] = {
     "board": (np.dtype(np.int8), BOARD_SHAPE),
     "visit_counts": (np.dtype(np.uint32), (COLUMN_COUNT,)),
+    "policy_weight": (np.dtype(np.float32), ()),
     "wdl": (np.dtype(np.uint8), ()),
     "game_id": (np.dtype(np.uint64), ()),
-    "ply": (np.dtype(np.uint16), ()),
-    "player": (np.dtype(np.int8), ()),
+    "turn_index": (np.dtype(np.uint16), ()),
+    "player_to_move": (np.dtype(np.int8), ()),
     "search_kind": (np.dtype(np.uint8), ()),
+    "rule_code": (np.dtype(np.uint16), ()),
+    "turn_kind": (np.dtype(np.uint8), ()),
+    "placement_count": (np.dtype(np.uint16), ()),
+    "opponent_reply_column": (np.dtype(np.int8), ()),
+    "opponent_reply_mask": (np.dtype(np.uint8), ()),
+    "terminal_board": (np.dtype(np.int8), BOARD_SHAPE),
+    "remaining_turns": (np.dtype(np.uint16), ()),
 }
 
 
-def _field(sample: object, name: str) -> Any:
+def _field(sample: object, name: str, *aliases: str) -> Any:
     if isinstance(sample, Mapping):
-        return sample[name]
-    return getattr(sample, name)
+        for key in (name, *aliases):
+            if key in sample:
+                return sample[key]
+        raise KeyError(name)
+    for key in (name, *aliases):
+        if hasattr(sample, key):
+            return getattr(sample, key)
+    raise AttributeError(f"sample has no field {name!r}")
+
+
+def _sample_field(sample: object, name: str) -> Any:
+    if name == "turn_index":
+        return _field(sample, name, "ply")
+    if name == "player_to_move":
+        return _field(sample, name, "player")
+    return _field(sample, name)
 
 
 def _encode_search_kind(value: Any) -> int:
@@ -67,10 +97,26 @@ def _encode_search_kind(value: Any) -> int:
             return SEARCH_FAST
         if normalized == "full":
             return SEARCH_FULL
+        if normalized == "none":
+            return SEARCH_NONE
         raise ValueError(f"unknown search_kind: {value!r}")
     encoded = int(value)
-    if encoded not in (SEARCH_FAST, SEARCH_FULL):
-        raise ValueError(f"search_kind must be 0/1 or fast/full, got {value!r}")
+    if encoded not in (SEARCH_FAST, SEARCH_FULL, SEARCH_NONE):
+        raise ValueError(f"search_kind must be 0/1/2 or fast/full/none, got {value!r}")
+    return encoded
+
+
+def _encode_turn_kind(value: Any) -> int:
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized == "place":
+            return TURN_PLACE
+        if normalized in {"forced_pass", "forced-pass"}:
+            return TURN_FORCED_PASS
+        raise ValueError(f"unknown turn_kind: {value!r}")
+    encoded = int(value)
+    if encoded not in (TURN_PLACE, TURN_FORCED_PASS):
+        raise ValueError(f"turn_kind must be 0/1 or place/forced_pass, got {value!r}")
     return encoded
 
 
@@ -80,17 +126,37 @@ class ReplayShard:
 
     board: np.ndarray
     visit_counts: np.ndarray
+    policy_weight: np.ndarray
     wdl: np.ndarray
     game_id: np.ndarray
-    ply: np.ndarray
-    player: np.ndarray
+    turn_index: np.ndarray
+    player_to_move: np.ndarray
     search_kind: np.ndarray
+    rule_code: np.ndarray
+    turn_kind: np.ndarray
+    placement_count: np.ndarray
+    opponent_reply_column: np.ndarray
+    opponent_reply_mask: np.ndarray
+    terminal_board: np.ndarray
+    remaining_turns: np.ndarray
 
     def __post_init__(self) -> None:
         self.validate()
 
     def __len__(self) -> int:
         return int(self.board.shape[0])
+
+    @property
+    def ply(self) -> np.ndarray:
+        """Compatibility alias for the V2 ``turn_index`` field."""
+
+        return self.turn_index
+
+    @property
+    def player(self) -> np.ndarray:
+        """Compatibility alias for the V2 ``player_to_move`` field."""
+
+        return self.player_to_move
 
     def as_dict(self) -> dict[str, np.ndarray]:
         return {name: getattr(self, name) for name in ARRAY_SCHEMA}
@@ -115,23 +181,71 @@ class ReplayShard:
             raise ValueError("board values must be canonical -1/0/1")
         if not np.all(np.isin(self.wdl, (WDL_WIN, WDL_DRAW, WDL_LOSS))):
             raise ValueError("wdl values must be 0=win, 1=draw, or 2=loss")
-        if not np.all(np.isin(self.player, (-1, 1))):
-            raise ValueError("player values must be -1 or 1")
-        if not np.all(np.isin(self.search_kind, (SEARCH_FAST, SEARCH_FULL))):
-            raise ValueError("search_kind values must be 0=fast or 1=full")
-        if len(self) and np.any(self.visit_counts.sum(axis=1, dtype=np.uint64) == 0):
-            raise ValueError("every replay sample must contain at least one visit")
+        if not np.all(np.isin(self.player_to_move, (-1, 1))):
+            raise ValueError("player_to_move values must be -1 or 1")
+        if not np.all(np.isin(self.search_kind, (SEARCH_FAST, SEARCH_FULL, SEARCH_NONE))):
+            raise ValueError("search_kind values must be 0=fast, 1=full, or 2=none")
+        if not np.all(np.isin(self.turn_kind, (TURN_PLACE, TURN_FORCED_PASS))):
+            raise ValueError("turn_kind values must be 0=place or 1=forced_pass")
+        if not np.all(np.isfinite(self.policy_weight)) or np.any(self.policy_weight < 0.0):
+            raise ValueError("policy_weight values must be finite and non-negative")
+        if np.any(self.turn_index > MAX_TURNS):
+            raise ValueError(f"turn_index values cannot exceed {MAX_TURNS}")
+        if np.any(self.placement_count > MAX_PLACEMENTS):
+            raise ValueError(f"placement_count values cannot exceed {MAX_PLACEMENTS}")
+        if np.any(self.remaining_turns > MAX_TURNS):
+            raise ValueError(f"remaining_turns values cannot exceed {MAX_TURNS}")
+        if not np.all(np.isin(self.opponent_reply_mask, (0, 1))):
+            raise ValueError("opponent_reply_mask values must be 0 or 1")
+        valid_reply = self.opponent_reply_mask == 1
+        if np.any(
+            valid_reply
+            & ((self.opponent_reply_column < 0) | (self.opponent_reply_column >= COLUMN_COUNT))
+        ):
+            raise ValueError("unmasked opponent reply columns must be in [0, 24]")
+        if np.any(~valid_reply & (self.opponent_reply_column != -1)):
+            raise ValueError("masked opponent reply columns must use the -1 sentinel")
+        if not np.all(np.isin(self.terminal_board, (-1, 0, 1))):
+            raise ValueError("terminal_board values must be absolute -1/0/1")
+
+        visit_totals = self.visit_counts.sum(axis=1, dtype=np.uint64)
+        place = self.turn_kind == TURN_PLACE
+        forced_pass = self.turn_kind == TURN_FORCED_PASS
+        if np.any(place & (visit_totals == 0)):
+            raise ValueError("placement replay samples must contain at least one visit")
+        if np.any(place & (self.search_kind == SEARCH_NONE)):
+            raise ValueError("placement replay samples must use fast or full search")
+        full_place = place & (self.search_kind == SEARCH_FULL)
+        fast_place = place & (self.search_kind == SEARCH_FAST)
+        if np.any(full_place & (self.policy_weight != 1.0)):
+            raise ValueError("full-search placement samples must have policy_weight=1")
+        if np.any(fast_place & (self.policy_weight != 0.0)):
+            raise ValueError("fast-search placement samples must have policy_weight=0")
+        if np.any(forced_pass & (visit_totals != 0)):
+            raise ValueError("forced-pass replay samples must contain zero visits")
+        if np.any(forced_pass & (self.search_kind != SEARCH_NONE)):
+            raise ValueError("forced-pass replay samples must use search_kind=none")
+        if np.any(forced_pass & (self.policy_weight != 0.0)):
+            raise ValueError("forced-pass replay samples must have policy_weight=0")
 
     @classmethod
     def empty(cls) -> "ReplayShard":
         return cls(
             board=np.empty((0, *BOARD_SHAPE), dtype=np.int8),
             visit_counts=np.empty((0, COLUMN_COUNT), dtype=np.uint32),
+            policy_weight=np.empty((0,), dtype=np.float32),
             wdl=np.empty((0,), dtype=np.uint8),
             game_id=np.empty((0,), dtype=np.uint64),
-            ply=np.empty((0,), dtype=np.uint16),
-            player=np.empty((0,), dtype=np.int8),
+            turn_index=np.empty((0,), dtype=np.uint16),
+            player_to_move=np.empty((0,), dtype=np.int8),
             search_kind=np.empty((0,), dtype=np.uint8),
+            rule_code=np.empty((0,), dtype=np.uint16),
+            turn_kind=np.empty((0,), dtype=np.uint8),
+            placement_count=np.empty((0,), dtype=np.uint16),
+            opponent_reply_column=np.empty((0,), dtype=np.int8),
+            opponent_reply_mask=np.empty((0,), dtype=np.uint8),
+            terminal_board=np.empty((0, *BOARD_SHAPE), dtype=np.int8),
+            remaining_turns=np.empty((0,), dtype=np.uint16),
         )
 
     @classmethod
@@ -148,23 +262,31 @@ class ReplayShard:
 
         rows: list[object] = []
         encoded_kinds: list[int] = []
+        encoded_turn_kinds: list[int] = []
         for sample in samples:
-            kind = _encode_search_kind(_field(sample, "search_kind"))
+            # Validate the complete V2 contract before filtering.  This prevents
+            # a V1 row from being silently hidden by ``full_only``.
+            for name in ARRAY_SCHEMA:
+                _sample_field(sample, name)
+            kind = _encode_search_kind(_sample_field(sample, "search_kind"))
             if full_only and kind != SEARCH_FULL:
                 continue
             rows.append(sample)
             encoded_kinds.append(kind)
+            encoded_turn_kinds.append(_encode_turn_kind(_sample_field(sample, "turn_kind")))
         if not rows:
             return cls.empty()
 
-        def checked_integer(name: str, minimum: int, maximum: int) -> list[int]:
-            values = [int(_field(row, name)) for row in rows]
+        def checked_integer(
+            name: str, minimum: int, maximum: int, *aliases: str
+        ) -> list[int]:
+            values = [int(_field(row, name, *aliases)) for row in rows]
             if any(value < minimum or value > maximum for value in values):
                 raise ValueError(f"{name} is outside [{minimum}, {maximum}]")
             return values
 
-        board = np.stack([np.asarray(_field(row, "board"), dtype=np.int8) for row in rows])
-        visits_raw = [np.asarray(_field(row, "visit_counts")) for row in rows]
+        board = np.stack([np.asarray(_sample_field(row, "board"), dtype=np.int8) for row in rows])
+        visits_raw = [np.asarray(_sample_field(row, "visit_counts")) for row in rows]
         if any(array.shape != (COLUMN_COUNT,) for array in visits_raw):
             raise ValueError("visit_counts must have shape [25]")
         if any(np.issubdtype(array.dtype, np.signedinteger) and np.any(array < 0) for array in visits_raw):
@@ -175,11 +297,35 @@ class ReplayShard:
         return cls(
             board=board,
             visit_counts=visit_counts,
+            policy_weight=np.asarray(
+                [float(_sample_field(row, "policy_weight")) for row in rows], dtype=np.float32
+            ),
             wdl=np.asarray(checked_integer("wdl", 0, 2), dtype=np.uint8),
             game_id=np.asarray(checked_integer("game_id", 0, np.iinfo(np.uint64).max), dtype=np.uint64),
-            ply=np.asarray(checked_integer("ply", 0, np.iinfo(np.uint16).max), dtype=np.uint16),
-            player=np.asarray(checked_integer("player", -1, 1), dtype=np.int8),
+            turn_index=np.asarray(
+                checked_integer("turn_index", 0, MAX_TURNS, "ply"), dtype=np.uint16
+            ),
+            player_to_move=np.asarray(
+                checked_integer("player_to_move", -1, 1, "player"), dtype=np.int8
+            ),
             search_kind=np.asarray(encoded_kinds, dtype=np.uint8),
+            rule_code=np.asarray(checked_integer("rule_code", 0, np.iinfo(np.uint16).max), dtype=np.uint16),
+            turn_kind=np.asarray(encoded_turn_kinds, dtype=np.uint8),
+            placement_count=np.asarray(
+                checked_integer("placement_count", 0, MAX_PLACEMENTS), dtype=np.uint16
+            ),
+            opponent_reply_column=np.asarray(
+                checked_integer("opponent_reply_column", -1, COLUMN_COUNT - 1), dtype=np.int8
+            ),
+            opponent_reply_mask=np.asarray(
+                checked_integer("opponent_reply_mask", 0, 1), dtype=np.uint8
+            ),
+            terminal_board=np.stack(
+                [np.asarray(_sample_field(row, "terminal_board"), dtype=np.int8) for row in rows]
+            ),
+            remaining_turns=np.asarray(
+                checked_integer("remaining_turns", 0, MAX_TURNS), dtype=np.uint16
+            ),
         )
 
     def take(self, indices: Sequence[int] | np.ndarray) -> "ReplayShard":
@@ -259,9 +405,21 @@ def _validate_manifest_metadata(metadata: Mapping[str, Any]) -> None:
         raise ValueError("manifest results must be a mapping")
     if not isinstance(metadata["search_config"], Mapping):
         raise ValueError("manifest search_config must be a mapping")
-    for key in ("config_hash", "git_commit"):
+    for key in ("rule_registry_hash", "config_hash", "git_commit"):
         if not isinstance(metadata[key], str) or not metadata[key]:
             raise ValueError(f"manifest {key} must be a non-empty string")
+    if len(metadata["rule_registry_hash"]) != 64 or any(
+        character not in "0123456789abcdef"
+        for character in metadata["rule_registry_hash"]
+    ):
+        raise ValueError("manifest rule_registry_hash must be a lowercase SHA-256 digest")
+
+
+def _manifest_array_schema() -> dict[str, dict[str, Any]]:
+    return {
+        name: {"dtype": dtype.name, "shape": ["N", *trailing]}
+        for name, (dtype, trailing) in ARRAY_SCHEMA.items()
+    }
 
 
 def write_replay_shard(
@@ -307,10 +465,7 @@ def write_replay_shard(
             "schema_version": REPLAY_SCHEMA_VERSION,
             "shard_file": target.name,
             "sample_count": len(shard),
-            "arrays": {
-                name: {"dtype": dtype.name, "shape": ["N", *trailing]}
-                for name, (dtype, trailing) in ARRAY_SCHEMA.items()
-            },
+            "arrays": _manifest_array_schema(),
             "checksum_sha256": checksum,
             "compressed_bytes": compressed_bytes,
             "bytes_per_position": compressed_bytes / max(len(shard), 1),
@@ -377,6 +532,8 @@ def validate_replay_shard_artifacts(
     if not target.is_file() or not manifest_target.is_file() or not ready_target.is_file():
         raise ValueError("replay shard is missing its NPZ, manifest, or ready marker")
     ready = json.loads(ready_target.read_text(encoding="utf-8"))
+    if ready.get("schema_version") != REPLAY_SCHEMA_VERSION:
+        raise ValueError(f"unsupported replay schema: {ready.get('schema_version')!r}")
     expected_ready = {
         "schema_version": REPLAY_SCHEMA_VERSION,
         "shard_file": target.name,
@@ -388,6 +545,9 @@ def validate_replay_shard_artifacts(
     manifest = json.loads(manifest_target.read_text(encoding="utf-8"))
     if manifest.get("schema_version") != REPLAY_SCHEMA_VERSION:
         raise ValueError(f"unsupported replay schema: {manifest.get('schema_version')!r}")
+    _validate_manifest_metadata(manifest)
+    if manifest.get("arrays") != _manifest_array_schema():
+        raise ValueError("manifest arrays do not match the Replay V2 array schema")
     if manifest.get("shard_file") != target.name:
         raise ValueError("manifest shard_file does not match the NPZ filename")
     if verify_checksum:
@@ -609,11 +769,16 @@ __all__ = [
     "ARRAY_SCHEMA",
     "BOARD_SHAPE",
     "COLUMN_COUNT",
+    "MAX_PLACEMENTS",
+    "MAX_TURNS",
     "REPLAY_SCHEMA_VERSION",
     "REQUIRED_MANIFEST_METADATA",
     "ReplayShard",
     "SEARCH_FAST",
     "SEARCH_FULL",
+    "SEARCH_NONE",
+    "TURN_FORCED_PASS",
+    "TURN_PLACE",
     "TrainTokenBucket",
     "WDL_DRAW",
     "WDL_LOSS",

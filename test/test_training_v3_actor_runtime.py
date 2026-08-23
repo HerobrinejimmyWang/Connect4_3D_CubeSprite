@@ -1,18 +1,19 @@
 from __future__ import annotations
 
+import queue
 import unittest
 from dataclasses import replace
 
 import numpy as np
 
-from training.v3.actor_runtime import run_self_play_actor_pool
+from training.v3.actor_runtime import RemotePredictor, run_self_play_actor_pool
 from training.v3.config import (
     ExplorationPhaseConfig,
     ModelConfig,
     SearchStageConfig,
     V3Config,
 )
-from training.v3.model import build_model
+from training.v3.model import build_model, classic_rule_features
 from training.v3.selfplay import run_self_play_games
 
 
@@ -117,6 +118,60 @@ class ActorPoolTests(unittest.TestCase):
                 accepted_model_state=model.state_dict(),
                 producer_model_id="random",
             )
+
+
+class RemotePredictorContractTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.requests: queue.Queue = queue.Queue()
+        self.responses: queue.Queue = queue.Queue()
+        self.predictor = RemotePredictor(
+            3,
+            self.requests,
+            self.responses,
+            response_timeout_s=0.1,
+        )
+
+    def test_request_carries_aligned_board_role_and_rule_batches(self) -> None:
+        boards = np.zeros((2, 6, 5, 5), dtype=np.int8)
+        roles = np.asarray(((1, 0), (0, 1)), dtype=np.float32)
+        rules = classic_rule_features(2).numpy()
+        expected_policy = np.full((2, 25), 1.0 / 25.0, dtype=np.float32)
+        expected_wdl = np.full((2, 3), 1.0 / 3.0, dtype=np.float32)
+        self.responses.put((0, expected_policy, expected_wdl, None))
+
+        policy, wdl = self.predictor.predict_batch(
+            boards,
+            role_to_play=roles,
+            rule_features=rules,
+        )
+
+        actor_id, request_id, sent_boards, sent_roles, sent_rules = self.requests.get_nowait()
+        self.assertEqual((actor_id, request_id), (3, 0))
+        np.testing.assert_array_equal(sent_boards, boards)
+        np.testing.assert_array_equal(sent_roles, roles)
+        np.testing.assert_array_equal(sent_rules, rules)
+        np.testing.assert_array_equal(policy, expected_policy)
+        np.testing.assert_array_equal(wdl, expected_wdl)
+
+    def test_context_is_required_and_batch_aligned_before_enqueue(self) -> None:
+        boards = np.zeros((2, 6, 5, 5), dtype=np.int8)
+        roles = np.asarray(((1, 0), (0, 1)), dtype=np.float32)
+        rules = classic_rule_features(2).numpy()
+        with self.assertRaises(TypeError):
+            self.predictor.predict_batch(boards)  # type: ignore[call-arg]
+        with self.assertRaisesRegex(ValueError, "role_to_play"):
+            self.predictor.predict_batch(
+                boards,
+                role_to_play=roles[:1],
+                rule_features=rules,
+            )
+        with self.assertRaisesRegex(ValueError, "rule_features"):
+            self.predictor.predict_batch(
+                boards,
+                role_to_play=roles,
+                rule_features=rules[:1],
+            )
+        self.assertTrue(self.requests.empty())
 
 
 if __name__ == "__main__":

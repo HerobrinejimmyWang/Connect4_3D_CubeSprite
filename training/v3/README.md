@@ -23,9 +23,12 @@ python -B -m training.v3 smoke --config training/v3/configs/smoke_cpu.json
 python -B -m training.v3 smoke --config training/v3/configs/smoke_cpu.json --resume
 python -B -m training.v3 run --config training/v3/configs/pilot_gpu_64x4.json
 python -B -m training.v3 run --config training/v3/configs/v3_1_mini_128x6.json
+python -B -m training.v3 validate-local --config training/v3/configs/smoke_cpu.json
 ```
 
-Only `--config`, `--run-dir`, `--resume`, and `--device` are accepted overrides.
+Only `--config`, `--run-dir`, `--resume`, and `--device` are accepted runtime
+overrides. `validate-local` additionally accepts diagnostic output paths and an
+optional Replay V2 dataset path.
 Unknown JSON sections, fields, and scalar types are errors. Operational runtime
 topology and storage policy are recorded but excluded from the model-lineage
 hash, so a run can move machines without pretending to be a new learning
@@ -44,6 +47,22 @@ The old ambiguous `v3_1_small.json` was removed. A 64x4 network is a pilot, not
 a full-run target. The 128x6 Mini is about 1.82 million parameters, close to the
 previous approximately 1.94 million-parameter CubeSprite V3 Mini. Model growth
 requires a new run; it is not a hidden stage inside one config.
+
+The Stage 1 plan now has two explicitly separate scaling tracks. The research
+track starts every size from random initialization and imports neither weights
+nor replay. The production track will allow a new, randomly initialized larger
+lineage to offline-bootstrap from a provenance-complete donor Replay V2 bundle,
+then requires a paired donor qualification gate before creating its first
+accepted champion. Cross-scale replay import is design-only today: no current
+command relaxes the same-run replay/config checks, and formal `run` remains
+guarded.
+
+The executable plan/bundle foundation and complete runbook are in
+[`DUAL_TRACK_SCALING.md`](DUAL_TRACK_SCALING.md). `tools/run_v3_scaling.py`
+prints the strict dual-track plan, builds and verifies authenticated data-only
+donor bundles, inspects deterministic donor/own sampling, and writes
+non-promoting donor qualification evidence. None of these operations registers
+a champion or authorizes self-play.
 
 One JSON covers bootstrap, early, and main training through explicit
 `selfplay.search_schedule`, `selfplay.exploration_phases`,
@@ -111,6 +130,43 @@ accepted/rejected or remains inconclusive, then checkpoint and audit artifacts
 are written, and a generation commit is published last. Orphan model files are
 therefore ignored after an interrupted commit.
 
+## Historical anchored Elo
+
+Anchored Elo is a diagnostic scaling measure, not a promotion gate. The frozen
+v1 registry uses `v2.2 Balance` as zero Elo plus CubeSprite V3 iter240 and V3
+Mini iter260. Exact paths and SHA-256 digests live in
+`configs/anchored_elo_historical_v1.json`. All three are external Legacy
+opponents: they never enter V3 lineage and never produce replay.
+
+Every model uses the common V3 classic rule engine and MCTS. The compatibility
+adapter extracts only the 25 current gravity-legal actions from a Legacy
+150-action policy. The primary `primary_256` profile runs at early, middle, and
+final milestones; the separate `final_512` profile runs only at final. Results
+and anchor scales never mix across profiles.
+
+The 200-opening manifest is D4-deduplicated, immutable, and checksum-bound.
+Each opening is played with roles swapped. A profile begins at 50 pairs per
+opponent and may append disjoint 50-pair batches up to 200 until saturation or
+the configured 100-Elo descriptive interval-width target is reached. Historical anchors
+first play a one-time round robin for each profile; the resulting scale is
+frozen before target ratings are fitted. A saturated matchup reports a finite
+Wilson score/Elo lower bound instead of infinite point Elo. Reports retain
+target-as-FIRST/SECOND W/D/L and cannot feed promotion or self-play.
+
+```powershell
+python tools\run_v3_anchored_eval.py `
+  --config training\v3\configs\anchored_elo_historical_v1.json plan
+python tools\run_v3_anchored_eval.py `
+  --config training\v3\configs\anchored_elo_historical_v1.json verify
+```
+
+Use `match --help`, `calibrate --help`, and `report --help` for the explicit
+batch workflow. Match artifacts use `*.match.json`, are immutable and
+content-hashed, record an evaluator-source hash and runtime versions, and reject
+duplicate opening/role evidence. Anchor calibration
+uses `--milestone calibration`; target batches use `early`, `middle`, or
+`final` according to the selected profile.
+
 ## Hardware plan
 
 The reference MCTS batches the virtual-loss lanes of one game through
@@ -127,6 +183,22 @@ reasonable local ranges. Fixed-position comparison retained 100% serial-MCTS
 top-action agreement through 6 lanes, while 8 and 10 lanes fell to 96.9%.
 These values are encoded only in `pilot_gpu_64x4.json`; the larger 128x6 Mini
 must be recalibrated rather than inheriting them blindly.
+
+The Stage 1 capacity screen uses separate immutable presets:
+`stage1_scale_screen_b4c64.json`, `stage1_scale_screen_b6c128.json`, and
+`stage1_scale_screen_b8c192.json`. All three freeze self-play at 128/32 sims,
+the same phased exploration schedule, replay ratio, learner semantics, and a
+256-sim gate. B4 is a one-seed 60k-position canary; B6 and B8 use staged primary
+and confirmation seeds. B6/B8 actor counts and inference batches remain
+calibration starting points, not verified target-machine defaults.
+
+Stage 1 keeps this bounded independent Research line; it does not switch to a
+Production-only path. The main V3 Base is selected only after the staged
+B6/B8/(optional Larger) evidence. It is the last scale with supported stability,
+strength, learning slope, data quality, and compute efficiency—not necessarily
+B6 and not automatically the largest model. Replay-transfer checkpoints remain
+eligible as practical high-performance candidates only with their Production
+lineage stated separately from the independent Research reference.
 
 - One GPU: use one CUDA context and one shared inference owner in staged phases:
   self-play, learner, then gate. Do not keep separate learner and inference CUDA
@@ -187,10 +259,88 @@ training/runs/<run_id>/samples/g<generation>/*.c4replay.json
 training/runs/<run_id>/samples/g<generation>/audit_index.json
 ```
 
-The replay files use the exact CubeSprite desktop protocol v1 and can be
-imported directly by the app. They contain no training-only fields. Seed,
-producer model, search counts, selection reason, and checkpoint checksum live in
-the adjacent audit index.
+The replay files use CubeSprite protocol V2 and can be imported directly by the
+app backend. They preserve the rule ID/version, tagged placement/forced-pass
+turns, and FIRST/SECOND participant provenance. Mutable display names are not
+part of the participant-provenance hash. V1 imports remain readable through a
+separate exact-key validation path. Seed, search counts, selection reason, and
+checkpoint checksum remain in the adjacent audit index.
+
+## Pre-Stage-1 model and replay contract
+
+The learned action remains 25 gravity columns. The program maps a selected
+column to the current cell in the 150-coordinate application representation;
+forced pass is a tagged deterministic rule transition, never a policy logit.
+
+Every model call carries a separate FIRST/SECOND one-hot and the registered
+32-element semantic rule vector. The training forward returns named policy,
+WDL, opponent-reply, future-occupancy, and moves-left logits. The search-only
+forward computes only policy and WDL. Human/model/controller identity is
+recorded for provenance but never enters the network.
+
+Replay schema V2 stores rule code, absolute player, tagged turn kind, placement
+and turn indices, stored policy weight, reply target/mask, absolute terminal
+board, and remaining turns. Full placements have policy weight 1; fast
+placements and forced-pass rows have policy weight 0. Pass rows retain WDL and
+auxiliary supervision with zero visits. Replay V1 and V2 are rejected if mixed.
+
+All explicit V3 configs currently use `classic` and provisional auxiliary loss
+weights `1.0/1.0/0.15/0.15/0.05`. Occupancy class weights are explicitly
+`1.0/1.0/1.0` only as a pre-calibration placeholder. They must be calibrated
+and frozen by the pre-Stage-1 ablation before formal training.
+
+### Bounded local P6/P7 validation
+
+The local validator freezes the five-way auxiliary-head matrix and audits the
+safety foundations without starting self-play or formal training:
+
+```powershell
+python -B -m training.v3 validate-local `
+  --config training\v3\configs\smoke_cpu.json `
+  --output training\runs\local_validation\report.json `
+  --write-ablation-configs training\runs\local_validation\p6_configs
+```
+
+Add `--replay-dir <directory>` once a Replay V2 dataset has been selected. The
+validator checks every NPZ/manifest/ready triplet, records a stable dataset
+fingerprint and target coverage, and suggests inverse-frequency future
+occupancy weights. The suggestion is evidence, not an automatic config change.
+Dataset integrity and P6 screening readiness are separate. To assert the latter,
+pass both `--minimum-replay-games` and `--minimum-replay-samples`; the validator
+does not invent those experiment-size thresholds.
+
+The report distinguishes `local_contract_passed`, dataset integrity, explicit
+P6 screening readiness, and `stage1_ready`. The last remains false until
+target-GPU efficiency/short
+closed-loop evidence and the remaining P7 journal, lock, drain, archive, prune,
+and disk-watermark connections are complete.
+
+### Stage 1 stability and 256-sim target audit
+
+`stability.py` evaluates correlated behavioral symptoms over consecutive
+generations. The regression fixture in
+`test/fixtures/v3_historical_stability_trace_v1.json` is aggregate Legacy
+evidence only: it stops the high-temperature 253-264 branch at 254 while not
+stopping the controlled 249-260 recovery. A single short-game spike remains a
+watch. The formal scheduler has not yet been connected to enforce the pause.
+
+Every new self-play health artifact includes full/fast visit-target summaries:
+visit-budget integrity, entropy, effective action count, support, top-1 mass,
+and top-1/top-2 gap. At selected accepted checkpoints, generate the same fixed
+positions at 256, repeated 256, and 512 sims, then run:
+
+```powershell
+python tools\run_v3_policy_target_quality.py compare `
+  --primary path\to\fixed_256.npz `
+  --reference path\to\fixed_512.npz `
+  --output path\to\policy_target_quality.json
+```
+
+The tool verifies replay triplets and exact paired-position identity, then
+reports top-action agreement, total variation, Jensen-Shannon divergence, and
+reference top-1 regret. It never changes a search budget. Raise 256 only when
+its 512 delta exceeds repeated-256 variability and the 512 targets also improve
+held-out policy fit or paired strength.
 
 ## Smoke artifacts
 
@@ -199,6 +349,8 @@ training/runs/<run_id>/
   resolved_config.json
   run_manifest.json
   manifests/generations/
+  manifests/generation_drafts/
+  manifests/coordinator.lock  # present only while held
   replay/raw/
   replay/shuffle/
   metrics/
@@ -219,9 +371,11 @@ probe and deliberately does not advance the committed checkpoint.
 
 Committed generations bind the checkpoint, replay NPZ/manifest/ready triplets,
 accepted/candidate models, audit index, and every portable audit replay by hash;
-resume scans backward to the newest complete generation. Pre-commit crash
-reconciliation and an OS-level single-coordinator lock are deliberately still
-formal-run blockers. File and directory `fsync` provides the intended
+resume scans backward to the newest complete generation. `formal_journal.py`
+now provides a no-clobber coordinator lock and checksum-bound pre-commit draft
+reconciliation. They are tested but remain a formal-run blocker until the
+multi-generation writer is actually wrapped by them. File and directory
+`fsync` provides the intended
 power-loss durability on the Linux cloud target. Windows smoke validates atomic
 replacement and checksums, but does not claim directory-metadata durability
 across sudden power loss.
