@@ -73,7 +73,14 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config_hash(config), config_hash(resolve_config(config, run_dir="moved", resume=True)))
         topology_change = replace(
             config,
-            runtime=replace(config.runtime, actor_processes=3, inference_batch_size=3),
+            runtime=replace(
+                config.runtime,
+                actor_processes=3,
+                inference_batch_size=3,
+                evaluation_parallel_games=4,
+                evaluation_inference_batch_size=8,
+                evaluation_inference_batch_timeout_ms=2.0,
+            ),
         )
         self.assertEqual(config_hash(config), config_hash(topology_change))
         lane_change = replace(

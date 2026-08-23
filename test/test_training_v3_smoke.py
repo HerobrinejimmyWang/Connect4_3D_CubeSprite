@@ -98,6 +98,67 @@ class SequentialGateTests(unittest.TestCase):
         self.assertEqual(final_decision.verdict, "accept")
         self.assertEqual([look["pairs"] for look in looks], [2, 4, 6])
 
+    def test_gate_uses_operational_game_parallel_runtime_without_changing_looks(self) -> None:
+        config = load_config(SMOKE_CONFIG)
+        config = replace(
+            config,
+            gate=replace(
+                config.gate,
+                initial_opening_pairs=2,
+                pair_increment=2,
+                max_opening_pairs=2,
+            ),
+            runtime=replace(
+                config.runtime,
+                evaluation_parallel_games=4,
+                evaluation_inference_batch_size=8,
+            ),
+        )
+        decision = SimpleNamespace(
+            verdict="accept",
+            summary=SimpleNamespace(
+                overall=SimpleNamespace(point_score=0.75),
+                ci_lower=0.5,
+                ci_upper=1.0,
+            ),
+        )
+        evaluated = SimpleNamespace(
+            games=tuple(object() for _ in range(4)),
+            metrics=SimpleNamespace(
+                to_dict=lambda: {
+                    "parallel_games": 4,
+                    "games": 4,
+                    "inference_services": [],
+                }
+            ),
+        )
+        runtime_records = []
+        with (
+            mock.patch(
+                "training.v3.pipeline.play_paired_openings_parallel",
+                return_value=evaluated,
+            ) as parallel,
+            mock.patch("training.v3.pipeline.play_paired_openings") as serial,
+            mock.patch("training.v3.pipeline.evaluate_gate", return_value=decision),
+        ):
+            results, final_decision, looks = _run_sequential_gate(
+                config,
+                generation=0,
+                openings=list(range(2)),
+                candidate_predictor=object(),
+                incumbent_predictor=object(),
+                runtime_records=runtime_records,
+            )
+
+        parallel.assert_called_once()
+        serial.assert_not_called()
+        self.assertEqual(len(results), 4)
+        self.assertEqual(final_decision.verdict, "accept")
+        self.assertEqual([look["pairs"] for look in looks], [2])
+        self.assertEqual(runtime_records[0]["pair_start"], 0)
+        self.assertEqual(runtime_records[0]["pair_stop"], 2)
+        self.assertEqual(runtime_records[0]["parallel_games"], 4)
+
     def test_cli_print_config_and_guarded_run(self) -> None:
         output = io.StringIO()
         errors = io.StringIO()

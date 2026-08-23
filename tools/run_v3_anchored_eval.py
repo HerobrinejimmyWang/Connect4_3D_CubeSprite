@@ -51,6 +51,9 @@ def _parser() -> argparse.ArgumentParser:
     match.add_argument("--pair-start", type=int, required=True)
     match.add_argument("--pair-count", type=int, required=True)
     match.add_argument("--device", default="cpu")
+    match.add_argument("--parallel-games", type=int, default=1)
+    match.add_argument("--inference-batch-size", type=int, default=1)
+    match.add_argument("--inference-batch-timeout-ms", type=float, default=1.0)
     match.add_argument("--output", type=Path, required=True)
 
     calibrate = commands.add_parser(
@@ -153,6 +156,12 @@ def main(argv: list[str] | None = None) -> int:
             profile = config.profile(args.profile)
             if args.pair_start < 0 or args.pair_count < 1:
                 raise ValueError("pair-start must be non-negative and pair-count positive")
+            if (
+                args.parallel_games < 1
+                or args.inference_batch_size < 1
+                or args.inference_batch_timeout_ms < 0.0
+            ):
+                raise ValueError("evaluation parallel/batch settings are invalid")
             stop = args.pair_start + args.pair_count
             if stop > profile.max_pairs or stop > len(openings):
                 raise ValueError("requested pair range exceeds the profile or opening suite")
@@ -182,6 +191,9 @@ def main(argv: list[str] | None = None) -> int:
                 predictor_b=predictor_b,
                 milestone=args.milestone,
                 runtime={"device": args.device},
+                parallel_games=args.parallel_games,
+                inference_batch_size=args.inference_batch_size,
+                inference_batch_timeout_s=args.inference_batch_timeout_ms / 1000.0,
             )
             sys.stdout.write(_json({"status": "complete", "output": str(args.output)}))
             return 0

@@ -81,6 +81,9 @@ def _parser() -> argparse.ArgumentParser:
     qualify.add_argument("--donor", type=Path, required=True)
     qualify.add_argument("--pair-count", type=int, required=True)
     qualify.add_argument("--device", default="cpu")
+    qualify.add_argument("--parallel-games", type=int, default=1)
+    qualify.add_argument("--inference-batch-size", type=int, default=1)
+    qualify.add_argument("--inference-batch-timeout-ms", type=float, default=1.0)
     qualify.add_argument("--output", type=Path, required=True)
 
     verify_qualification = commands.add_parser(
@@ -212,6 +215,12 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0
         if args.command == "qualify":
+            if (
+                args.parallel_games < 1
+                or args.inference_batch_size < 1
+                or args.inference_batch_timeout_ms < 0.0
+            ):
+                raise ValueError("evaluation parallel/batch settings are invalid")
             spec = load_scaling_experiment(args.spec)
             qualification = spec["production_track"]["qualification"]
             valid_counts = range(
@@ -246,6 +255,9 @@ def main(argv: list[str] | None = None) -> int:
                 bootstrap_samples=qualification["bootstrap_samples"],
                 role_floor=qualification["role_floor"],
                 accept_threshold=qualification["accept_threshold"],
+                parallel_games=args.parallel_games,
+                inference_batch_size=args.inference_batch_size,
+                inference_batch_timeout_s=args.inference_batch_timeout_ms / 1000.0,
             )
             evidence = load_donor_qualification(args.output)
             sys.stdout.write(

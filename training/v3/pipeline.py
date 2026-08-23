@@ -29,6 +29,7 @@ from .actor_runtime import run_self_play_actor_pool
 from .checkpoint import CheckpointV1, load_checkpoint, save_checkpoint
 from .config import V3Config, config_hash
 from .evaluation import build_openings, play_paired_openings, write_opening_manifest
+from .evaluation_runtime import play_paired_openings_parallel
 from .formal_state import FormalLoopState, PendingCandidateState
 from .gate import evaluate_gate
 from .hardware_plan import plan_hardware
@@ -445,6 +446,7 @@ def _run_sequential_gate(
     candidate_predictor: Any,
     incumbent_predictor: Any,
     existing_results: Iterable[Any] = (),
+    runtime_records: list[dict[str, Any]] | None = None,
 ) -> tuple[list[Any], Any, list[dict[str, Any]]]:
     """Append only new opening pairs until the gate resolves or reaches its cap."""
 
@@ -462,13 +464,51 @@ def _run_sequential_gate(
     looks: list[dict[str, Any]] = []
     while True:
         if completed_pairs < target_pairs:
-            new_results = play_paired_openings(
-                openings[completed_pairs:target_pairs],
-                candidate_predictor=candidate_predictor,
-                incumbent_predictor=incumbent_predictor,
-                search_sims=gate_search_sims,
-                cpuct=config.gate.cpuct,
-            )
+            pair_start = completed_pairs
+            new_openings = openings[completed_pairs:target_pairs]
+            if (
+                config.runtime.evaluation_parallel_games == 1
+                and config.runtime.evaluation_inference_batch_size == 1
+            ):
+                started = time.perf_counter()
+                new_results = play_paired_openings(
+                    new_openings,
+                    candidate_predictor=candidate_predictor,
+                    incumbent_predictor=incumbent_predictor,
+                    search_sims=gate_search_sims,
+                    cpuct=config.gate.cpuct,
+                )
+                wall_seconds = time.perf_counter() - started
+                evaluation_runtime = {
+                    "parallel_games": 1,
+                    "games": len(new_results),
+                    "wall_seconds": wall_seconds,
+                    "games_per_second": len(new_results) / max(wall_seconds, 1e-12),
+                    "inference_services": [],
+                }
+            else:
+                evaluated = play_paired_openings_parallel(
+                    new_openings,
+                    candidate_predictor=candidate_predictor,
+                    incumbent_predictor=incumbent_predictor,
+                    search_sims=gate_search_sims,
+                    cpuct=config.gate.cpuct,
+                    parallel_games=config.runtime.evaluation_parallel_games,
+                    inference_batch_size=config.runtime.evaluation_inference_batch_size,
+                    inference_batch_timeout_s=(
+                        config.runtime.evaluation_inference_batch_timeout_ms / 1000.0
+                    ),
+                )
+                new_results = evaluated.games
+                evaluation_runtime = evaluated.metrics.to_dict()
+            if runtime_records is not None:
+                runtime_records.append(
+                    {
+                        "pair_start": pair_start,
+                        "pair_stop": target_pairs,
+                        **evaluation_runtime,
+                    }
+                )
             expected_games = 2 * (target_pairs - completed_pairs)
             if len(new_results) != expected_games:
                 raise RuntimeError(
@@ -1389,12 +1429,14 @@ def run_smoke(config: V3Config) -> dict[str, Any]:
         write_opening_manifest(opening_manifest_path, openings)
         candidate_predictor = TorchPredictor(model, config.runtime.device)
         gate_search_sims = config.gate.search_sims_for_generation(generation)
+        gate_evaluation_runtime: list[dict[str, Any]] = []
         gate_results, gate_decision, gate_looks = _run_sequential_gate(
             config,
             generation=generation,
             openings=openings,
             candidate_predictor=candidate_predictor,
             incumbent_predictor=accepted_predictor,
+            runtime_records=gate_evaluation_runtime,
         )
         gate_payload = {
             "schema_version": 1,
@@ -1410,6 +1452,7 @@ def run_smoke(config: V3Config) -> dict[str, Any]:
             "descriptive_confidence": config.gate.confidence,
             "games": [asdict(result) for result in gate_results],
             "looks": gate_looks,
+            "evaluation_runtime": gate_evaluation_runtime,
             **gate_decision.to_dict(),
         }
         gate_path = layout.metrics / f"gate_g{generation:06d}.json"

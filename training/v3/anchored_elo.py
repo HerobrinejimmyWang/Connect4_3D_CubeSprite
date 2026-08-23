@@ -11,6 +11,7 @@ import json
 import math
 import os
 import sys
+import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,6 +25,7 @@ from connect4_core.rules import CLASSIC_RULE, DEFAULT_RULE_REGISTRY
 
 from .config import ModelConfig
 from .evaluation import Opening, load_opening_manifest, play_paired_openings
+from .evaluation_runtime import play_paired_openings_parallel
 from .model import TorchPredictor, build_model, legacy_policy_to_columns
 from .replay import sha256_file
 from .search import Predictor
@@ -253,6 +255,7 @@ def evaluator_code_hash(repository_root: str | Path) -> str:
     relative_paths = (
         "training/v3/anchored_elo.py",
         "training/v3/evaluation.py",
+        "training/v3/evaluation_runtime.py",
         "training/v3/search.py",
         "training/v3/model.py",
         "connect4_core/rules/specs.py",
@@ -500,6 +503,9 @@ def write_match_batch(
     predictor_b: Predictor,
     milestone: str,
     runtime: Mapping[str, Any] | None = None,
+    parallel_games: int = 1,
+    inference_batch_size: int = 1,
+    inference_batch_timeout_s: float = 0.001,
 ) -> Path:
     """Run and immutably persist one disjoint paired-opening batch."""
 
@@ -530,13 +536,37 @@ def write_match_batch(
     manifest_rows = {opening.opening_id: opening for opening in load_opening_manifest(manifest_path)}
     if any(manifest_rows.get(opening.opening_id) != opening for opening in rows):
         raise ValueError("match openings are not an exact subset of the frozen suite")
-    results = play_paired_openings(
-        rows,
-        candidate_predictor=predictor_a,
-        incumbent_predictor=predictor_b,
-        search_sims=profile.search_sims,
-        cpuct=profile.cpuct,
-    )
+    evaluation_runtime: dict[str, Any]
+    if parallel_games == 1 and inference_batch_size == 1:
+        started = time.perf_counter()
+        results = play_paired_openings(
+            rows,
+            candidate_predictor=predictor_a,
+            incumbent_predictor=predictor_b,
+            search_sims=profile.search_sims,
+            cpuct=profile.cpuct,
+        )
+        wall_seconds = time.perf_counter() - started
+        evaluation_runtime = {
+            "parallel_games": 1,
+            "games": len(results),
+            "wall_seconds": wall_seconds,
+            "games_per_second": len(results) / max(wall_seconds, 1e-12),
+            "inference_services": [],
+        }
+    else:
+        evaluated = play_paired_openings_parallel(
+            rows,
+            candidate_predictor=predictor_a,
+            incumbent_predictor=predictor_b,
+            search_sims=profile.search_sims,
+            cpuct=profile.cpuct,
+            parallel_games=parallel_games,
+            inference_batch_size=inference_batch_size,
+            inference_batch_timeout_s=inference_batch_timeout_s,
+        )
+        results = evaluated.games
+        evaluation_runtime = evaluated.metrics.to_dict()
     payload = {
         "schema_version": MATCH_BATCH_SCHEMA_VERSION,
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -548,6 +578,7 @@ def write_match_batch(
             "python": sys.version.split()[0],
             "numpy": np.__version__,
             "torch": torch.__version__,
+            "evaluation": evaluation_runtime,
             **dict(runtime or {}),
         },
         "profile": asdict(profile),

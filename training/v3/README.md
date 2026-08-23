@@ -134,6 +134,37 @@ accepted/rejected or remains inconclusive, then checkpoint and audit artifacts
 are written, and a generation commit is published last. Orphan model files are
 therefore ignored after an interrupted commit.
 
+All formal V3 head-to-head paths use the same operational evaluation runtime:
+same-lineage candidate gates, Historical Anchored Elo (including anchor-scale
+calibration), and cross-scale donor qualification. Parallelism is only across
+independent opening/color games. Every game keeps the frozen simulation count,
+`cpuct`, deterministic seed, and single-lane MCTS semantics; requests from
+concurrent games are combined into a hard-limited inference batch. Immutable
+evidence records game concurrency, batch limit/timeout, wall time, and per-model
+batch statistics. These topology controls are operational and excluded from the
+model-lineage hash.
+
+GPU presets must set `runtime.evaluation_parallel_games`,
+`runtime.evaluation_inference_batch_size`, and
+`runtime.evaluation_inference_batch_timeout_ms` only after a fixed-opening
+serial-versus-parallel check. The check requires identical opening/role
+coverage, no batch-limit violation, and a paired strength regression when
+floating-point batching changes an exact result. Do not raise MCTS lanes to
+improve evaluation utilization.
+
+Use the common fixed-profile sweep before changing a GPU preset:
+
+```powershell
+python tools\benchmark_v3_evaluation_runtime.py `
+  --device cuda:0 --pair-count 4 --topologies 4x8,8x16,12x32,16x32 `
+  --output training\runs\evaluation_runtime_benchmark.json
+```
+
+The benchmark accepts `anchor:<id>` and `v3:<checkpoint>` model specs. It saves
+the serial games, every parallel game, exact-result mismatch count, effective
+inference batches, wall-time speedup, cgroup CPU quota/use, and sampled GPU
+utilization, memory, and power. Run it only in an uncontended hardware window.
+
 ## Historical anchored Elo
 
 Anchored Elo is a diagnostic scaling measure, not a promotion gate. The frozen
@@ -227,6 +258,15 @@ When the learner is intentionally idle, two self-play services at 40 actors x
 4 lanes reached about 8027 simulations/s for B4 and 7146 simulations/s for the
 B6 single point. This is an opportunistic data-production mode, not the formal
 role-split preset: do not silently move `cuda:0` away from an active learner.
+
+Before B6 formal execution, repeat the topology check because the B4 run's
+observed cgroup CPU use stayed below half of the 40-vCPU quota. Hold lanes at the
+quality-validated value 4 and compare actor count and service placement instead:
+role-split points around 24/28/32 actors, then (only while learner stages are
+provably not active) two-service points around 32/40/48 actors. Select by useful
+simulations or games per wall time together with inference-batch formation,
+GPU gaps, cgroup CPU use/throttling, memory headroom, and fixed-search quality;
+CPU or GPU utilization alone is not an acceptance metric.
 
 - One GPU: use one CUDA context and one shared inference owner in staged phases:
   self-play, learner, then gate. Do not keep separate learner and inference CUDA

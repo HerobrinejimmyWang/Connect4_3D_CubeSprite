@@ -348,6 +348,9 @@ class RuntimeConfig:
     actor_processes: int = 1
     mcts_lanes_per_actor: int = 1
     inference_batch_size: int = 1
+    evaluation_parallel_games: int = 1
+    evaluation_inference_batch_size: int = 1
+    evaluation_inference_batch_timeout_ms: float = 1.0
     num_workers: int = 0
     torch_threads: int = 1
     deterministic: bool = True
@@ -368,6 +371,10 @@ class RuntimeConfig:
             raise ValueError("runtime actor processes and MCTS lanes must be positive.")
         if self.inference_batch_size < 1:
             raise ValueError("runtime inference batch size must be positive.")
+        if self.evaluation_parallel_games < 1 or self.evaluation_inference_batch_size < 1:
+            raise ValueError("runtime evaluation parallel and batch sizes must be positive.")
+        if self.evaluation_inference_batch_timeout_ms < 0.0:
+            raise ValueError("runtime evaluation batch timeout must be non-negative.")
         if self.num_workers < 0 or self.torch_threads < 1:
             raise ValueError("runtime.num_workers must be non-negative and torch_threads positive.")
         if self.device == "cpu" and self.learner_amp:

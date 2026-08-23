@@ -530,12 +530,14 @@ def _run_generation(
         if not opening_manifest_path.exists():
             write_opening_manifest(opening_manifest_path, openings)
         candidate_predictor = TorchPredictor(model, config.runtime.device)
+        gate_evaluation_runtime: list[dict[str, Any]] = []
         gate_results, gate_decision, gate_looks = _run_sequential_gate(
             config,
             generation=generation,
             openings=openings,
             candidate_predictor=candidate_predictor,
             incumbent_predictor=accepted_predictor,
+            runtime_records=gate_evaluation_runtime,
         )
         gate_path = layout.metrics / f"gate_g{generation:06d}.json"
         _atomic_write_json(
@@ -551,6 +553,7 @@ def _run_generation(
                 "max_pairs": config.gate.max_opening_pairs,
                 "games": [asdict(result) for result in gate_results],
                 "looks": gate_looks,
+                "evaluation_runtime": gate_evaluation_runtime,
                 **gate_decision.to_dict(),
             },
         )

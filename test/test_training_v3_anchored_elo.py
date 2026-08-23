@@ -156,11 +156,21 @@ class AnchoredEloTests(unittest.TestCase):
                 predictor_a=RandomPredictor(),
                 predictor_b=RandomPredictor(),
                 milestone="early",
+                parallel_games=2,
+                inference_batch_size=2,
+                inference_batch_timeout_s=0.01,
             )
             loaded = load_match_batches(
                 (path,), expected_config_hash=canonical_anchored_config_hash(config)
             )
             self.assertEqual(len(loaded), 1)
+            self.assertEqual(loaded[0]["runtime"]["evaluation"]["parallel_games"], 2)
+            self.assertTrue(
+                all(
+                    service["max_batch"] <= service["batch_limit"]
+                    for service in loaded[0]["runtime"]["evaluation"]["inference_services"]
+                )
+            )
             with self.assertRaises(FileExistsError):
                 write_match_batch(
                     path,

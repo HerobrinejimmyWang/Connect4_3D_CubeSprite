@@ -13,6 +13,7 @@ import math
 import os
 import shutil
 import tempfile
+import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,6 +24,7 @@ import numpy as np
 from connect4_core.rules import DEFAULT_RULE_REGISTRY
 
 from .evaluation import Opening, play_paired_openings
+from .evaluation_runtime import play_paired_openings_parallel
 from .gate import GateGameResult, evaluate_gate
 from .replay import (
     ARRAY_SCHEMA,
@@ -760,6 +762,9 @@ def write_donor_qualification(
     bootstrap_samples: int,
     role_floor: float,
     accept_threshold: float = 0.5,
+    parallel_games: int = 1,
+    inference_batch_size: int = 1,
+    inference_batch_timeout_s: float = 0.001,
 ) -> Path:
     """Run and immutably write a cross-size qualification gate artifact."""
 
@@ -786,13 +791,38 @@ def write_donor_qualification(
     )
     if donor_identity["checksum_sha256"] != donor_attestation["artifact_sha256"]:
         raise ValueError("qualification donor checksum differs from the bundle attestation")
-    results = play_paired_openings(
-        openings,
-        candidate_predictor=candidate_predictor,
-        incumbent_predictor=donor_predictor,
-        search_sims=search_sims,
-        cpuct=cpuct,
-    )
+    if parallel_games < 1 or inference_batch_size < 1 or inference_batch_timeout_s < 0.0:
+        raise ValueError("qualification evaluation parallel/batch settings are invalid")
+    if parallel_games == 1 and inference_batch_size == 1:
+        started = time.perf_counter()
+        results = play_paired_openings(
+            openings,
+            candidate_predictor=candidate_predictor,
+            incumbent_predictor=donor_predictor,
+            search_sims=search_sims,
+            cpuct=cpuct,
+        )
+        wall_seconds = time.perf_counter() - started
+        evaluation_runtime: dict[str, Any] = {
+            "parallel_games": 1,
+            "games": len(results),
+            "wall_seconds": wall_seconds,
+            "games_per_second": len(results) / max(wall_seconds, 1e-12),
+            "inference_services": [],
+        }
+    else:
+        evaluated = play_paired_openings_parallel(
+            openings,
+            candidate_predictor=candidate_predictor,
+            incumbent_predictor=donor_predictor,
+            search_sims=search_sims,
+            cpuct=cpuct,
+            parallel_games=parallel_games,
+            inference_batch_size=inference_batch_size,
+            inference_batch_timeout_s=inference_batch_timeout_s,
+        )
+        results = evaluated.games
+        evaluation_runtime = evaluated.metrics.to_dict()
     decision = evaluate_gate(
         results,
         confidence=confidence,
@@ -813,6 +843,7 @@ def write_donor_qualification(
         "candidate": dict(candidate_identity),
         "donor": dict(donor_identity),
         "search": {"simulations": int(search_sims), "cpuct": float(cpuct)},
+        "evaluation_runtime": evaluation_runtime,
         "statistics": {
             "confidence": float(confidence),
             "bootstrap_samples": int(bootstrap_samples),
