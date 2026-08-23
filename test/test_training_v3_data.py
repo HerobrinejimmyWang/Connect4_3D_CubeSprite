@@ -9,7 +9,13 @@ import numpy as np
 import torch
 from torch import nn
 
-from training.v3.checkpoint import CheckpointV1, load_checkpoint, save_checkpoint
+from training.v3.checkpoint import (
+    CheckpointV1,
+    capture_rng_state,
+    load_checkpoint,
+    restore_rng_state,
+    save_checkpoint,
+)
 from training.v3.gate import GateGameResult, evaluate_gate, summarize_paired_results
 from training.v3.learner import (
     DeterministicKeyBatchSampler,
@@ -268,6 +274,15 @@ class _OneShotSkippingScaler:
 class LearnerCheckpointTests(unittest.TestCase):
     def setUp(self):
         torch.set_num_threads(1)
+
+    @unittest.skipUnless(torch.cuda.is_available(), "CUDA is required")
+    def test_rng_restore_normalizes_cuda_mapped_state_to_cpu_byte_tensors(self):
+        state = capture_rng_state()
+        mapped = dict(state)
+        mapped["torch_cpu"] = state["torch_cpu"].to("cuda:0")
+        mapped["torch_cuda"] = [item.to("cuda:0") for item in state["torch_cuda"]]
+
+        restore_rng_state(mapped)
 
     def test_losses_metrics_and_exact_resume(self):
         random.seed(10)

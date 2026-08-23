@@ -55,14 +55,17 @@ def capture_rng_state() -> dict[str, Any]:
 def restore_rng_state(state: Mapping[str, Any]) -> None:
     random.setstate(state["python"])
     np.random.set_state(state["numpy"])
-    torch.set_rng_state(state["torch_cpu"])
+    torch_cpu_state = torch.as_tensor(state["torch_cpu"], dtype=torch.uint8).detach().cpu()
+    torch.set_rng_state(torch_cpu_state)
     torch.use_deterministic_algorithms(bool(state.get("torch_deterministic_algorithms", False)))
     if hasattr(torch.backends, "cudnn"):
         torch.backends.cudnn.deterministic = bool(state.get("cudnn_deterministic", False))
         torch.backends.cudnn.benchmark = bool(state.get("cudnn_benchmark", False))
     cuda_state = state.get("torch_cuda")
     if cuda_state is not None and torch.cuda.is_available():
-        torch.cuda.set_rng_state_all(cuda_state)
+        torch.cuda.set_rng_state_all(
+            [torch.as_tensor(item, dtype=torch.uint8).detach().cpu() for item in cuda_state]
+        )
 
 
 @dataclass
