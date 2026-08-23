@@ -794,6 +794,17 @@ def run_formal(
         signal.signal(signal_number, drain.handle)
     try:
         with CoordinatorLock(layout.coordinator_lock, run_id=config.run.run_id):
+            invocation = {
+                "started_at": _utc_now(),
+                "git_commit": code_commit,
+                "runtime": asdict(config.runtime),
+            }
+            runtime_invocations = run_manifest.setdefault("runtime_invocations", [])
+            if not isinstance(runtime_invocations, list):
+                raise ValueError("run manifest runtime_invocations must be a list")
+            runtime_invocations.append(invocation)
+            run_manifest["active_runtime"] = invocation["runtime"]
+            _atomic_write_json(layout.run_manifest, run_manifest)
             _resume_ready_commit(layout, expected_hash)
             (
                 model,

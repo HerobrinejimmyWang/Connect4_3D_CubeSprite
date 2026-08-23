@@ -253,14 +253,16 @@ eligible as practical high-performance candidates only with their Production
 lineage stated separately from the independent Research reference.
 
 For the `connect4_gpu_2608` class of host (2x RTX 3080 Ti, 40-vCPU cgroup,
-60-GiB memory cgroup), the bounded 2026-08-23 calibration supports the B4 and
-B6 role-split presets `stage1_scale_screen_b4c64_2x3080ti.json` and
-`stage1_scale_screen_b6c128_2x3080ti.json`: `cuda:0` is the sole learner and
-`cuda:1` owns accepted-model self-play inference. Both use 24 actors x 4 lanes,
-batch 32, and the actor-pool default 1 ms batch timeout. B4 fine points at
-20/24/28 actors produced about 5266/5586/5496 simulations/s; B6 coarse points
-at 20/24/28 produced about 4502/4696/4613 simulations/s. Batch 64 and a 0.5 ms
-timeout were slower.
+60-GiB memory cgroup), the bounded 2026-08-24 calibration supports staged
+two-service B4/B6 presets: both GPUs produce self-play, those services fully
+drain, and only then does `cuda:0` run the learner. Both presets use 40 actors x
+4 lanes, batch 32, and the actor-pool default 1 ms batch timeout. The B6 scan
+used the formal 128/32 search schedule and ply-0-through-27 high exploration.
+Single-service 24/28/32-actor points produced about 4909/4893/4898 sims/s;
+two-service 32/40/48 points produced about 6857/7402/7063 sims/s. The selected
+40-actor point used 44.4% of the 40-vCPU quota; 48 actors raised CPU use to
+48.6% and throttling while reducing throughput. Low aggregate CPU utilization
+at the single-service plateau is therefore not a reason to add search threads.
 
 Lane count remains semantic. With fixed random V3 weights, lane 4 versus serial
 lane 1 scored 17:15 over 32 paired B4 games and 16:16 over 32 paired B6 games.
@@ -270,16 +272,10 @@ lane 4; lane 6 drifted further in B4. Therefore lane 4 is the conservative
 target-machine default, and it must be repeated against a stable accepted
 champion before any increase. B8 still requires its own target-hardware preset.
 
-When the learner is intentionally idle, two self-play services at 40 actors x
-4 lanes reached about 8027 simulations/s for B4 and 7146 simulations/s for the
-B6 single point. This is an opportunistic data-production mode, not the formal
-role-split preset: do not silently move `cuda:0` away from an active learner.
-
-Before B6 formal execution, repeat the topology check because the B4 run's
-observed cgroup CPU use stayed below half of the 40-vCPU quota. Hold lanes at the
-quality-validated value 4 and compare actor count and service placement instead:
-role-split points around 24/28/32 actors, then (only while learner stages are
-provably not active) two-service points around 32/40/48 actors. Select by useful
+The two-service preset is valid only because the formal runner is synchronous:
+it joins all actors and inference services before learning begins. A future
+overlapped scheduler must return to a role split and must not silently move
+`cuda:0` away from an active learner. Continue selecting topology by useful
 simulations or games per wall time together with inference-batch formation,
 GPU gaps, cgroup CPU use/throttling, memory headroom, and fixed-search quality;
 CPU or GPU utilization alone is not an acceptance metric.
@@ -289,9 +285,11 @@ CPU or GPU utilization alone is not an acceptance metric.
   processes resident on the same card.
 - Two or more GPUs: the explicitly configured learner device (default
   `cuda:0`) is the sole learner; every device in `selfplay_devices` owns one
-  accepted-model inference service and an actor group. Self-play may overlap
-  the learner. Gate waits for current games to finish and switches models only
-  at a new-game boundary.
+  accepted-model inference service and an actor group. Including the learner
+  device means staged execution and forbids overlap. Excluding it is an
+  explicit role split that may support overlap in a future scheduler. Gate
+  waits for current games to finish and switches models only at a new-game
+  boundary.
 - DDP is disabled. The network is too small to assume that gradient all-reduce
   will beat dedicating extra GPUs to self-play inference.
 - All proposed game, inference, completed-game, and checkpoint queues are
@@ -305,17 +303,22 @@ CPU or GPU utilization alone is not an acceptance metric.
 The historical RTX 4090 run used 24 actors x 4 search lanes with one shared
 inference service. It remains historical context, not a portable default.
 
-For a two-GPU role split, keep one preset and change only the runtime topology:
+For the measured two-GPU staged topology, keep one preset and change only the
+runtime controls:
 
 ```json
 "device": "cuda:0",
-"selfplay_devices": ["cuda:1"]
+"selfplay_devices": ["cuda:0", "cuda:1"],
+"actor_processes": 40
 ```
 
 `run` preserves the explicitly configured learner device and marks the CUDA
 inventory unverified during offline planning. Single-GPU presets leave
 `selfplay_devices` empty, so `--device cuda:N` moves the whole staged topology;
 multi-GPU topology is intentionally explicit in JSON.
+Every formal invocation appends its exact runtime controls and Git commit to
+`run_manifest.json`; this preserves topology history when a lineage resumes
+with a different operational placement.
 
 ## Storage and cloud retention
 

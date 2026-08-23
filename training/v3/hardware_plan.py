@@ -111,6 +111,7 @@ def plan_hardware(
     cuda_devices: Sequence[str],
     *,
     learner_device: str | None = None,
+    selfplay_devices: Sequence[str] | None = None,
     actors: int,
     mcts_lanes: int,
     inference_batch_limit: int,
@@ -123,8 +124,11 @@ def plan_hardware(
     indices without this module importing or querying PyTorch. Device order in
     the input is irrelevant. If ``learner_device`` is omitted the lowest device
     is used for backward compatibility; production callers should pass it
-    explicitly. In the multi-GPU plan actors are assigned round-robin to one
-    service per active self-play device.
+    explicitly. If ``selfplay_devices`` is omitted, a multi-GPU plan reserves
+    the learner device and uses the others for overlapping self-play. If it is
+    provided, actors are assigned round-robin to exactly those services; a
+    list containing the learner device is therefore a staged, non-overlapping
+    plan.
     """
 
     actor_count = _positive_int(actors, "actors")
@@ -146,11 +150,34 @@ def plan_hardware(
         if parsed_learner not in devices:
             raise ValueError("learner_device must be included in cuda_devices")
         resolved_learner = parsed_learner
+    if selfplay_devices is not None:
+        requested_selfplay = _parse_cuda_devices(
+            selfplay_devices,
+            cuda_inventory_count=cuda_inventory_count,
+        )
+        if any(device not in devices for device in requested_selfplay):
+            raise ValueError("selfplay_devices must be included in cuda_devices")
+    else:
+        requested_selfplay = ()
+
     if len(devices) == 1:
         mode = "single_gpu_staged"
-        service_devices = devices
+        service_devices = requested_selfplay or devices
         unused_devices: tuple[str, ...] = ()
         stages_may_overlap = False
+    elif requested_selfplay:
+        service_devices = requested_selfplay[: min(actor_count, len(requested_selfplay))]
+        unused_devices = tuple(
+            device
+            for device in devices
+            if device != resolved_learner and device not in service_devices
+        )
+        if resolved_learner in service_devices:
+            mode = "multi_gpu_staged"
+            stages_may_overlap = False
+        else:
+            mode = "multi_gpu_role_split"
+            stages_may_overlap = True
     else:
         mode = "multi_gpu_role_split"
         available_selfplay_devices = tuple(

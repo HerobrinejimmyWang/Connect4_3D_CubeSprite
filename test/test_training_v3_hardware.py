@@ -54,6 +54,23 @@ class HardwarePlanTests(unittest.TestCase):
         self.assertTrue(all(service.request_queue_capacity == 8 for service in plan.inference_services))
         self.assertEqual(plan.warnings, ())
 
+    def test_explicit_selfplay_can_time_slice_the_learner_gpu(self) -> None:
+        plan = plan_hardware(
+            ["cuda:0", "cuda:1"],
+            learner_device="cuda:0",
+            selfplay_devices=["cuda:0", "cuda:1"],
+            actors=40,
+            mcts_lanes=4,
+            inference_batch_limit=32,
+            cpu_cores=40,
+            cuda_inventory_count=2,
+        )
+
+        self.assertEqual(plan.mode, "multi_gpu_staged")
+        self.assertEqual(plan.selfplay_devices, ("cuda:0", "cuda:1"))
+        self.assertFalse(plan.stages_may_overlap)
+        self.assertEqual([service.actor_count for service in plan.inference_services], [20, 20])
+
     def test_extra_selfplay_devices_are_reported_not_started(self) -> None:
         plan = plan_hardware(
             ["cuda:0", "cuda:1", "cuda:2", "cuda:3"],
@@ -113,6 +130,18 @@ class HardwarePlanTests(unittest.TestCase):
                         cpu_cores=2,
                         cuda_inventory_count=inventory_count,
                     )
+
+        with self.assertRaisesRegex(ValueError, "selfplay_devices must be included"):
+            plan_hardware(
+                ["cuda:0", "cuda:1"],
+                learner_device="cuda:0",
+                selfplay_devices=["cuda:2"],
+                actors=1,
+                mcts_lanes=1,
+                inference_batch_limit=1,
+                cpu_cores=2,
+                cuda_inventory_count=3,
+            )
 
     def test_invalid_resource_counts_are_rejected(self) -> None:
         base = {

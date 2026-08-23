@@ -49,7 +49,7 @@ class ScaleScreenContractTests(unittest.TestCase):
         self.assertEqual(tuple(output.future_occupancy_logits.shape), (1, 3, 6, 5, 5))
         self.assertEqual(tuple(output.moves_left_logits.shape), (1, 301))
 
-    def test_dual_3080ti_b4_preset_splits_roles_without_changing_lineage(self) -> None:
+    def test_dual_3080ti_b4_preset_stages_both_selfplay_gpus_without_changing_lineage(self) -> None:
         configs = ROOT / "training" / "v3" / "configs"
         baseline = load_config(configs / "stage1_scale_screen_b4c64.json")
         dual = load_config(configs / "stage1_scale_screen_b4c64_2x3080ti.json")
@@ -58,27 +58,28 @@ class ScaleScreenContractTests(unittest.TestCase):
             config_hash(replace(dual, run=baseline.run)),
         )
         self.assertEqual(dual.runtime.device, "cuda:0")
-        self.assertEqual(dual.runtime.selfplay_devices, ("cuda:1",))
-        self.assertEqual(dual.runtime.actor_processes, 24)
+        self.assertEqual(dual.runtime.selfplay_devices, ("cuda:0", "cuda:1"))
+        self.assertEqual(dual.runtime.actor_processes, 40)
         self.assertEqual(dual.runtime.mcts_lanes_per_actor, 4)
         self.assertEqual(dual.runtime.inference_batch_size, 32)
         self.assertEqual(dual.runtime.evaluation_devices, ("cuda:0", "cuda:1"))
         self.assertEqual(dual.runtime.evaluation_replicas_per_device, 4)
         plan = plan_hardware(
-            (dual.runtime.device, *dual.runtime.selfplay_devices),
+            tuple(dict.fromkeys((dual.runtime.device, *dual.runtime.selfplay_devices))),
             learner_device=dual.runtime.device,
+            selfplay_devices=dual.runtime.selfplay_devices,
             actors=dual.runtime.actor_processes,
             mcts_lanes=dual.runtime.mcts_lanes_per_actor,
             inference_batch_limit=dual.runtime.inference_batch_size,
             cpu_cores=40,
             cuda_inventory_count=2,
         )
-        self.assertEqual(plan.mode, "multi_gpu_role_split")
+        self.assertEqual(plan.mode, "multi_gpu_staged")
         self.assertEqual(plan.learner_device, "cuda:0")
-        self.assertEqual(plan.selfplay_devices, ("cuda:1",))
-        self.assertTrue(plan.stages_may_overlap)
+        self.assertEqual(plan.selfplay_devices, ("cuda:0", "cuda:1"))
+        self.assertFalse(plan.stages_may_overlap)
 
-    def test_dual_3080ti_b6_preset_splits_roles_without_changing_lineage(self) -> None:
+    def test_dual_3080ti_b6_preset_stages_both_selfplay_gpus_without_changing_lineage(self) -> None:
         configs = ROOT / "training" / "v3" / "configs"
         baseline = load_config(configs / "stage1_scale_screen_b6c128.json")
         dual = load_config(configs / "stage1_scale_screen_b6c128_2x3080ti.json")
@@ -87,8 +88,8 @@ class ScaleScreenContractTests(unittest.TestCase):
             config_hash(replace(dual, run=baseline.run)),
         )
         self.assertEqual(dual.runtime.device, "cuda:0")
-        self.assertEqual(dual.runtime.selfplay_devices, ("cuda:1",))
-        self.assertEqual(dual.runtime.actor_processes, 24)
+        self.assertEqual(dual.runtime.selfplay_devices, ("cuda:0", "cuda:1"))
+        self.assertEqual(dual.runtime.actor_processes, 40)
         self.assertEqual(dual.runtime.mcts_lanes_per_actor, 4)
         self.assertEqual(dual.runtime.inference_batch_size, 32)
         self.assertEqual(dual.runtime.evaluation_devices, ("cuda:0", "cuda:1"))

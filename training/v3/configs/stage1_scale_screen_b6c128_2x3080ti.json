@@ -31,7 +31,7 @@
     "cpuct": 1.5, "bootstrap_samples": 10000, "confidence": 0.95, "role_floor": 0.45, "accept_threshold": 0.5
   },
   "runtime": {
-    "device": "cuda:0", "selfplay_devices": ["cuda:1"], "actor_processes": 24, "mcts_lanes_per_actor": 4,
+    "device": "cuda:0", "selfplay_devices": ["cuda:0", "cuda:1"], "actor_processes": 40, "mcts_lanes_per_actor": 4,
     "inference_batch_size": 32,
     "evaluation_devices": ["cuda:0", "cuda:1"], "evaluation_replicas_per_device": 4,
     "num_workers": 2, "torch_threads": 4, "deterministic": false, "learner_amp": true,

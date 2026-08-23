@@ -59,6 +59,11 @@ class FormalRunnerTests(unittest.TestCase):
             self.assertFalse((run_dir / "manifests" / "coordinator.lock").exists())
             manifest = json.loads((run_dir / "run_manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(manifest["stop_reason"], "max_train_positions")
+            self.assertEqual(len(manifest["runtime_invocations"]), 1)
+            self.assertEqual(
+                manifest["active_runtime"],
+                manifest["runtime_invocations"][0]["runtime"],
+            )
 
             resumed = run_formal(
                 self._config(run_dir, resume=True),
@@ -67,6 +72,8 @@ class FormalRunnerTests(unittest.TestCase):
             )
             self.assertEqual(resumed["generations_completed"], 0)
             self.assertEqual(resumed["formal_loop_state"]["train_positions_consumed"], 5)
+            manifest = json.loads((run_dir / "run_manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(len(manifest["runtime_invocations"]), 2)
 
     def test_second_generation_uses_only_the_previous_committed_champion(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

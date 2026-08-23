@@ -1717,6 +1717,9 @@ def formal_run_status(config: V3Config) -> dict[str, Any]:
         hardware = plan_hardware(
             configured_devices,
             learner_device=config.runtime.device,
+            selfplay_devices=(
+                config.runtime.selfplay_devices or (config.runtime.device,)
+            ),
             actors=config.runtime.actor_processes,
             mcts_lanes=config.runtime.mcts_lanes_per_actor,
             inference_batch_limit=config.runtime.inference_batch_size,
