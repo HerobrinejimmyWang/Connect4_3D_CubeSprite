@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 import torch
 
-from training.v3.config import load_config
+from training.v3.config import config_hash, load_config
+from training.v3.hardware_plan import plan_hardware
 from training.v3.model import build_model, classic_rule_features
 from training.v3.scale_screen import load_scale_screen
 
@@ -38,6 +40,30 @@ class ScaleScreenContractTests(unittest.TestCase):
         self.assertEqual(tuple(output.opponent_reply_logits.shape), (1, 25))
         self.assertEqual(tuple(output.future_occupancy_logits.shape), (1, 3, 6, 5, 5))
         self.assertEqual(tuple(output.moves_left_logits.shape), (1, 301))
+
+    def test_dual_3080ti_b4_preset_splits_roles_without_changing_lineage(self) -> None:
+        configs = ROOT / "training" / "v3" / "configs"
+        baseline = load_config(configs / "stage1_scale_screen_b4c64.json")
+        dual = load_config(configs / "stage1_scale_screen_b4c64_2x3080ti.json")
+        self.assertEqual(
+            config_hash(baseline),
+            config_hash(replace(dual, run=baseline.run)),
+        )
+        self.assertEqual(dual.runtime.device, "cuda:0")
+        self.assertEqual(dual.runtime.selfplay_devices, ("cuda:1",))
+        plan = plan_hardware(
+            (dual.runtime.device, *dual.runtime.selfplay_devices),
+            learner_device=dual.runtime.device,
+            actors=dual.runtime.actor_processes,
+            mcts_lanes=dual.runtime.mcts_lanes_per_actor,
+            inference_batch_limit=dual.runtime.inference_batch_size,
+            cpu_cores=40,
+            cuda_inventory_count=2,
+        )
+        self.assertEqual(plan.mode, "multi_gpu_role_split")
+        self.assertEqual(plan.learner_device, "cuda:0")
+        self.assertEqual(plan.selfplay_devices, ("cuda:1",))
+        self.assertTrue(plan.stages_may_overlap)
 
 
 if __name__ == "__main__":

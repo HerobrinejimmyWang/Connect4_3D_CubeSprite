@@ -200,6 +200,15 @@ B6 and not automatically the largest model. Replay-transfer checkpoints remain
 eligible as practical high-performance candidates only with their Production
 lineage stated separately from the independent Research reference.
 
+For the `connect4_gpu_2608` class of host (2x RTX 3080 Ti, 40-vCPU cgroup,
+60-GiB memory cgroup), the initial B4 role-split preset is
+`stage1_scale_screen_b4c64_2x3080ti.json`: `cuda:0` is the sole learner and
+`cuda:1` owns accepted-model self-play inference. Its 18 actors x 6 lanes and
+batch 32 are a starting point inherited only from the earlier B4 search-quality
+envelope. Recalibrate actor count, queue fill, and lane fidelity on this host
+before treating it as an efficiency result. B6 and B8 still require their own
+target-hardware presets after that calibration.
+
 - One GPU: use one CUDA context and one shared inference owner in staged phases:
   self-play, learner, then gate. Do not keep separate learner and inference CUDA
   processes resident on the same card.
