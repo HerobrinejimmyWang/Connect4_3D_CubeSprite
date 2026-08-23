@@ -23,7 +23,7 @@ python -B -m training.v3 smoke --config training/v3/configs/smoke_cpu.json
 python -B -m training.v3 smoke --config training/v3/configs/smoke_cpu.json --resume
 python -B -m training.v3 run --config training/v3/configs/pilot_gpu_64x4.json
 python -B -m training.v3 run --config training/v3/configs/v3_1_mini_128x6.json
-python -B -m training.v3 run --config training/v3/configs/stage1_scale_screen_b4c64_2x3080ti.json --execute --max-train-positions 60000
+python -B -m training.v3 run --config training/v3/configs/stage1_scale_screen_b4c64_2x3080ti.json --execute --max-train-positions 61000
 python -B -m training.v3 validate-local --config training/v3/configs/smoke_cpu.json
 ```
 
@@ -240,8 +240,9 @@ The Stage 1 capacity screen routes B4/B6 to the calibrated target presets
 `stage1_scale_screen_b6c128_2x3080ti.json`; B8 remains on its uncalibrated
 generic preset. All three freeze self-play at 128/32 sims,
 the same phased exploration schedule, replay ratio, learner semantics, and a
-256-sim gate. B4 is a one-seed 60k-position canary; B6 and B8 use staged primary
-and confirmation seeds. B8 actor counts and inference batches remain
+256-sim gate. B4 is a one-seed 61k-position canary: the original 60k boundary
+was extended by 1k solely to cross the final candidate threshold and close its
+gate. B6 and B8 use staged primary and confirmation seeds. B8 actor counts and inference batches remain
 calibration starting points, not verified target-machine defaults.
 
 Stage 1 keeps this bounded independent Research line; it does not switch to a

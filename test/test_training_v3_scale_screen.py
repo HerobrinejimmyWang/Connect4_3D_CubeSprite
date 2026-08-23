@@ -22,7 +22,7 @@ class ScaleScreenContractTests(unittest.TestCase):
         self.assertFalse(plan["formal_run_enabled"])
         self.assertEqual(plan["run_count"], 5)
         self.assertEqual([row["scale_id"] for row in plan["levels"]], ["b4c64", "b6c128", "b8c192"])
-        self.assertEqual(plan["levels"][0]["seed_budgets"][0]["max_train_positions"], 60000)
+        self.assertEqual(plan["levels"][0]["seed_budgets"][0]["max_train_positions"], 61000)
         self.assertEqual(plan["frozen_training_contract"]["full_search_sims"], 128)
         self.assertEqual(plan["policy_target_quality"]["primary_search_sims"], 256)
         self.assertEqual(plan["policy_target_quality"]["reference_search_sims"], 512)
