@@ -48,7 +48,7 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _load_pool(replay_dir: Path):
-    paths = sorted(replay_dir.glob("*.npz"))
+    paths = sorted(replay_dir.rglob("*.npz"))
     if not paths:
         raise FileNotFoundError("P6 replay directory has no NPZ shards")
     shards = []
@@ -67,8 +67,17 @@ def _load_pool(replay_dir: Path):
 
 
 def _occupancy_weights(replay) -> tuple[float, float, float]:
-    mask = replay.future_occupancy_mask.astype(np.bool_)
-    labels = replay.future_occupancy[mask]
+    terminal_canonical = (
+        replay.terminal_board
+        * replay.player_to_move[:, np.newaxis, np.newaxis, np.newaxis]
+    )
+    labels = np.where(
+        terminal_canonical > 0,
+        0,
+        np.where(terminal_canonical < 0, 1, 2),
+    )
+    mask = replay.board == 0
+    labels = labels[mask]
     counts = np.bincount(labels.astype(np.int64), minlength=3).astype(np.float64)
     if np.any(counts <= 0):
         raise ValueError("P6 pool must cover all three future-occupancy classes")
