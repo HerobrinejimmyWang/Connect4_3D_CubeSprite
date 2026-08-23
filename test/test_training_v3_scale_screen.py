@@ -26,6 +26,14 @@ class ScaleScreenContractTests(unittest.TestCase):
         self.assertEqual(plan["frozen_training_contract"]["full_search_sims"], 128)
         self.assertEqual(plan["policy_target_quality"]["primary_search_sims"], 256)
         self.assertEqual(plan["policy_target_quality"]["reference_search_sims"], 512)
+        self.assertEqual(
+            [phase["start_ply"] for phase in plan["frozen_training_contract"]["exploration_phases"]],
+            [0, 28, 50],
+        )
+        self.assertEqual(
+            plan["frozen_training_contract"]["exploration_phases"][0]["temperature"],
+            1.0,
+        )
 
     def test_b8_config_builds_all_heads(self) -> None:
         config = load_config(ROOT / "training" / "v3" / "configs" / "stage1_scale_screen_b8c192.json")

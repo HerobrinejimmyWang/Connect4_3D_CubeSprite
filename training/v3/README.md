@@ -75,14 +75,17 @@ schedule recorded in the historical runbook:
 
 | Ply range | Temperature | Dirichlet alpha | Epsilon |
 |---|---:|---:|---:|
-| 1-8 | 0.5 | 0.5 | 0.006 |
-| 9-28 | 1.0 | 0.24 | 0.060 |
+| 1-28 | 1.0 | 0.24 | 0.060 |
 | 29-50 | 0.5 | 0.5 | 0.005 |
 | 51+ | 0.0 | 0.0 | 0.0 |
 
-These are conservative starting values, not a claim of V3.1 optimality. The
-previous high-temperature branch collapsed to very short games, so a single
-temperature/noise pair is no longer a supported production configuration.
+The Stage 1 research line deliberately includes the opening in the 28-turn
+high-exploration phase. Earlier low-exploration openings were vulnerable to
+human moves outside the model's narrow self-play distribution. This setting is
+an explicit research hypothesis, not an optimality claim: per-phase selected
+top-1 rate, selected-visit probability, entropy, opening diversity, short-game
+rate, and committed-champion stability are monitored. The later 0.5 and greedy
+phases remain, so one temperature/noise pair is not used for the whole game.
 
 ## Data and learner contract
 

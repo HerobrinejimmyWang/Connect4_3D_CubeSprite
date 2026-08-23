@@ -56,6 +56,7 @@ def load_scale_screen(path: str | Path, *, root: str | Path | None = None) -> di
             "full_probability",
             "cpuct",
             "virtual_loss",
+            "exploration_phases",
             "train_tokens_per_raw_position",
             "learner_batch_size",
             "gate_search_sims",
@@ -120,10 +121,16 @@ def load_scale_screen(path: str | Path, *, root: str | Path | None = None) -> di
             "learner_batch_size": config.learner.batch_size,
             "gate_search_sims": config.gate.search_schedule[0].search_sims,
         }
-        if compared != dict(frozen) or len(config.gate.search_schedule) != 1:
+        frozen_scalars = dict(frozen)
+        declared_exploration = frozen_scalars.pop("exploration_phases")
+        if compared != frozen_scalars or len(config.gate.search_schedule) != 1:
             raise ValueError(f"{level['scale_id']} violates the frozen training contract")
 
         exploration = [asdict(phase) for phase in config.selfplay.exploration_phases]
+        if exploration != declared_exploration:
+            raise ValueError(
+                f"{level['scale_id']} exploration differs from the frozen training contract"
+            )
         if exploration_contract is None:
             exploration_contract = exploration
         elif exploration != exploration_contract:

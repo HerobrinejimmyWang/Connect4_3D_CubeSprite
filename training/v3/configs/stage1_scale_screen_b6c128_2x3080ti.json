@@ -4,8 +4,7 @@
   "selfplay": {
     "search_schedule": [{"start_generation": 0, "games": 160, "full_search_sims": 128, "fast_search_sims": 32, "full_probability": 0.5}],
     "exploration_phases": [
-      {"start_ply": 0, "temperature": 0.5, "dirichlet_alpha": 0.5, "dirichlet_epsilon": 0.006},
-      {"start_ply": 8, "temperature": 1.0, "dirichlet_alpha": 0.24, "dirichlet_epsilon": 0.06},
+      {"start_ply": 0, "temperature": 1.0, "dirichlet_alpha": 0.24, "dirichlet_epsilon": 0.06},
       {"start_ply": 28, "temperature": 0.5, "dirichlet_alpha": 0.5, "dirichlet_epsilon": 0.005},
       {"start_ply": 50, "temperature": 0.0, "dirichlet_alpha": 0.0, "dirichlet_epsilon": 0.0}
     ],

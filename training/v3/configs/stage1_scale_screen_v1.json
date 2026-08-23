@@ -47,6 +47,11 @@
     "full_probability": 0.5,
     "cpuct": 1.5,
     "virtual_loss": 1.0,
+    "exploration_phases": [
+      {"start_ply": 0, "temperature": 1.0, "dirichlet_alpha": 0.24, "dirichlet_epsilon": 0.06},
+      {"start_ply": 28, "temperature": 0.5, "dirichlet_alpha": 0.5, "dirichlet_epsilon": 0.005},
+      {"start_ply": 50, "temperature": 0.0, "dirichlet_alpha": 0.0, "dirichlet_epsilon": 0.0}
+    ],
     "train_tokens_per_raw_position": 4.0,
     "learner_batch_size": 256,
     "gate_search_sims": 256

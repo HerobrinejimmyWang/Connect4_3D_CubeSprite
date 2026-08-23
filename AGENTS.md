@@ -63,6 +63,11 @@ Legacy runbooks and old experiment logs are historical context only.
   weights `5.0/5.0/0.35561042132416815`. P6 is learning-system calibration,
   not playing-strength evidence; continue the 256-simulation policy-quality
   audits at selected checkpoints.
+- Stage 1 research self-play uses `temperature=1.0`, alpha `0.24`, epsilon
+  `0.06` from ply 0 through 27, then temperature 0.5 through ply 49 and greedy
+  play from ply 50. Treat this 28-turn opening exploration window as a measured
+  hypothesis: report phase coverage, off-top1 sampling, opening diversity, and
+  champion-stage short-game stability before changing it.
 - Formal runs require `archive_ack_prune`, a hard free-space reserve of at least
   10 GiB, and explicit bounded execution. The target presets pause for archive
   around 70% disk use or when 4-GiB staging headroom above the reserve is gone.
