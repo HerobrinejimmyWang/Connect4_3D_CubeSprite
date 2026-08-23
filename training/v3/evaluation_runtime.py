@@ -506,16 +506,14 @@ def play_paired_openings_parallel(
     rule_contexts = {(opening.rule_id, opening.rule_version) for opening in rows}
     if len(rule_contexts) != 1:
         raise ValueError("paired evaluation openings must use exactly one rule context")
-    # Schedule one color cohort at a time so workers tend to request the same
-    # model on the same ply. Results are still restored to opening-major order.
-    tasks = tuple(
-        EvaluationTask(
-            2 * opening_index + int(not candidate_is_first),
-            opening,
-            candidate_is_first,
-        )
+    game_specs = tuple(
+        (opening, candidate_is_first)
+        for opening in rows
         for candidate_is_first in (True, False)
-        for opening_index, opening in enumerate(rows)
+    )
+    tasks = tuple(
+        EvaluationTask(index, opening, candidate_is_first)
+        for index, (opening, candidate_is_first) in enumerate(game_specs)
     )
     actor_count = min(parallel_games, len(tasks))
     context = mp.get_context(start_method)
