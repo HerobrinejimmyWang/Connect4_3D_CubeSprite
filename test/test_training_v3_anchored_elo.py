@@ -68,6 +68,18 @@ class AnchoredEloTests(unittest.TestCase):
         self.assertEqual(plan["anchor_calibration_by_profile"]["primary_256"]["initial_games"], 300)
         self.assertEqual(plan["milestone_profiles"]["final"], ["primary_256", "final_512"])
 
+    def test_opening_checksum_is_portable_across_checkout_newlines(self) -> None:
+        source = ROOT / self.config.openings.manifest_path
+        normalized = source.read_bytes().replace(b"\r\n", b"\n")
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = Path(directory) / "openings.json"
+            manifest.write_bytes(normalized.replace(b"\n", b"\r\n"))
+            portable = replace(
+                self.config,
+                openings=replace(self.config.openings, manifest_path="openings.json"),
+            )
+            self.assertEqual(len(verify_opening_suite(portable, directory)), 200)
+
     def test_all_wins_produce_finite_lower_bound_not_infinite_point_elo(self) -> None:
         row = summarize_direct_matchup((1.0,) * 100, self.config.statistics)
         self.assertEqual(row["rating_status"], "saturated_high")

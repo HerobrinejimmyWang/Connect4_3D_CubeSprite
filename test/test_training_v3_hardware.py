@@ -26,7 +26,7 @@ class HardwarePlanTests(unittest.TestCase):
         self.assertEqual(plan.checkpoint_queue_capacity, 1)
         self.assertEqual(plan.effective_inference_batch_limit, 8)
         self.assertEqual(plan.inference_services[0].actor_ids, (0, 1, 2, 3))
-        self.assertEqual(plan.inference_services[0].request_queue_capacity, 16)
+        self.assertEqual(plan.inference_services[0].request_queue_capacity, 8)
         self.assertIn(
             "inference_batch_concurrency_limited",
             {warning.code for warning in plan.warnings},
@@ -51,7 +51,7 @@ class HardwarePlanTests(unittest.TestCase):
         self.assertEqual(plan.inference_services[0].actor_ids, (0, 2, 4, 6))
         self.assertEqual(plan.inference_services[1].actor_ids, (1, 3, 5, 7))
         self.assertTrue(all(service.effective_batch_limit == 8 for service in plan.inference_services))
-        self.assertTrue(all(service.request_queue_capacity == 16 for service in plan.inference_services))
+        self.assertTrue(all(service.request_queue_capacity == 8 for service in plan.inference_services))
         self.assertEqual(plan.warnings, ())
 
     def test_extra_selfplay_devices_are_reported_not_started(self) -> None:
@@ -81,7 +81,7 @@ class HardwarePlanTests(unittest.TestCase):
         self.assertEqual(plan.learner_device, "cuda:1")
         self.assertEqual(plan.selfplay_devices, ("cuda:0",))
 
-    def test_cpu_oversubscription_warnings_are_stable(self) -> None:
+    def test_cpu_oversubscription_tracks_actor_processes_not_vectorized_lanes(self) -> None:
         plan = plan_hardware(
             ["cuda:0", "cuda:1"],
             actors=4,
@@ -93,7 +93,7 @@ class HardwarePlanTests(unittest.TestCase):
 
         warning_codes = {warning.code for warning in plan.warnings}
         self.assertIn("cpu_actor_oversubscription", warning_codes)
-        self.assertIn("cpu_lane_oversubscription", warning_codes)
+        self.assertNotIn("cpu_lane_oversubscription", warning_codes)
 
     def test_invalid_cuda_inventory_is_rejected(self) -> None:
         cases = (

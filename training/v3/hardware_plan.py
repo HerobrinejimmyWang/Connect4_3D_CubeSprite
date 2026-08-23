@@ -174,7 +174,7 @@ def plan_hardware(
                 device=device,
                 actor_ids=tuple(actor_ids),
                 effective_batch_limit=effective_batch,
-                request_queue_capacity=max(1, 2 * outstanding_requests),
+                request_queue_capacity=max(1, 2 * len(actor_ids)),
             )
         )
 
@@ -186,17 +186,6 @@ def plan_hardware(
                 message=(
                     f"{actor_count} actor processes leave no dedicated CPU core for the "
                     f"coordinator/learner on a {available_cores}-core allocation."
-                ),
-            )
-        )
-    potential_search_threads = actor_count * lane_count
-    if potential_search_threads > available_cores:
-        warnings.append(
-            HardwarePlanWarning(
-                code="cpu_lane_oversubscription",
-                message=(
-                    f"actors*mcts_lanes={potential_search_threads} exceeds "
-                    f"cpu_cores={available_cores}; actor search threads may contend."
                 ),
             )
         )

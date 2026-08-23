@@ -29,6 +29,13 @@ from .replay import sha256_file
 from .search import Predictor
 
 
+def _portable_text_sha256(path: Path) -> str:
+    """Hash tracked text independently of Git checkout newline policy."""
+
+    normalized = path.read_bytes().replace(b"\r\n", b"\n")
+    return hashlib.sha256(normalized).hexdigest()
+
+
 ANCHORED_CONFIG_SCHEMA_VERSION = 1
 MATCH_BATCH_SCHEMA_VERSION = 1
 ANCHOR_SCALE_SCHEMA_VERSION = 1
@@ -261,7 +268,7 @@ def evaluator_code_hash(repository_root: str | Path) -> str:
             raise FileNotFoundError(f"evaluator source is missing: {path}")
         digest.update(relative.encode("utf-8"))
         digest.update(b"\0")
-        digest.update(path.read_bytes())
+        digest.update(path.read_bytes().replace(b"\r\n", b"\n"))
         digest.update(b"\0")
     return digest.hexdigest()
 
@@ -299,7 +306,7 @@ def verify_opening_suite(
     path = (root / config.openings.manifest_path).resolve()
     if not path.is_relative_to(root) or not path.is_file():
         raise FileNotFoundError(f"anchored opening manifest is missing: {path}")
-    if sha256_file(path) != config.openings.checksum_sha256:
+    if _portable_text_sha256(path) != config.openings.checksum_sha256:
         raise ValueError("anchored opening manifest checksum mismatch")
     openings = load_opening_manifest(path)
     if len(openings) != config.openings.count:
@@ -518,7 +525,7 @@ def write_match_batch(
     if not rows:
         raise ValueError("match batch requires at least one opening pair")
     manifest_path = Path(opening_manifest_path)
-    if sha256_file(manifest_path) != config.openings.checksum_sha256:
+    if _portable_text_sha256(manifest_path) != config.openings.checksum_sha256:
         raise ValueError("match opening manifest checksum differs from anchored config")
     manifest_rows = {opening.opening_id: opening for opening in load_opening_manifest(manifest_path)}
     if any(manifest_rows.get(opening.opening_id) != opening for opening in rows):

@@ -44,7 +44,7 @@
   ],
   "openings": {
     "manifest_path": "training/v3/evaluation/anchored_openings_classic_v1.json",
-    "checksum_sha256": "5a447a94a4f35c1de3725bdd1f3bb5400d0e13431ef7520e05c8e3ff4b892a7b",
+    "checksum_sha256": "3b602a730c79b0fbefae0303da0711ea60f3f96df75337cb212c08f6e763fcda",
     "count": 200,
     "seed": 314159,
     "prefix_lengths": [0, 2, 4, 6, 8]

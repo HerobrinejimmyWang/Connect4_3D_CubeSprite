@@ -82,9 +82,13 @@ Legacy runbooks and old experiment logs are historical context only.
   agreement in the short fixed-position check. Do not optimize GPU utilization
   by increasing lanes past the quality-validated range without paired strength
   tests on a stable accepted champion.
-- The 128x6 Mini config and two-GPU role split remain plans until validated on
-  the target hardware. Keep DDP disabled unless measurements show the learner,
-  rather than self-play, is the bottleneck.
+- On the exact 2x RTX 3080 Ti, 40-vCPU, 60-GiB target, the bounded 2026-08-23
+  calibration supports 24 actors x 4 lanes, batch 32, and a 1 ms batching
+  timeout for one-card B4/B6 self-play while the other card is reserved for the
+  learner. Paired random-weight checks found no result regression versus serial
+  search, but repeat lane fidelity on a stable accepted champion before raising
+  lanes. B8 remains uncalibrated. Keep DDP disabled unless measurements show
+  the learner, rather than self-play, is the bottleneck.
 
 The 2026-08-16 short-pilot conclusions above are summarized in the tracked V3
 documentation and config. Raw benchmark outputs and copied cloud logs are local

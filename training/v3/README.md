@@ -201,13 +201,27 @@ eligible as practical high-performance candidates only with their Production
 lineage stated separately from the independent Research reference.
 
 For the `connect4_gpu_2608` class of host (2x RTX 3080 Ti, 40-vCPU cgroup,
-60-GiB memory cgroup), the initial B4 role-split preset is
-`stage1_scale_screen_b4c64_2x3080ti.json`: `cuda:0` is the sole learner and
-`cuda:1` owns accepted-model self-play inference. Its 18 actors x 6 lanes and
-batch 32 are a starting point inherited only from the earlier B4 search-quality
-envelope. Recalibrate actor count, queue fill, and lane fidelity on this host
-before treating it as an efficiency result. B6 and B8 still require their own
-target-hardware presets after that calibration.
+60-GiB memory cgroup), the bounded 2026-08-23 calibration supports the B4 and
+B6 role-split presets `stage1_scale_screen_b4c64_2x3080ti.json` and
+`stage1_scale_screen_b6c128_2x3080ti.json`: `cuda:0` is the sole learner and
+`cuda:1` owns accepted-model self-play inference. Both use 24 actors x 4 lanes,
+batch 32, and the actor-pool default 1 ms batch timeout. B4 fine points at
+20/24/28 actors produced about 5266/5586/5496 simulations/s; B6 coarse points
+at 20/24/28 produced about 4502/4696/4613 simulations/s. Batch 64 and a 0.5 ms
+timeout were slower.
+
+Lane count remains semantic. With fixed random V3 weights, lane 4 versus serial
+lane 1 scored 17:15 over 32 paired B4 games and 16:16 over 32 paired B6 games.
+This is a bounded no-regression signal, not final playing-strength evidence.
+Fixed-position top-action agreement was 98.4% for B4 lane 4 and 96.9% for B6
+lane 4; lane 6 drifted further in B4. Therefore lane 4 is the conservative
+target-machine default, and it must be repeated against a stable accepted
+champion before any increase. B8 still requires its own target-hardware preset.
+
+When the learner is intentionally idle, two self-play services at 40 actors x
+4 lanes reached about 8027 simulations/s for B4 and 7146 simulations/s for the
+B6 single point. This is an opportunistic data-production mode, not the formal
+role-split preset: do not silently move `cuda:0` away from an active learner.
 
 - One GPU: use one CUDA context and one shared inference owner in staged phases:
   self-play, learner, then gate. Do not keep separate learner and inference CUDA
@@ -220,8 +234,9 @@ target-hardware presets after that calibration.
 - DDP is disabled. The network is too small to assume that gradient all-reduce
   will beat dedicating extra GPUs to self-play inference.
 - All proposed game, inference, completed-game, and checkpoint queues are
-  bounded. The static planner warns about CPU/lane oversubscription and batch
-  limits that cannot be filled by configured concurrency.
+  bounded. The static planner warns about actor-process CPU oversubscription and
+  batch limits that cannot be filled by actor/lane request concurrency. Lanes
+  are vectorized search semantics inside an actor, not additional OS threads.
 - Self-play inference remains FP32 in this static baseline. A separate
   `fp32`/`bf16`/`fp16` choice should only be added after the first GPU pilot;
   it must not be conflated with `learner_amp`.

@@ -154,6 +154,26 @@ GPU starvation cleanly. Learner samples briefly reached roughly 15-18% GPU in
 the tiny closed-loop runs. Final hardware economics require the 128x6 Mini and
 longer searches, after the formal scheduler produces a stable champion.
 
+## 2026-08-23 dual-3080-Ti target calibration
+
+On the uncontended `connect4_gpu_2608` 40-vCPU/60-GiB cgroup, single-service
+role-split self-play converged to 24 actors x 4 lanes, batch 32, and a 1 ms
+timeout for both B4C64 and B6C128. The B4 192-game fine scan measured about
+5266/5586/5496 simulations/s at 20/24/28 actors. The B6 96-game scan measured
+about 4502/4696/4613 at the same points. Batch 64 reduced throughput for both.
+
+Random-weight paired lane checks did not expose a playing-result regression:
+B4 lane 4 versus serial lane 1 scored 17:15 and B6 scored 16:16, with colors
+swapped over 16 openings. Fixed-position targets still drifted, so this is not
+a stable-champion strength claim and does not authorize lanes above four.
+
+With no concurrent learner, two self-play inference owners and 40 actors x 4
+lanes reached about 8027 simulations/s for B4; the B6 single point reached about
+7146. The formal plan retains `cuda:0` for the learner and `cuda:1` for
+self-play. A bounded B6 batch-256 AMP loop completed four optimizer steps at
+about 786 positions/s and changed weights, but it does not validate the missing
+multi-generation scheduler or a production schedule.
+
 ## Minimal cloud pilot matrix
 
 Use `pilot_gpu_64x4.json`; do not start with the Mini long-run preset.
