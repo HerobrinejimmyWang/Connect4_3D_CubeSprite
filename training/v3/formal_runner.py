@@ -433,6 +433,9 @@ def _run_generation(
     health = _selfplay_health(
         games,
         expected_search_sims={"full": search_stage.full_search_sims, "fast": search_stage.fast_search_sims},
+        exploration_phases=(
+            asdict(phase) for phase in config.selfplay.exploration_phases
+        ),
     )
     _append_metric(
         layout,
@@ -478,6 +481,11 @@ def _run_generation(
         mean_policy_entropy=float(health["mean_policy_entropy"]["full"]),
         value_loss=float(learner_metrics.wdl_loss),
     )
+    if accepted_model_id is None:
+        # Random bootstrap has a deliberately untrained game-length distribution.
+        # Keep its warnings visible, but do not let them satisfy the repeated
+        # collapse rule intended for a committed champion.
+        stability_history = []
     stability_history = [*stability_history, stability_row]
     stability = assess_stability(stability_history)
     _append_metric(layout, {"stage": "stability", **stability.to_dict()})
@@ -575,6 +583,11 @@ def _run_generation(
             (candidate_final_path, "candidate_model"),
         ):
             _record(journal, artifact, kind)
+
+    if accepted_after != accepted_model_id:
+        # Each accepted producer starts a fresh behavioral baseline.  The row
+        # above describes games made by the previous producer.
+        stability_history = []
 
     audit_selections, audit_documents, audit_filenames, audit_references = _prepare_audit_replays(
         games,

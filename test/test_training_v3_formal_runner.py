@@ -78,6 +78,8 @@ class FormalRunnerTests(unittest.TestCase):
             )
             self.assertEqual(result["generations_completed"], 2)
             first, second = result["results"]
+            self.assertNotEqual(first["stability"]["action"], "pause")
+            self.assertNotEqual(second["stability"]["action"], "pause")
             expected_producer = first["accepted_model_id"] or "random"
             self.assertEqual(second["producer_model_id"], expected_producer)
             commit = json.loads(
@@ -94,6 +96,19 @@ class FormalRunnerTests(unittest.TestCase):
                     for row in commit["replay_shards"]
                 )
             )
+            metrics = [
+                json.loads(line)
+                for line in (run_dir / "metrics" / "metrics.jsonl")
+                .read_text(encoding="utf-8")
+                .splitlines()
+            ]
+            selfplay_rows = [row for row in metrics if row.get("stage") == "selfplay"]
+            self.assertEqual(len(selfplay_rows), 2)
+            for row in selfplay_rows:
+                phases = row["health"]["exploration_by_phase"]
+                self.assertEqual([phase["start_ply"] for phase in phases], [0, 12])
+                self.assertGreater(phases[0]["position_count"], 0)
+                self.assertTrue(0.0 <= phases[0]["selected_top1_rate"] <= 1.0)
             resumed = run_formal(
                 self._config(run_dir, resume=True),
                 max_train_positions=16,

@@ -522,6 +522,7 @@ def _selfplay_health(
     games: Iterable[GameRecord],
     *,
     expected_search_sims: Mapping[str, int] | None = None,
+    exploration_phases: Iterable[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     rows = tuple(games)
     if not rows:
@@ -529,8 +530,19 @@ def _selfplay_health(
     lengths = np.asarray([len(game.moves) for game in rows], dtype=np.float64)
     entropies: dict[str, list[float]] = {"full": [], "fast": []}
     visit_targets: dict[str, list[np.ndarray]] = {"full": [], "fast": []}
+    phase_rows = tuple(dict(phase) for phase in (exploration_phases or ()))
+    phase_accumulators = [
+        {
+            "position_count": 0,
+            "entropy_sum": 0.0,
+            "selected_top1": 0,
+            "selected_probability_sum": 0.0,
+        }
+        for _phase in phase_rows
+    ]
     wdl_counts = {"win": 0, "draw": 0, "loss": 0}
     for game in rows:
+        moves_by_ply = {move.ply: move for move in game.moves}
         for sample in game.samples:
             visits = sample.visit_counts.astype(np.float64)
             probabilities = visits / max(float(visits.sum()), 1.0)
@@ -538,6 +550,24 @@ def _selfplay_health(
             entropy = -float(np.sum(probabilities[positive] * np.log(probabilities[positive])))
             entropies[sample.search_kind].append(entropy)
             visit_targets[sample.search_kind].append(sample.visit_counts)
+            if phase_rows and float(visits.sum()) > 0.0:
+                phase_index = 0
+                for index, phase in enumerate(phase_rows):
+                    if int(phase["start_ply"]) > sample.ply:
+                        break
+                    phase_index = index
+                move = moves_by_ply.get(sample.ply)
+                if move is not None and move.column is not None:
+                    selected = int(move.column)
+                    accumulator = phase_accumulators[phase_index]
+                    accumulator["position_count"] += 1
+                    accumulator["entropy_sum"] += entropy
+                    accumulator["selected_top1"] += int(
+                        visits[selected] == visits.max()
+                    )
+                    accumulator["selected_probability_sum"] += float(
+                        probabilities[selected]
+                    )
             label = {0: "win", 1: "draw", 2: "loss"}[int(sample.wdl)]
             wdl_counts[label] += 1
     diversity: dict[str, dict[str, int | float]] = {}
@@ -562,6 +592,33 @@ def _selfplay_health(
         warnings.append("game_length_variance_below_runbook_watch_level")
     if short_rate > 0.10:
         warnings.append("short_game_rate_above_runbook_watch_level")
+    exploration: list[dict[str, Any]] = []
+    for index, (phase, accumulator) in enumerate(zip(phase_rows, phase_accumulators)):
+        start_ply = int(phase["start_ply"])
+        end_ply_exclusive = (
+            int(phase_rows[index + 1]["start_ply"])
+            if index + 1 < len(phase_rows)
+            else None
+        )
+        count = int(accumulator["position_count"])
+        games_reaching = sum(len(game.moves) > start_ply for game in rows)
+        exploration.append(
+            {
+                "start_ply": start_ply,
+                "end_ply_exclusive": end_ply_exclusive,
+                "temperature": float(phase["temperature"]),
+                "dirichlet_alpha": float(phase["dirichlet_alpha"]),
+                "dirichlet_epsilon": float(phase["dirichlet_epsilon"]),
+                "games_reaching_phase": games_reaching,
+                "position_count": count,
+                "mean_positions_per_reaching_game": count / max(games_reaching, 1),
+                "mean_visit_entropy": float(accumulator["entropy_sum"]) / max(count, 1),
+                "selected_top1_rate": int(accumulator["selected_top1"]) / max(count, 1),
+                "mean_selected_visit_probability": (
+                    float(accumulator["selected_probability_sum"]) / max(count, 1)
+                ),
+            }
+        )
     return {
         "results": _result_counts(rows),
         "game_length": {
@@ -593,6 +650,7 @@ def _selfplay_health(
             )
             for kind, values in visit_targets.items()
         },
+        "exploration_by_phase": exploration,
         "wdl_labels": wdl_counts,
         "watch_warnings": warnings,
     }
@@ -1234,6 +1292,9 @@ def run_smoke(config: V3Config) -> dict[str, Any]:
                 "full": search_stage.full_search_sims,
                 "fast": search_stage.fast_search_sims,
             },
+            exploration_phases=(
+                asdict(phase) for phase in config.selfplay.exploration_phases
+            ),
         )
         _append_metric(
             layout,
