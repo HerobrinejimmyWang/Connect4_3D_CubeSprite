@@ -167,27 +167,22 @@ GPU presets set `runtime.evaluation_devices` and
 versus-replicated check. The check requires identical opening/role results and
 safe GPU-memory headroom. The older central-batched experiment remains available
 through `evaluation_parallel_games`/`evaluation_inference_batch_size`, but is not
-a target preset: ThreadPool points were only 0.77-0.80x serial and changed one of
-eight outcomes; process-plus-central-batch was 1.07x at 4 workers for the heavy
-anchor pair but 0.73x for B4-vs-v2.2. Do not raise MCTS lanes to improve
-evaluation utilization.
+a target preset: it failed to provide stable cross-opponent speedups and one
+tested topology changed a game outcome. Do not raise MCTS lanes to improve
+evaluation utilization. Exact benchmark rows remain in ignored artifacts.
 
-On the target two-3080-Ti host, four replicas per GPU preserved every result in
-the fixed serial comparison and in all three 50-pair anchor calibrations. A
-post-load full-queue sample during calibration reached 91%/95% GPU utilization
-at about 192/197 W, used 1.67 GiB per GPU, and kept all eight single-lane
-workers active. On the same eight B4-vs-v2.2 opening pairs, eight workers took
-26.83 seconds versus 36.91 seconds for four workers; the heavier anchor pair
-took 80.57 versus 88.22 seconds. This supports the target preset without using
-host-wide CPU utilization as a proxy for search quality.
+The target dual-GPU replicated evaluator was accepted only after fixed serial
+comparisons and frozen anchor calibration reproduced the same game outcomes.
+It keeps single-lane search semantics and uses host-wide CPU utilization only
+as supporting operational evidence, never as a proxy for search quality.
 
 For utilization checks, discard model loading and the final under-filled tail.
 Use a workload with at least several times as many opening pairs as replicas and
 report the highest sustained 10-30 second steady-state window, not a single
-one-second spike or the whole-run average. The B6 100k early evaluation used 50
-pairs with eight replicas; a 25-second full-queue sample held both GPUs mostly at
-94-99%, with 1.61 GiB per GPU and roughly 170-205 W. The low aggregate CPU use is
-expected because this topology owns eight search workers and is GPU-bound.
+one-second spike or the whole-run average. Low aggregate CPU use can be correct
+when the configured search replicas keep the GPU inference services saturated.
+Retain exact utilization, power, memory, and timing samples only in ignored run
+artifacts and their local archive bundles.
 
 Use the common fixed-profile sweep before changing a GPU preset:
 
@@ -251,22 +246,20 @@ self-play device. The shared service treats `inference_batch_size` as a hard
 limit, deferring a complete actor request when adding it would overflow the
 current batch.
 
-An uncontended RTX 3080 Ti + 20-vCPU/30-GiB short pilot calibrated the 64x4
-model at 128/32 full/fast simulations. The provisional single-card topology is
-18 actors x 6 lanes with inference batch 32; 18-20 actors and 4-6 lanes are the
-reasonable local ranges. Fixed-position comparison retained 100% serial-MCTS
-top-action agreement through 6 lanes, while 8 and 10 lanes fell to 96.9%.
-These values are encoded only in `pilot_gpu_64x4.json`; the larger 128x6 Mini
-must be recalibrated rather than inheriting them blindly.
+An uncontended single-card short pilot calibrated the 64x4 model at the explicit
+full/fast simulation contract. The provisional topology and bounded local sweep
+range are encoded in `pilot_gpu_64x4.json`. Higher lane counts changed
+fixed-position search targets, so the larger 128x6 Mini must be recalibrated
+rather than inheriting the pilot blindly. Exact pilot measurements stay outside
+Git.
 
 The Stage 1 capacity screen routes B4/B6 to the calibrated target presets
 `stage1_scale_screen_b4c64_2x3080ti.json` and
 `stage1_scale_screen_b6c128_2x3080ti.json`; B8 remains on its uncalibrated
 generic preset. All three freeze self-play at 128/32 sims,
 the same phased exploration schedule, replay ratio, learner semantics, and a
-256-sim gate. B4 is a one-seed 61k-position canary: the original 60k boundary
-was extended by 1k solely to cross the final candidate threshold and close its
-gate. B6 and B8 use staged primary and confirmation seeds. B8 actor counts and inference batches remain
+256-sim gate. B4 is a one-seed canary whose explicit budget closes its final
+candidate threshold. B6 and B8 use staged primary and confirmation seeds. B8 actor counts and inference batches remain
 calibration starting points, not verified target-machine defaults.
 
 Stage 1 keeps this bounded independent Research line; it does not switch to a
@@ -277,25 +270,18 @@ B6 and not automatically the largest model. Replay-transfer checkpoints remain
 eligible as practical high-performance candidates only with their Production
 lineage stated separately from the independent Research reference.
 
-For the `connect4_gpu_2608` class of host (2x RTX 3080 Ti, 40-vCPU cgroup,
-60-GiB memory cgroup), the bounded 2026-08-24 calibration supports staged
-two-service B4/B6 presets: both GPUs produce self-play, those services fully
-drain, and only then does `cuda:0` run the learner. Both presets use 40 actors x
-4 lanes, batch 32, and the actor-pool default 1 ms batch timeout. The B6 scan
-used the formal 128/32 search schedule and ply-0-through-27 high exploration.
-Single-service 24/28/32-actor points produced about 4909/4893/4898 sims/s;
-two-service 32/40/48 points produced about 6857/7402/7063 sims/s. The selected
-40-actor point used 44.4% of the 40-vCPU quota; 48 actors raised CPU use to
-48.6% and throttling while reducing throughput. Low aggregate CPU utilization
-at the single-service plateau is therefore not a reason to add search threads.
+For the `connect4_gpu_2608` class of host, the bounded calibration supports the
+staged two-service B4/B6 presets committed in the explicit configs: both GPUs
+produce self-play, those services fully drain, and only then does `cuda:0` run
+the learner. The chosen actor count sits at the measured throughput plateau;
+adding actors increased throttling without useful throughput. Low aggregate CPU
+utilization at a plateau is therefore not a reason to add search threads.
 
-Lane count remains semantic. With fixed random V3 weights, lane 4 versus serial
-lane 1 scored 17:15 over 32 paired B4 games and 16:16 over 32 paired B6 games.
-This is a bounded no-regression signal, not final playing-strength evidence.
-Fixed-position top-action agreement was 98.4% for B4 lane 4 and 96.9% for B6
-lane 4; lane 6 drifted further in B4. Therefore lane 4 is the conservative
-target-machine default, and it must be repeated against a stable accepted
-champion before any increase. B8 still requires its own target-hardware preset.
+Lane count remains semantic. Fixed-position and paired checks support lane 4 as
+the conservative B4/B6 target-machine default, but this is bounded
+no-regression evidence rather than final strength evidence. Any increase must
+be repeated against a stable accepted champion. B8 still requires its own
+target-hardware preset. Exact sweep measurements remain outside Git.
 
 The two-service preset is valid only because the formal runner is synchronous:
 it joins all actors and inference services before learning begins. A future
@@ -505,33 +491,42 @@ changes a search budget. Raise 256 only when its 512 delta exceeds repeated-256
 variability and the 512 targets also improve held-out policy fit or paired
 strength.
 
-The accepted B4 checkpoint near 35k train positions produced the following
-fixed 50-position diagnostic. The current 128-sim full-search targets agreed
-with 256 sims on only 60% of top actions (TV 0.199, JS 0.0319). The 256-sim
-targets agreed with 512 sims on 74% (TV 0.171, JS 0.0271), while the independent
-256 repeat agreed on 94% (TV 0.0416, JS 0.00492). Thus 128 is a deliberately
-coarse research-line target, not a quality-saturated target. Keep 128/32 frozen
-for the B4-to-B6 controlled scale screen; treat 256 as the practical-line
-candidate and require held-out learning or paired-strength evidence before
-paying for 512. Fast-search positions have policy weight zero, so this decision
-concerns the full-search policy targets rather than the 32-sim action-selection
-path.
+The fixed-position audits show that the frozen 128/32 Research target is a
+deliberately coarse controlled scale-screen setting, not a quality-saturated
+target. Keep it frozen across B4 and B6. Treat 256 as the Production candidate;
+when its delta from 512 exceeds independent repeated-256 variability, still
+require improved held-out policy fit or paired strength before paying for 512.
+Fast-search positions have policy weight zero, so this decision concerns the
+full-search policy targets rather than the fast action-selection path.
 
-At the B6 100k milestone, an evaluation-only snapshot of generation 12 produced
-80% top-action agreement between 256 and 512 sims (TV 0.193, JS 0.0338,
-reference top-action regret 0.0415). Independent 256-sim repetition produced 92%
-agreement (TV 0.0423, JS 0.00782, regret 0.00398). The search-depth delta is
-therefore materially larger than repeated-256 variability, but this diagnostic
-alone does not change either the frozen 128/32 Research scale-screen contract or
-the candidate 256-sim Production target. Require improved held-out policy fit or
-paired strength before paying for 512-sim targets.
+Milestone Anchored Elo and policy audits may use evaluation-only checkpoint
+snapshots when the accepted producer predates the checkpoint. These observations
+remain descriptive and never change the gate or self-play producer. Exact
+milestone scores, intervals, policy metrics, and checksums stay in ignored run
+artifacts and verified local archives rather than Git.
 
-The same B6 100k snapshot scored 0.63, 0.58, and 0.62 over 100 games against
-v2.2 Balance, CubeSprite V3 iter240, and V3 Mini iter260. With the frozen
-`primary_256` anchor scale, its descriptive estimate was +105.9 Elo with a
-95% interval of [+65.5, +146.3]. This is milestone evidence only, not a gate;
-the accepted producer at that checkpoint was still the earlier bootstrap
-candidate.
+## Reusable experiment lessons
+
+- Separate functional correctness, search-target equivalence, playing strength,
+  and hardware efficiency. Passing one does not establish another.
+- Split hardware observations into load, steady full-queue, and under-filled tail
+  phases. Choose topology from useful work per wall time, queue formation,
+  throttling, and memory headroom rather than CPU occupancy alone.
+- Keep opening pairs as the scheduling unit. Parallelize complete paired games
+  across model replicas while preserving per-game simulation count, seed, and
+  lane semantics.
+- Allow early short-game behavior time to evolve through a materially larger
+  self-play pool. Treat game length together with diversity, role splits, losses,
+  calibration, and strength; it is not a standalone stop rule.
+- A formal checkpoint and an accepted producer are different states. Use an
+  immutable evaluation-only projection for checkpoint learning curves, and never
+  let that projection silently produce replay.
+- Archive and verify checkpoints, replay, logs, and evaluation artifacts before
+  retention or pruning. A disk watermark should stop safely rather than risk a
+  partial checkpoint.
+- Store exact experimental measurements under ignored run directories and local
+  receipt-verified bundles. Commit only executable contracts, chosen presets,
+  generalized conclusions, and reproduction commands.
 
 ## Smoke artifacts
 
