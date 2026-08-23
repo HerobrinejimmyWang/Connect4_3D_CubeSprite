@@ -146,6 +146,22 @@ devices, replica counts, model-load/play/wall time, and exact pair coverage.
 These topology controls are operational and excluded from the model-lineage
 hash.
 
+Formal resumable checkpoints are not accepted-model artifacts. At a scheduled
+learning milestone, project the checkpoint weights into an immutable,
+evaluation-only artifact before running Anchored Elo or policy-target audits:
+
+```powershell
+python tools\export_v3_evaluation_snapshot.py `
+  --checkpoint path\to\checkpoints\g000012-s00000398.pt `
+  --output path\to\evaluation\snapshots\b6c128-100k.pt `
+  --model-id b6c128-research-100k
+```
+
+The snapshot records the source checkpoint SHA-256, config hash, generation,
+step, and consumed positions. It is explicitly ineligible for acceptance and
+self-play and does not modify the formal run state. This distinction matters
+when the latest accepted champion predates the milestone checkpoint.
+
 GPU presets set `runtime.evaluation_devices` and
 `runtime.evaluation_replicas_per_device` only after a fixed-opening serial-
 versus-replicated check. The check requires identical opening/role results and
