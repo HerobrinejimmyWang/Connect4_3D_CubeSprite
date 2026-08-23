@@ -549,6 +549,8 @@ def write_match_batch(
         wall_seconds = time.perf_counter() - started
         evaluation_runtime = {
             "parallel_games": 1,
+            "worker_processes": 0,
+            "start_method": "serial",
             "games": len(results),
             "wall_seconds": wall_seconds,
             "games_per_second": len(results) / max(wall_seconds, 1e-12),

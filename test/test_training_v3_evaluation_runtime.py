@@ -83,6 +83,8 @@ class EvaluationRuntimeTests(unittest.TestCase):
 
         self.assertEqual(parallel.games, serial)
         self.assertEqual(parallel.metrics.parallel_games, 4)
+        self.assertEqual(parallel.metrics.worker_processes, 4)
+        self.assertEqual(parallel.metrics.start_method, "spawn")
         self.assertEqual(parallel.metrics.games, 4)
         self.assertEqual(len(parallel.metrics.inference_services), 2)
         self.assertTrue(

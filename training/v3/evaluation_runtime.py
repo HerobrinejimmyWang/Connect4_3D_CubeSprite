@@ -7,16 +7,17 @@ Model requests from those games are combined by one batching thread per model.
 
 from __future__ import annotations
 
+import multiprocessing as mp
 import queue
 import threading
 import time
 import traceback
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from typing import Any, Iterable
 
 import numpy as np
 
+from .actor_runtime import RemotePredictor
 from .evaluation import Opening, play_paired_game
 from .gate import GateGameResult
 from .model import COLUMN_COUNT, ROLE_FEATURE_COUNT, RULE_FEATURE_COUNT
@@ -56,6 +57,8 @@ class EvaluationInferenceMetrics:
 @dataclass(frozen=True)
 class PairedEvaluationMetrics:
     parallel_games: int
+    worker_processes: int
+    start_method: str
     games: int
     wall_seconds: float
     inference_services: tuple[EvaluationInferenceMetrics, ...]
@@ -67,6 +70,8 @@ class PairedEvaluationMetrics:
     def to_dict(self) -> dict[str, Any]:
         return {
             "parallel_games": self.parallel_games,
+            "worker_processes": self.worker_processes,
+            "start_method": self.start_method,
             "games": self.games,
             "wall_seconds": self.wall_seconds,
             "games_per_second": self.games_per_second,
@@ -78,6 +83,13 @@ class PairedEvaluationMetrics:
 class PairedEvaluationResult:
     games: tuple[GateGameResult, ...]
     metrics: PairedEvaluationMetrics
+
+
+@dataclass(frozen=True)
+class EvaluationTask:
+    task_index: int
+    opening: Opening
+    candidate_is_first: bool
 
 
 class BatchingPredictor:
@@ -275,6 +287,200 @@ class BatchingPredictor:
         return self._metrics
 
 
+class _MultiprocessBatchingService:
+    """Parent-owned model service for independently spawned game workers."""
+
+    def __init__(
+        self,
+        predictor: Predictor,
+        *,
+        service_id: str,
+        actor_ids: tuple[int, ...],
+        request_queue: Any,
+        response_queues: dict[int, Any],
+        batch_limit: int,
+        batch_timeout_s: float,
+        response_timeout_s: float,
+    ) -> None:
+        self.predictor = predictor
+        self.service_id = service_id
+        self.actor_ids = actor_ids
+        self.request_queue = request_queue
+        self.response_queues = response_queues
+        self.batch_limit = batch_limit
+        self.batch_timeout_s = batch_timeout_s
+        self.response_timeout_s = response_timeout_s
+        self.failure: str | None = None
+        self.metrics: EvaluationInferenceMetrics | None = None
+        self.thread = threading.Thread(
+            target=self._worker,
+            name=f"evaluation-mp-inference-{service_id}",
+            daemon=True,
+        )
+
+    def start(self) -> None:
+        self.thread.start()
+
+    def _worker(self) -> None:
+        started = time.perf_counter()
+        requests = positions = batches = max_batch = 0
+        active: list[tuple[Any, ...]] = []
+        deferred: tuple[Any, ...] | None = None
+        try:
+            stopping = False
+            while not stopping:
+                if deferred is None:
+                    message = self.request_queue.get()
+                else:
+                    message = deferred
+                    deferred = None
+                if message is None:
+                    break
+                active = [message]
+                active_positions = len(message[2])
+                if active_positions > self.batch_limit:
+                    raise ValueError("one evaluation request exceeds the hard batch limit")
+                deadline = time.perf_counter() + self.batch_timeout_s
+                while active_positions < self.batch_limit:
+                    remaining = deadline - time.perf_counter()
+                    if remaining <= 0.0:
+                        break
+                    try:
+                        following = self.request_queue.get(timeout=remaining)
+                    except queue.Empty:
+                        break
+                    if following is None:
+                        stopping = True
+                        break
+                    following_positions = len(following[2])
+                    if active_positions + following_positions > self.batch_limit:
+                        deferred = following
+                        break
+                    active.append(following)
+                    active_positions += following_positions
+
+                boards = np.concatenate([row[2] for row in active], axis=0)
+                roles = np.concatenate([row[3] for row in active], axis=0)
+                rules = np.concatenate([row[4] for row in active], axis=0)
+                policies, values = self.predictor.predict_batch(
+                    boards,
+                    role_to_play=roles,
+                    rule_features=rules,
+                )
+                policies = np.asarray(policies, dtype=np.float32)
+                values = np.asarray(values, dtype=np.float32)
+                if policies.shape != (len(boards), COLUMN_COUNT):
+                    raise ValueError("evaluation predictor returned an invalid policy batch")
+                if values.ndim not in (1, 2) or values.shape[0] != len(boards):
+                    raise ValueError("evaluation predictor returned an invalid value batch")
+                if not np.all(np.isfinite(policies)) or not np.all(np.isfinite(values)):
+                    raise ValueError("evaluation predictor returned non-finite outputs")
+                offset = 0
+                for actor_id, request_id, request_boards, _request_roles, _request_rules in active:
+                    count = len(request_boards)
+                    self.response_queues[int(actor_id)].put(
+                        (
+                            int(request_id),
+                            policies[offset : offset + count],
+                            values[offset : offset + count],
+                            None,
+                        )
+                    )
+                    offset += count
+                requests += len(active)
+                positions += len(boards)
+                batches += 1
+                max_batch = max(max_batch, len(boards))
+                active = []
+        except BaseException:
+            self.failure = traceback.format_exc()
+            for actor_id in self.actor_ids:
+                try:
+                    self.response_queues[actor_id].put(
+                        (-1, None, None, self.failure), timeout=0.1
+                    )
+                except (queue.Full, OSError):
+                    pass
+        finally:
+            self.metrics = EvaluationInferenceMetrics(
+                service_id=self.service_id,
+                requests=requests,
+                positions=positions,
+                batches=batches,
+                max_batch=max_batch,
+                batch_limit=self.batch_limit,
+                batch_timeout_s=self.batch_timeout_s,
+                wall_seconds=time.perf_counter() - started,
+            )
+
+    def close(self) -> EvaluationInferenceMetrics:
+        if self.thread.is_alive():
+            self.request_queue.put(None)
+        self.thread.join(timeout=self.response_timeout_s)
+        if self.thread.is_alive():
+            raise RuntimeError(f"evaluation inference service {self.service_id} did not drain")
+        if self.failure is not None:
+            raise RuntimeError(f"evaluation inference service failed: {self.failure}")
+        assert self.metrics is not None
+        return self.metrics
+
+
+def _evaluation_actor_main(
+    actor_id: int,
+    task_queue: Any,
+    result_queue: Any,
+    candidate_request_queue: Any,
+    candidate_response_queue: Any,
+    incumbent_request_queue: Any | None,
+    incumbent_response_queue: Any | None,
+    search_sims: int,
+    cpuct: float,
+    response_timeout_s: float,
+) -> None:
+    try:
+        candidate = RemotePredictor(
+            actor_id,
+            candidate_request_queue,
+            candidate_response_queue,
+            response_timeout_s=response_timeout_s,
+        )
+        incumbent = (
+            None
+            if incumbent_request_queue is None
+            else RemotePredictor(
+                actor_id,
+                incumbent_request_queue,
+                incumbent_response_queue,
+                response_timeout_s=response_timeout_s,
+            )
+        )
+        while True:
+            task = task_queue.get()
+            if task is None:
+                break
+            if not isinstance(task, EvaluationTask):
+                raise TypeError("evaluation actor received an invalid task")
+            game = play_paired_game(
+                task.opening,
+                candidate_is_first=task.candidate_is_first,
+                candidate_predictor=candidate,
+                incumbent_predictor=incumbent,
+                search_sims=search_sims,
+                cpuct=cpuct,
+            )
+            result_queue.put(("game", actor_id, task.task_index, game))
+    except BaseException:
+        result_queue.put(("error", actor_id, None, traceback.format_exc()))
+
+
+def _terminate_processes(processes: list[mp.Process]) -> None:
+    for process in processes:
+        if process.is_alive():
+            process.terminate()
+    for process in processes:
+        process.join(timeout=5.0)
+
+
 def play_paired_openings_parallel(
     openings: Iterable[Opening],
     *,
@@ -286,6 +492,7 @@ def play_paired_openings_parallel(
     inference_batch_size: int,
     inference_batch_timeout_s: float = 0.001,
     inference_response_timeout_s: float = 300.0,
+    start_method: str = "spawn",
 ) -> PairedEvaluationResult:
     """Run exact paired games concurrently and return topology evidence."""
 
@@ -294,61 +501,159 @@ def play_paired_openings_parallel(
         raise ValueError("paired evaluation needs at least one opening")
     if parallel_games < 1 or inference_batch_size < 1:
         raise ValueError("evaluation parallelism and batch size must be positive")
+    if inference_batch_timeout_s < 0.0 or inference_response_timeout_s <= 0.0:
+        raise ValueError("evaluation inference timeouts are invalid")
     rule_contexts = {(opening.rule_id, opening.rule_version) for opening in rows}
     if len(rule_contexts) != 1:
         raise ValueError("paired evaluation openings must use exactly one rule context")
-    candidate_service = BatchingPredictor(
-        candidate_predictor,
-        service_id="candidate",
-        batch_limit=inference_batch_size,
-        batch_timeout_s=inference_batch_timeout_s,
-        response_timeout_s=inference_response_timeout_s,
+    game_specs = tuple(
+        (opening, candidate_is_first)
+        for opening in rows
+        for candidate_is_first in (True, False)
     )
-    incumbent_service = (
-        None
+    tasks = tuple(
+        EvaluationTask(index, opening, candidate_is_first)
+        for index, (opening, candidate_is_first) in enumerate(game_specs)
+    )
+    actor_count = min(parallel_games, len(tasks))
+    context = mp.get_context(start_method)
+    queue_capacity = max(1, 2 * actor_count)
+    task_queue = context.Queue(maxsize=queue_capacity)
+    result_queue = context.Queue(maxsize=queue_capacity)
+    candidate_request_queue = context.Queue(maxsize=queue_capacity)
+    candidate_response_queues = {
+        actor_id: context.Queue(maxsize=2) for actor_id in range(actor_count)
+    }
+    incumbent_request_queue = (
+        None if incumbent_predictor is None else context.Queue(maxsize=queue_capacity)
+    )
+    incumbent_response_queues = (
+        {}
         if incumbent_predictor is None
-        else BatchingPredictor(
-            incumbent_predictor,
-            service_id="incumbent",
+        else {actor_id: context.Queue(maxsize=2) for actor_id in range(actor_count)}
+    )
+    actor_ids = tuple(range(actor_count))
+    services = [
+        _MultiprocessBatchingService(
+            candidate_predictor,
+            service_id="candidate",
+            actor_ids=actor_ids,
+            request_queue=candidate_request_queue,
+            response_queues=candidate_response_queues,
             batch_limit=inference_batch_size,
             batch_timeout_s=inference_batch_timeout_s,
             response_timeout_s=inference_response_timeout_s,
         )
-    )
+    ]
+    if incumbent_predictor is not None:
+        services.append(
+            _MultiprocessBatchingService(
+                incumbent_predictor,
+                service_id="incumbent",
+                actor_ids=actor_ids,
+                request_queue=incumbent_request_queue,
+                response_queues=incumbent_response_queues,
+                batch_limit=inference_batch_size,
+                batch_timeout_s=inference_batch_timeout_s,
+                response_timeout_s=inference_response_timeout_s,
+            )
+        )
+    actors: list[mp.Process] = []
     started = time.perf_counter()
-    tasks = tuple((opening, role) for opening in rows for role in (True, False))
-    metrics: list[EvaluationInferenceMetrics] = []
+    service_metrics: list[EvaluationInferenceMetrics] = []
     try:
-        with ThreadPoolExecutor(
-            max_workers=min(parallel_games, len(tasks)),
-            thread_name_prefix="paired-evaluation-game",
-        ) as executor:
-            futures = [
-                executor.submit(
-                    play_paired_game,
-                    opening,
-                    candidate_is_first=candidate_is_first,
-                    candidate_predictor=candidate_service,
-                    incumbent_predictor=incumbent_service,
-                    search_sims=search_sims,
-                    cpuct=cpuct,
-                )
-                for opening, candidate_is_first in tasks
-            ]
-            games = tuple(future.result() for future in futures)
+        for service in services:
+            service.start()
+        for actor_id in actor_ids:
+            actor = context.Process(
+                target=_evaluation_actor_main,
+                args=(
+                    actor_id,
+                    task_queue,
+                    result_queue,
+                    candidate_request_queue,
+                    candidate_response_queues[actor_id],
+                    incumbent_request_queue,
+                    incumbent_response_queues.get(actor_id),
+                    search_sims,
+                    cpuct,
+                    inference_response_timeout_s,
+                ),
+                name=f"v3-evaluation-game-{actor_id}",
+            )
+            actor.start()
+            actors.append(actor)
+
+        next_task = 0
+        for _ in range(min(len(tasks), queue_capacity)):
+            task_queue.put(tasks[next_task])
+            next_task += 1
+        games_by_index: dict[int, GateGameResult] = {}
+        while len(games_by_index) < len(tasks):
+            try:
+                kind, actor_id, task_index, payload = result_queue.get(timeout=1.0)
+            except queue.Empty:
+                failed_actors = [actor for actor in actors if actor.exitcode not in (None, 0)]
+                failed_services = [service for service in services if service.failure is not None]
+                if failed_actors or failed_services:
+                    raise RuntimeError("V3 evaluation worker or inference service failed")
+                continue
+            if kind == "error":
+                raise RuntimeError(f"V3 evaluation actor {actor_id} failed:\n{payload}")
+            if kind != "game" or not isinstance(payload, GateGameResult):
+                raise RuntimeError("V3 evaluation actor returned an invalid result")
+            index = int(task_index)
+            if index in games_by_index:
+                raise RuntimeError(f"duplicate V3 evaluation result for task {index}")
+            games_by_index[index] = payload
+            if next_task < len(tasks):
+                task_queue.put(tasks[next_task])
+                next_task += 1
+
+        for _ in actors:
+            task_queue.put(None)
+        for actor in actors:
+            actor.join(timeout=30.0)
+            if actor.exitcode != 0:
+                raise RuntimeError(f"V3 evaluation actor {actor.name} exited with {actor.exitcode}")
+        for service in services:
+            service_metrics.append(service.close())
+        games = tuple(games_by_index[index] for index in range(len(tasks)))
+        return PairedEvaluationResult(
+            games=games,
+            metrics=PairedEvaluationMetrics(
+                parallel_games=actor_count,
+                worker_processes=actor_count,
+                start_method=start_method,
+                games=len(games),
+                wall_seconds=time.perf_counter() - started,
+                inference_services=tuple(service_metrics),
+            ),
+        )
     finally:
-        metrics.append(candidate_service.close())
-        if incumbent_service is not None:
-            metrics.append(incumbent_service.close())
-    return PairedEvaluationResult(
-        games=games,
-        metrics=PairedEvaluationMetrics(
-            parallel_games=min(parallel_games, len(tasks)),
-            games=len(games),
-            wall_seconds=time.perf_counter() - started,
-            inference_services=tuple(metrics),
-        ),
-    )
+        _terminate_processes(actors)
+        for service in services:
+            if service.thread.is_alive():
+                try:
+                    service.request_queue.put(None)
+                except (OSError, ValueError):
+                    pass
+                service.thread.join(timeout=5.0)
+        managed_queues = [
+            task_queue,
+            result_queue,
+            candidate_request_queue,
+            *candidate_response_queues.values(),
+            *incumbent_response_queues.values(),
+        ]
+        if incumbent_request_queue is not None:
+            managed_queues.append(incumbent_request_queue)
+        for managed_queue in managed_queues:
+            try:
+                managed_queue.close()
+                managed_queue.join_thread()
+            except (AttributeError, OSError, ValueError):
+                pass
 
 
 __all__ = [
