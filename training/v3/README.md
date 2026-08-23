@@ -181,6 +181,14 @@ workers active. On the same eight B4-vs-v2.2 opening pairs, eight workers took
 took 80.57 versus 88.22 seconds. This supports the target preset without using
 host-wide CPU utilization as a proxy for search quality.
 
+For utilization checks, discard model loading and the final under-filled tail.
+Use a workload with at least several times as many opening pairs as replicas and
+report the highest sustained 10-30 second steady-state window, not a single
+one-second spike or the whole-run average. The B6 100k early evaluation used 50
+pairs with eight replicas; a 25-second full-queue sample held both GPUs mostly at
+94-99%, with 1.61 GiB per GPU and roughly 170-205 W. The low aggregate CPU use is
+expected because this topology owns eight search workers and is GPU-bound.
+
 Use the common fixed-profile sweep before changing a GPU preset:
 
 ```powershell
@@ -508,6 +516,22 @@ candidate and require held-out learning or paired-strength evidence before
 paying for 512. Fast-search positions have policy weight zero, so this decision
 concerns the full-search policy targets rather than the 32-sim action-selection
 path.
+
+At the B6 100k milestone, an evaluation-only snapshot of generation 12 produced
+80% top-action agreement between 256 and 512 sims (TV 0.193, JS 0.0338,
+reference top-action regret 0.0415). Independent 256-sim repetition produced 92%
+agreement (TV 0.0423, JS 0.00782, regret 0.00398). The search-depth delta is
+therefore materially larger than repeated-256 variability, but this diagnostic
+alone does not change either the frozen 128/32 Research scale-screen contract or
+the candidate 256-sim Production target. Require improved held-out policy fit or
+paired strength before paying for 512-sim targets.
+
+The same B6 100k snapshot scored 0.63, 0.58, and 0.62 over 100 games against
+v2.2 Balance, CubeSprite V3 iter240, and V3 Mini iter260. With the frozen
+`primary_256` anchor scale, its descriptive estimate was +105.9 Elo with a
+95% interval of [+65.5, +146.3]. This is milestone evidence only, not a gate;
+the accepted producer at that checkpoint was still the earlier bootstrap
+candidate.
 
 ## Smoke artifacts
 
