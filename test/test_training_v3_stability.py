@@ -67,6 +67,15 @@ class HistoricalStabilityRegressionTests(unittest.TestCase):
                 mean_policy_entropy=2.6309109264167496,
                 value_loss=0.6455787241317984,
             ),
+            GenerationStabilityMetrics(
+                generation=4,
+                games=64,
+                mean_game_length=12.96875,
+                game_length_variance=20.2802734375,
+                short_game_rate=0.59375,
+                mean_policy_entropy=2.529447452915516,
+                value_loss=0.6309228902839753,
+            ),
         )
         result = assess_stability(rows)
         self.assertEqual(result.action, "watch")

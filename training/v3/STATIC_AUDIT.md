@@ -245,9 +245,9 @@ independent stop rules:
 - weak anchor/teacher score, non-finite loss, worker death, or checkpoint error.
 
 V3 emits the first three as watch warnings. `stability.py` combines at least two
-behavioral symptoms across consecutive generations, and requires a material
-adverse trend (10% mean-length drop or 10-point short-game-rate rise) or
-collapsed value loss before escalating the repeated watch to a pause. This
+behavioral symptoms across consecutive generations, and requires a joint
+material adverse trend (10% mean-length drop and 10-point short-game-rate rise)
+or collapsed value loss before escalating the repeated watch to a pause. This
 keeps the frozen Stage 1 champion's deliberate high-exploration distribution
 observable without treating identical stochastic samples as continued model
 deterioration. The rule is regression-checked against the archived

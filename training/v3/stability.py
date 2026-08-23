@@ -159,15 +159,11 @@ def assess_stability(
         previous = rows[index - 1] if index else None
         behavioral, contextual = _signals_for(row, previous, thresholds)
         correlated = len(behavioral) >= thresholds.correlated_behavior_signals_to_pause
-        escalating = any(
-            signal
-            in {
-                "mean_game_length_falling",
-                "short_game_rate_rising",
-                "value_loss_low",
-            }
-            for signal in contextual
-        )
+        distribution_deteriorating = {
+            "mean_game_length_falling",
+            "short_game_rate_rising",
+        }.issubset(contextual)
+        escalating = distribution_deteriorating or "value_loss_low" in contextual
         if not correlated:
             consecutive = 0
         elif consecutive == 0:
@@ -178,8 +174,9 @@ def assess_stability(
             # A frozen champion under a deliberately exploratory schedule can
             # repeatedly cross absolute game-length watch thresholds without
             # deteriorating. Keep the condition visible, but require a
-            # material adverse trend (or collapsed value loss) before an
-            # automatic pause is armed.
+            # joint material adverse trend (or collapsed value loss) before
+            # an automatic pause is armed. A short-game-rate swing by itself
+            # is too noisy in a 64-game monitoring window.
             consecutive = 1
         if (
             first_pause_generation is None

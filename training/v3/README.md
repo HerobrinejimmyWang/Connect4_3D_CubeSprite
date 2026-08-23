@@ -370,9 +370,9 @@ shards were removed.
 `stability.py` evaluates correlated behavioral symptoms over consecutive
 generations. Repeated absolute short-game/low-variance watch thresholds do not
 alone pause a frozen champion under the Stage 1 high-exploration schedule: the
-second correlated generation must also show a material adverse trend (at least
-a 10% mean-length drop or a 10-point short-game-rate rise), or collapsed value
-loss. The regression fixture in
+second correlated generation must also show a joint material adverse trend (at
+least a 10% mean-length drop and a 10-point short-game-rate rise), or collapsed
+value loss. The regression fixture in
 `test/fixtures/v3_historical_stability_trace_v1.json` is aggregate Legacy
 evidence only: it stops the high-temperature 253-264 branch at 254 while not
 stopping the controlled 249-260 recovery. A single spike or a stable exploratory
