@@ -15,13 +15,13 @@ from .preflight import PreflightError, run_preflight
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m training.v3",
-        description="V3.1 isolated training foundation (formal training remains disabled).",
+        description="V3.1 isolated training and recovery foundation.",
     )
     commands = parser.add_subparsers(dest="command", required=True)
     for name, help_text in (
         ("print-config", "validate and print the fully resolved strict JSON config"),
         ("smoke", "run the CPU end-to-end smoke workflow"),
-        ("run", "validate the guarded formal-run entry point without training"),
+        ("run", "inspect or explicitly execute a bounded formal run"),
         (
             "validate-local",
             "validate bounded local P6/P7 contracts without starting training",
@@ -38,6 +38,24 @@ def _parser() -> argparse.ArgumentParser:
             help="resume the checkpoint in the resolved run directory",
         )
         command.add_argument("--device", default=None)
+        if name == "run":
+            command.add_argument(
+                "--execute",
+                action="store_true",
+                help="execute the bounded formal scheduler instead of printing its plan",
+            )
+            command.add_argument(
+                "--max-train-positions",
+                type=int,
+                default=None,
+                help="required with --execute; absolute consumed-position stop bound",
+            )
+            command.add_argument(
+                "--max-generations",
+                type=int,
+                default=None,
+                help="optional per-invocation generation bound for canaries and maintenance",
+            )
         if name == "validate-local":
             command.add_argument(
                 "--replay-dir",
@@ -84,7 +102,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         # Config inspection and the guarded ``run`` entry do not allocate the
         # configured accelerator. Smoke validates the actual target device.
-        preflight_device = config.runtime.device if args.command == "smoke" else "cpu"
+        execute_formal = args.command == "run" and bool(args.execute)
+        preflight_device = (
+            config.runtime.device
+            if args.command == "smoke" or execute_formal
+            else "cpu"
+        )
         preflight = run_preflight(preflight_device)
         if args.command == "print-config":
             sys.stdout.write(config.to_json())
@@ -115,7 +138,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         # missing dependency produces the concise message above.
         from .pipeline import formal_run_status, run_smoke
 
-        result = run_smoke(config) if args.command == "smoke" else formal_run_status(config)
+        if args.command == "smoke":
+            result = run_smoke(config)
+        elif args.execute:
+            if args.max_train_positions is None:
+                raise ValueError("run --execute requires --max-train-positions")
+            from .formal_runner import run_formal
+
+            result = run_formal(
+                config,
+                max_train_positions=args.max_train_positions,
+                max_generations=args.max_generations,
+            )
+        else:
+            result = formal_run_status(config)
         sys.stdout.write(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
         return 0
     except (FileNotFoundError, FileExistsError, TypeError, ValueError, RuntimeError, PreflightError) as exc:

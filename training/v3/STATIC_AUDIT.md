@@ -73,9 +73,10 @@ uncontended cloud session can be reserved for meaningful measurements.
 
 ## Round 3: static acceptance state
 
-The framework is suitable for CPU correctness smoke and for producing a
-reviewed cloud pilot plan. It is not yet suitable for an unattended formal run.
-The guarded status is intentional, not a missing flag.
+The framework supports CPU correctness smoke and an explicitly bounded,
+synchronous multi-generation runner. Formal execution is still readiness-gated:
+the current Stage 1 configs retain provisional P6 auxiliary weights and are
+rejected until the calibration screen is reviewed and frozen.
 
 The third review also closed issues found only after integration:
 
@@ -92,20 +93,21 @@ The third review also closed issues found only after integration:
 - executable smoke rejects GPU presets, and offline hardware plans preserve the
   explicitly configured learner while flagging the CUDA inventory as unverified.
 
-Remaining blockers:
+Completed P7 connections:
 
-1. Connect the persisted formal-loop state to an executable generation
-   scheduler. The append-only replay cursor, consumed-position candidate cadence,
-   and inconclusive gate extension now have tested state transitions; safe
-   shutdown/drain still needs scheduler integration.
-2. Implement a generation draft/reconcile journal and an OS-level
-   single-coordinator no-clobber lock.
-3. Integrate archive catalog creation, verified transfer receipts, and a
-   separately invoked prune command with disk-watermark backpressure.
-4. Benchmark actual GPU batch fill, queue wait, forward latency, game throughput,
-   learner throughput, and peak VRAM/RAM.
-5. Run a short learning-signal pilot before accepting the Mini schedule for an
-   unattended run.
+1. The bounded scheduler restores cumulative replay/learner/candidate state and
+   uses only the committed champion for self-play.
+2. Each generation is protected by an OS-level coordinator lock and a staged,
+   checksum-bound commit journal. Signals drain at a committed generation boundary.
+3. Incremental archives are verified locally entry-by-entry; cloud pruning is an
+   explicit receipt-gated command. Target presets pause around 70% use and keep a
+   10-GiB hard reserve plus archive staging headroom.
+4. B4/B6 target GPU batch fill, throughput, learner throughput, and lane quality
+   were measured on 2026-08-23.
+
+Remaining readiness gate: collect at least 768 games/12,000 Replay V2 samples,
+run the two-seed five-way P6 screen, review the learning/validation evidence, and
+freeze auxiliary loss plus occupancy class weights before Stage 1 execution.
 
 ## Minimal CUDA effectiveness result
 
@@ -225,10 +227,11 @@ independent stop rules:
 
 V3 emits the first three as watch warnings. `stability.py` now combines at
 least two behavioral symptoms across at least two consecutive generations and
-is regression-checked against the archived collapse/recovery traces. It still
-does not stop formal work because the multi-generation scheduler is disabled;
-that scheduler must combine the decision with validation, gate, historical
-milestone, and tactical-suite evidence before changing parameters.
+is regression-checked against the archived collapse/recovery traces. The bounded
+formal scheduler persists that history and, when the assessment requests a
+pause, commits the active generation before stopping at its boundary. It does
+not change parameters automatically; the operator still combines this evidence
+with validation, gate, historical-milestone, and tactical-suite results.
 
 ## Two-GPU plan (P2)
 
@@ -247,28 +250,31 @@ learner and no DDP until evidence shows the learner is the bottleneck.
 
 ## Disk and archive procedure
 
-At the soft watermark, stop admitting new games at a shard boundary and create
-an immutable archive bundle in `archive_staging/<id>.partial`. The bundle
-manifest records path, size, and SHA256. Rename only after complete local
-verification. After transfer, the receiving machine verifies every entry and
-returns a signed/recorded receipt containing the archive-manifest checksum.
+At the soft watermark, finish the active generation and create an immutable
+archive bundle through `archive_staging/<id>.partial`. The cloud verifies each
+source before and after packing, then publishes the tar plus a path/size/SHA256
+manifest. After transfer, the receiving machine verifies the tar and every
+entry, materializes the trace tree, and returns a recorded receipt containing
+the archive-manifest checksum.
 
 The cloud side may plan pruning only after receipt verification. It retains at
 least 1.25 times the active replay window, current and previous accepted models,
 the latest three resumable checkpoints, unresolved candidates, metrics,
-manifests, and audit replays. At the hard reserve, if a verified archive cannot
+manifests, and audit replays. At the 10-GiB hard reserve, if a verified archive cannot
 be produced, stop safely instead of deleting unacknowledged data.
 
-`retention.py` implements only the deterministic eligibility calculation. There
-is deliberately no automatic deletion command in this revision.
+`retention.py` remains the pure eligibility calculator. `archive.py` and
+`tools/manage_v3_archive.py` add an explicitly invoked deletion path that
+revalidates every file against a locally verified receipt immediately before
+unlinking it; there is still no automatic deletion inside the trainer.
 
 The committed-generation validator now authenticates the checkpoint cursor,
 every replay NPZ/manifest/ready triplet, model artifacts, audit index, and each
-CubeSprite replay, and it can fall back to an older complete generation. Before
-`formal_journal.py` adds the single-coordinator no-clobber lock and a
-checksum-bound pre-commit draft/reconcile journal. Both are locally tested, but
-formal training remains disabled until the multi-generation writer is wrapped
-by them and fault-tested across partial artifact publication. Linux is the
+CubeSprite replay, and it can fall back to an older complete generation.
+`formal_journal.py` provides the single-coordinator no-clobber lock and a
+checksum-bound pre-commit draft/reconcile journal; the bounded writer is wrapped
+by both. A fully staged commit is recoverable, while any other partial state
+blocks for explicit operator recovery. Linux is the
 durability target because its
 directory renames are followed by `fsync`; Windows is supported for smoke and
 logical recovery checks, not a sudden-power-loss durability guarantee.

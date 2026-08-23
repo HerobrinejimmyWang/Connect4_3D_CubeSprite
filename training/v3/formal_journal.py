@@ -35,11 +35,18 @@ def _sha256_file(path: Path) -> str:
 def _atomic_json(path: Path, payload: Mapping[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
-    temporary.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    with temporary.open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
     os.replace(temporary, path)
+    if os.name != "nt":
+        descriptor = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
 
 
 def _run_relative(value: str, label: str) -> str:
@@ -232,6 +239,77 @@ class GenerationJournal:
             raise RuntimeError("cannot mark an empty generation draft ready")
         self.draft = replace(self.draft, phase="artifacts_ready", updated_at=_utc_now())
         _atomic_json(self.path, self.draft.to_dict())
+
+    def stage_commit(self, payload: Mapping[str, Any]) -> Path:
+        """Persist the generation commit payload before publication.
+
+        Moving this checksum-bound file into ``manifests/generations`` is the
+        transaction's final publication step.  A crash after staging can be
+        completed by loading the ready journal and calling ``publish_commit``.
+        """
+
+        if self.draft.phase != "started":
+            raise RuntimeError("generation commit can only be staged from a started draft")
+        if payload.get("run_id") != self.draft.run_id:
+            raise ValueError("generation commit run_id differs from its draft")
+        if int(payload.get("generation", -1)) != self.draft.generation:
+            raise ValueError("generation commit generation differs from its draft")
+        if payload.get("config_hash") != self.draft.config_hash:
+            raise ValueError("generation commit config hash differs from its draft")
+        staged = (
+            self.layout.generation_drafts
+            / "commit_payloads"
+            / f"g{self.draft.generation:06d}.json"
+        )
+        if staged.exists():
+            raise FileExistsError(f"staged generation commit already exists: {staged}")
+        _atomic_json(staged, payload)
+        self.record_artifact(staged, kind="generation_commit_payload")
+        self.mark_artifacts_ready()
+        return staged
+
+    def publish_commit(self) -> Path:
+        """Publish a staged commit and its latest pointer atomically per file."""
+
+        if self.draft.phase != "artifacts_ready":
+            raise RuntimeError("generation artifacts are not ready for commit publication")
+        staged_rows = [
+            artifact
+            for artifact in self.draft.artifacts
+            if artifact.kind == "generation_commit_payload"
+        ]
+        if len(staged_rows) != 1:
+            raise RuntimeError("ready generation draft needs exactly one staged commit payload")
+        staged = self.layout.root / staged_rows[0].path
+        if not staged.is_file() or _sha256_file(staged) != staged_rows[0].checksum_sha256:
+            raise RuntimeError("staged generation commit is missing or changed")
+        payload = json.loads(staged.read_text(encoding="utf-8"))
+        if (
+            payload.get("run_id") != self.draft.run_id
+            or int(payload.get("generation", -1)) != self.draft.generation
+            or payload.get("config_hash") != self.draft.config_hash
+        ):
+            raise RuntimeError("staged generation commit identity differs from its draft")
+        target = self.layout.generation_commits / f"g{self.draft.generation:06d}.json"
+        if target.exists():
+            raise FileExistsError(f"immutable generation commit already exists: {target}")
+        os.replace(staged, target)
+        if os.name != "nt":
+            descriptor = os.open(target.parent, os.O_RDONLY)
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+        _atomic_json(
+            self.layout.manifests / "latest_generation.json",
+            {
+                "schema_version": 1,
+                "generation": self.draft.generation,
+                "commit": target.relative_to(self.layout.root).as_posix(),
+                "commit_sha256": _sha256_file(target),
+            },
+        )
+        return target
 
 
 def reconcile_generation_drafts(layout: RunLayout) -> tuple[dict[str, Any], ...]:

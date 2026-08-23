@@ -352,24 +352,23 @@ def _validate_p7_local_primitives(config: V3Config) -> dict[str, Any]:
     checks = {
         "formal_state_round_trip": state_round_trip,
         "archive_receipt_mismatch_protected": not retention.eligible_paths,
-        "formal_run_still_guarded": formal_run_status(config).get("production_ready") is False,
+        "bounded_formal_runner_available": (
+            formal_run_status(config).get("status") == "bounded-formal-run-available"
+        ),
     }
     formal = formal_run_status(config)
     return {
         "local_primitives_passed": all(checks.values()),
         "checks": checks,
-        "implemented_but_not_connected": [
-            "candidate cadence and inconclusive-gate state transitions",
-            "pure archive receipt and retention planning",
+        "connected_and_tested": [
+            "cumulative replay and consumed-position candidate cadence",
+            "generation journal publication and single-coordinator lock",
+            "generation-boundary signal drain and resumable checkpoint state",
+            "incremental archive, local receipt ingestion, and revalidated prune",
+            "disk soft watermark, archive staging headroom, and 10-GiB hard reserve",
             "bounded hardware topology planning",
         ],
-        "remaining_local_connection_work": [
-            "atomic generation draft/commit/reconcile journal",
-            "OS-level single-coordinator lock",
-            "coordinated actor/inference/learner drain and restart",
-            "archive catalog plus verified transfer receipt ingestion",
-            "explicit revalidated prune command and disk-watermark backpressure",
-        ],
+        "remaining_local_connection_work": [],
         "formal_blockers": list(formal["blocking_items"]),
     }
 
@@ -410,6 +409,15 @@ def build_local_validation_report(
     )
     p7 = _validate_p7_local_primitives(config)
     local_contract_passed = bool(ablation_rows) and p7["local_primitives_passed"]
+    formal_blockers = list(p7["formal_blockers"])
+    if not bool(dataset["ready_for_p6_screening"]):
+        readiness_reason = "The locked P6 dataset has not met its explicit game/sample floor."
+    elif formal_blockers:
+        readiness_reason = "; ".join(formal_blockers)
+    else:
+        readiness_reason = (
+            "P6 screen review and the final bounded target-GPU canary sign-off remain external evidence gates."
+        )
     return {
         "schema_version": LOCAL_VALIDATION_SCHEMA_VERSION,
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -458,9 +466,7 @@ def build_local_validation_report(
                 dataset["ready_for_p6_screening"]
             ),
             "stage1_ready": False,
-            "stage1_ready_reason": (
-                "Target-GPU evidence and the remaining P7 connection work are not complete."
-            ),
+            "stage1_ready_reason": readiness_reason,
         },
     }
 

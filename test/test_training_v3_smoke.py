@@ -113,9 +113,12 @@ class SequentialGateTests(unittest.TestCase):
             code = cli_main(["run", "--config", str(SMOKE_CONFIG)])
         self.assertEqual(code, 0, errors.getvalue())
         status = json.loads(output.getvalue())
-        self.assertEqual(status["status"], "formal-loop-disabled-after-static-review")
+        self.assertEqual(status["status"], "bounded-formal-run-available")
         self.assertFalse(status["production_ready"])
-        self.assertFalse(status["storage_plan"]["deletion_enabled"])
+        self.assertEqual(
+            status["storage_plan"]["deletion_enabled"],
+            "explicit_receipt_gated_command_only",
+        )
         self.assertTrue(status["blocking_items"])
 
 

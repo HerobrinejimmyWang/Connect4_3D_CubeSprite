@@ -8,7 +8,7 @@
       "scale_id": "starter_64x4",
       "channels": 64,
       "blocks": 4,
-      "v3_config": "training/v3/configs/stage1_scale_screen_b4c64.json",
+      "v3_config": "training/v3/configs/stage1_scale_screen_b4c64_2x3080ti.json",
       "purpose": "short pipeline and health canary before independent scaling",
       "status": "configured"
     },
@@ -16,7 +16,7 @@
       "scale_id": "mini_128x6",
       "channels": 128,
       "blocks": 6,
-      "v3_config": "training/v3/configs/stage1_scale_screen_b6c128.json",
+      "v3_config": "training/v3/configs/stage1_scale_screen_b6c128_2x3080ti.json",
       "purpose": "stability reference, medium-capacity baseline, and first replay-transfer target",
       "status": "configured"
     },

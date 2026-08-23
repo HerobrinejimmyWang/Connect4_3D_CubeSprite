@@ -4,14 +4,14 @@
 Legacy `training/main_train.py` remains available for old experiments, but its
 configuration and checkpoints are intentionally not imported into V3.
 
-The current supported endpoint is a deterministic CPU smoke workflow. A bounded
-cross-process actor pool and one shared inference owner per configured self-play
-device are implemented and covered by CPU regression tests. The formal
-generation loop remains guarded pending its cumulative replay/candidate state
-machine, crash journal, and uncontended on-machine CUDA efficiency calibration.
-A tiny CUDA effectiveness loop has already exercised shared inference,
-self-play, replay, AMP learning, validation, and paired gating. `run` prints the
-reviewed hardware, stage, and retention plan; it does not start training.
+The deterministic CPU smoke and a bounded synchronous multi-generation runner
+are implemented. The latter connects cumulative active-window replay,
+consumed-position candidate cadence, committed-champion-only self-play,
+generation-boundary signal drain, a checksum-bound pre-commit journal,
+single-coordinator locking, and receipt-gated archive pruning. `run` remains
+plan-only unless `--execute` and an absolute `--max-train-positions` bound are
+both supplied. Current Stage 1 configs are still rejected by the execution path
+because their P6 auxiliary weights are explicitly provisional.
 
 ## Commands
 
@@ -23,12 +23,13 @@ python -B -m training.v3 smoke --config training/v3/configs/smoke_cpu.json
 python -B -m training.v3 smoke --config training/v3/configs/smoke_cpu.json --resume
 python -B -m training.v3 run --config training/v3/configs/pilot_gpu_64x4.json
 python -B -m training.v3 run --config training/v3/configs/v3_1_mini_128x6.json
+python -B -m training.v3 run --config training/v3/configs/stage1_scale_screen_b4c64_2x3080ti.json --execute --max-train-positions 60000
 python -B -m training.v3 validate-local --config training/v3/configs/smoke_cpu.json
 ```
 
-Only `--config`, `--run-dir`, `--resume`, and `--device` are accepted runtime
-overrides. `validate-local` additionally accepts diagnostic output paths and an
-optional Replay V2 dataset path.
+`run --execute` additionally requires `--max-train-positions`; optional
+`--max-generations` bounds one maintenance/canary invocation. `validate-local`
+accepts diagnostic output paths and an optional Replay V2 dataset path.
 Unknown JSON sections, fields, and scalar types are errors. Operational runtime
 topology and storage policy are recorded but excluded from the model-lineage
 hash, so a run can move machines without pretending to be a new learning
@@ -40,8 +41,9 @@ change visit targets; shard size remains operational.
 | Preset | Purpose | Model | Search schedule | Status |
 |---|---|---:|---|---|
 | `smoke_cpu.json` | Correctness and recovery | 16 channels, 1 block | 4 games, 8/2 full/fast sims | Executable |
-| `pilot_gpu_64x4.json` | First cloud throughput and learning-signal check | 64 channels, 4 blocks | 64 games, 128/32 sims | Plan only |
-| `v3_1_mini_128x6.json` | First intended baseline after pilot | 128 channels, 6 blocks | 160 games at 128/32, then 200 at 256/64, then 240 at 512/128 | Plan only |
+| `pilot_gpu_64x4.json` | Historical cloud throughput and learning-signal check | 64 channels, 4 blocks | 64 games, 128/32 sims | Pilot evidence |
+| `stage1_scale_screen_b4c64_2x3080ti.json` | Stage 1 canary on the target host | 64 channels, 4 blocks | 64 games, 128/32 sims | Executable after P6 freeze |
+| `stage1_scale_screen_b6c128_2x3080ti.json` | Stage 1 medium-capacity target | 128 channels, 6 blocks | 160 games, 128/32 sims | Executable after P6 freeze |
 
 The old ambiguous `v3_1_small.json` was removed. A 64x4 network is a pilot, not
 a full-run target. The 128x6 Mini is about 1.82 million parameters, close to the
@@ -53,9 +55,8 @@ track starts every size from random initialization and imports neither weights
 nor replay. The production track will allow a new, randomly initialized larger
 lineage to offline-bootstrap from a provenance-complete donor Replay V2 bundle,
 then requires a paired donor qualification gate before creating its first
-accepted champion. Cross-scale replay import is design-only today: no current
-command relaxes the same-run replay/config checks, and formal `run` remains
-guarded.
+accepted champion. Cross-scale replay import remains separate from same-lineage
+formal replay; no formal command silently relaxes the replay/config checks.
 
 The executable plan/bundle foundation and complete runbook are in
 [`DUAL_TRACK_SCALING.md`](DUAL_TRACK_SCALING.md). `tools/run_v3_scaling.py`
@@ -184,12 +185,13 @@ top-action agreement through 6 lanes, while 8 and 10 lanes fell to 96.9%.
 These values are encoded only in `pilot_gpu_64x4.json`; the larger 128x6 Mini
 must be recalibrated rather than inheriting them blindly.
 
-The Stage 1 capacity screen uses separate immutable presets:
-`stage1_scale_screen_b4c64.json`, `stage1_scale_screen_b6c128.json`, and
-`stage1_scale_screen_b8c192.json`. All three freeze self-play at 128/32 sims,
+The Stage 1 capacity screen routes B4/B6 to the calibrated target presets
+`stage1_scale_screen_b4c64_2x3080ti.json` and
+`stage1_scale_screen_b6c128_2x3080ti.json`; B8 remains on its uncalibrated
+generic preset. All three freeze self-play at 128/32 sims,
 the same phased exploration schedule, replay ratio, learner semantics, and a
 256-sim gate. B4 is a one-seed 60k-position canary; B6 and B8 use staged primary
-and confirmation seeds. B6/B8 actor counts and inference batches remain
+and confirmation seeds. B8 actor counts and inference batches remain
 calibration starting points, not verified target-machine defaults.
 
 Stage 1 keeps this bounded independent Research line; it does not switch to a
@@ -258,19 +260,20 @@ multi-GPU topology is intentionally explicit in JSON.
 
 ## Storage and cloud retention
 
-`keep_all` never proposes pruning. `archive_ack_prune` is still non-destructive:
-`retention.py` only computes eligibility. A future explicit cleanup command must
-revalidate the plan before deleting anything.
-
-The Mini plan uses an 80% soft watermark, a 20 GiB hard reserve, a 1.25x active
-window margin, and approximately 8 GiB archive bundles. It keeps the newest
-three resumable checkpoints, two accepted models, one rejected model, every
-unresolved candidate, all small manifests/metrics, and all audit replays.
+`keep_all` never proposes pruning. `archive_ack_prune` separates immutable
+bundle creation, local verification/materialization, receipt ingestion, and an
+explicit prune command. The Stage 1 target presets use a 70% soft watermark, a
+10 GiB hard reserve, a 1.25x active-window margin, and approximately 4 GiB
+archive bundles. They keep the newest three resumable checkpoints, two accepted
+models, one rejected model, every unresolved candidate, all small
+manifests/metrics, and all audit replays.
 
 An artifact is never eligible merely because an upload command succeeded. A
 verified receipt must match its run-relative path, byte size, and SHA256. Raw
 shards inside the expanded active window or beyond the learner cursor remain
-pinned. No deletion or upload is performed by `smoke` or `run`.
+pinned. The trainer never uploads or deletes: operators invoke
+`tools/sync_v3_run.py` explicitly, and cloud pruning occurs only after the local
+copy has been fully verified and its receipt has been returned and ingested.
 
 ## Human audit replay
 
@@ -325,6 +328,15 @@ python -B -m training.v3 validate-local `
   --write-ablation-configs training\runs\local_validation\p6_configs
 ```
 
+The frozen P6 screening floor is 768 games and 12,000 samples. Collect the pool
+without learner promotion, then run the same-position two-seed five-way screen:
+
+```powershell
+python tools\collect_v3_p6_replay.py --config training\v3\configs\stage1_scale_screen_b4c64_2x3080ti.json --output training\runs\p6_aux_calibration_768_v1
+python -B -m training.v3 validate-local --config training\v3\configs\stage1_scale_screen_b4c64_2x3080ti.json --replay-dir training\runs\p6_aux_calibration_768_v1\replay\raw --minimum-replay-games 768 --minimum-replay-samples 12000
+python tools\run_v3_p6_screen.py --config training\v3\configs\stage1_scale_screen_b4c64_2x3080ti.json --replay-dir training\runs\p6_aux_calibration_768_v1\replay\raw --output training\runs\p6_aux_screen_v1
+```
+
 Add `--replay-dir <directory>` once a Replay V2 dataset has been selected. The
 validator checks every NPZ/manifest/ready triplet, records a stable dataset
 fingerprint and target coverage, and suggests inverse-frequency future
@@ -334,10 +346,9 @@ pass both `--minimum-replay-games` and `--minimum-replay-samples`; the validator
 does not invent those experiment-size thresholds.
 
 The report distinguishes `local_contract_passed`, dataset integrity, explicit
-P6 screening readiness, and `stage1_ready`. The last remains false until
-target-GPU efficiency/short
-closed-loop evidence and the remaining P7 journal, lock, drain, archive, prune,
-and disk-watermark connections are complete.
+P6 screening readiness, and `stage1_ready`. P7 scheduler/archive connections
+are now executable and regression-tested; Stage 1 remains blocked until the P6
+screen is reviewed and its loss/class weights are frozen in the explicit configs.
 
 ### Stage 1 stability and 256-sim target audit
 
@@ -346,7 +357,8 @@ generations. The regression fixture in
 `test/fixtures/v3_historical_stability_trace_v1.json` is aggregate Legacy
 evidence only: it stops the high-temperature 253-264 branch at 254 while not
 stopping the controlled 249-260 recovery. A single short-game spike remains a
-watch. The formal scheduler has not yet been connected to enforce the pause.
+watch. The scheduler records the health decision; correlated instability still
+requires a safe-boundary operator pause rather than automatic parameter changes.
 
 Every new self-play health artifact includes full/fast visit-target summaries:
 visit-budget integrity, entropy, effective action count, support, top-1 mass,
@@ -395,14 +407,40 @@ probe and deliberately does not advance the committed checkpoint.
 
 Committed generations bind the checkpoint, replay NPZ/manifest/ready triplets,
 accepted/candidate models, audit index, and every portable audit replay by hash;
-resume scans backward to the newest complete generation. `formal_journal.py`
-now provides a no-clobber coordinator lock and checksum-bound pre-commit draft
-reconciliation. They are tested but remain a formal-run blocker until the
-multi-generation writer is actually wrapped by them. File and directory
+resume scans backward to the newest complete generation. The formal runner
+wraps every generation with the no-clobber coordinator lock and checksum-bound
+pre-commit draft. A fully staged commit is publishable after restart; any other
+partial state blocks for explicit recovery. File and directory
 `fsync` provides the intended
 power-loss durability on the Linux cloud target. Windows smoke validates atomic
 replacement and checksums, but does not claim directory-metadata durability
 across sudden power loss.
+
+## Cloud-to-local archive and pruning
+
+Formal target presets use a 70% soft watermark, a 10-GiB absolute hard reserve,
+and 4-GiB bundle staging. At either the soft watermark or loss of staging
+headroom, the scheduler finishes and commits the active generation, then stops
+with `archive_required`. From the local machine run:
+
+```powershell
+python tools\sync_v3_run.py `
+  --remote connect4_gpu_2608 `
+  --run-dir training/runs/<run_id> `
+  --local-root D:\path\to\v3-archives\<run_id> `
+  --bundle-target-gib 4 `
+  --max-bundles 1 `
+  --prune
+```
+
+Each local archive, manifest, receipt, and materialized latest file tree is
+retained. Logs, resolved configs, generation manifests, replay triplets,
+checkpoints, model artifacts, metrics, and audit games are included
+incrementally. The cloud only removes an archived staging tar or a superseded
+training artifact after the returned receipt matches every entry. The latest
+three resumable generations, current active replay margin, two accepted models,
+and one rejected model remain protected. A failed transfer or checksum never
+authorizes deletion.
 
 See `STATIC_AUDIT.md` for the review decisions, on-machine pilot matrix, health
 watch levels, and remaining production blockers.

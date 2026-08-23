@@ -59,14 +59,15 @@ class LocalValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "non-ablation fields"):
             validate_p6_ablation_matrix(self.config, variants)
 
-    def test_local_report_keeps_formal_training_disabled(self) -> None:
+    def test_local_report_keeps_stage1_evidence_gated(self) -> None:
         report = build_local_validation_report(self.config, self.preflight)
         self.assertTrue(report["result"]["local_contract_passed"])
         self.assertFalse(report["result"]["dataset_integrity_passed"])
         self.assertFalse(report["result"]["dataset_ready_for_p6_screening"])
         self.assertFalse(report["result"]["stage1_ready"])
         self.assertFalse(report["safety"]["starts_training"])
-        self.assertTrue(report["p7"]["checks"]["formal_run_still_guarded"])
+        self.assertTrue(report["p7"]["checks"]["bounded_formal_runner_available"])
+        self.assertFalse(report["p7"]["remaining_local_connection_work"])
 
     def test_explicit_config_writer_is_idempotent_but_never_clobbers(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

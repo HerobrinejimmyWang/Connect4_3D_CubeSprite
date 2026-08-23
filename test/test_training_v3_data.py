@@ -421,6 +421,21 @@ class LearnerCheckpointTests(unittest.TestCase):
         self.assertNotIn("pin_memory", dataloader.call_args.kwargs)
         self.assertNotIn("prefetch_factor", dataloader.call_args.kwargs)
 
+    def test_position_limit_stops_at_exact_absolute_budget(self):
+        model, optimizer, _, learner = _make_training_stack()
+        dataset = OnlineD4Dataset(_make_replay(12), augmentation_seed=8)
+        bucket = TrainTokenBucket(tokens_per_position=4.0)
+        bucket.add(12)
+        metrics = learner.train_steps(
+            dataset,
+            steps=3,
+            token_bucket=bucket,
+            position_limit=5,
+        )
+        self.assertEqual(metrics.positions, 5)
+        self.assertEqual(metrics.steps, 2)
+        self.assertEqual(bucket.total_positions_consumed, 5)
+
     def test_position_lr_schedule_crossing_is_resume_equivalent(self):
         torch.manual_seed(91)
         initial = _TinyWDLNet().state_dict()

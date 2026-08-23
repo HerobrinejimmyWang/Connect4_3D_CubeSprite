@@ -8,24 +8,24 @@
       "scale_id": "b4c64",
       "channels": 64,
       "blocks": 4,
-      "config": "training/v3/configs/stage1_scale_screen_b4c64.json",
+      "config": "training/v3/configs/stage1_scale_screen_b4c64_2x3080ti.json",
       "seed_budgets": [{"seed": 314159, "max_train_positions": 60000, "condition": "always"}],
       "evaluation_milestones": [8000, 33000, 58000],
       "purpose": "short pipeline and health canary",
-      "topology_status": "validated_only_for_2026_08_16_local_plateau"
+      "topology_status": "validated_2026_08_23_dual_3080ti_24x4_batch32"
     },
     {
       "scale_id": "b6c128",
       "channels": 128,
       "blocks": 6,
-      "config": "training/v3/configs/stage1_scale_screen_b6c128.json",
+      "config": "training/v3/configs/stage1_scale_screen_b6c128_2x3080ti.json",
       "seed_budgets": [
         {"seed": 314159, "max_train_positions": 500000, "condition": "always"},
         {"seed": 271828, "max_train_positions": 250000, "condition": "primary_seed_stable"}
       ],
       "evaluation_milestones": [100000, 250000, 500000],
       "purpose": "stability reference and medium-capacity baseline",
-      "topology_status": "target_hardware_calibration_required"
+      "topology_status": "validated_2026_08_23_dual_3080ti_24x4_batch32"
     },
     {
       "scale_id": "b8c192",

@@ -53,13 +53,20 @@ Legacy runbooks and old experiment logs are historical context only.
 
 ## Current V3 Status and Guardrails
 
-- The deterministic CPU `smoke` path is executable. The `run` command is still
-  plan-only and must not be presented as starting formal training.
-- Do not enable unattended/formal training until the executable multi-generation
-  scheduler is connected to cumulative replay and candidate/gate state, safe
-  drain/shutdown is integrated, a generation draft/reconcile journal and
-  single-coordinator lock exist, and archive receipts/disk-watermark handling
-  are connected and tested.
+- The deterministic CPU `smoke` path is executable. `run` is plan-only unless
+  both `--execute` and an absolute `--max-train-positions` bound are supplied.
+  The bounded synchronous scheduler is connected to cumulative replay,
+  candidate cadence, accepted-champion self-play, generation-boundary signal
+  drain, checksum journal publication, and the single-coordinator lock.
+- Current Stage 1 configs still contain provisional P6 auxiliary weights, so
+  formal execution intentionally refuses them. Do not bypass that guard: collect
+  the calibration-only pool, run the frozen P6 screen, review/freeze weights,
+  and rerun the complete V3 regression first.
+- Formal runs require `archive_ack_prune`, a hard free-space reserve of at least
+  10 GiB, and explicit bounded execution. The target presets pause for archive
+  around 70% disk use or when 4-GiB staging headroom above the reserve is gone.
+  Cloud deletion is allowed only by the explicit prune command after the local
+  receiver verifies every archive member and returns a matching receipt.
 - Self-play may use only the committed accepted champion. Candidate and rejected
   models must never produce replay. An inconclusive gate extends the same paired
   opening evidence; it does not silently accept a candidate or restart the gate.
@@ -115,14 +122,17 @@ Start current V3 and compatibility workflows from the repository root:
 python -B -m training.v3 print-config --config training\v3\configs\smoke_cpu.json
 python -B -m training.v3 smoke --config training\v3\configs\smoke_cpu.json
 python -B -m training.v3 run --config training\v3\configs\pilot_gpu_64x4.json
+python -B -m training.v3 run --config training\v3\configs\stage1_scale_screen_b4c64_2x3080ti.json --execute --max-train-positions 60000
+python tools\sync_v3_run.py --run-dir training/runs/<run_id> --local-root <local-archive-dir> --prune
 python distillation\main_distill.py --config distillation\distill_config.json --print-config
 python arena\main_arena.py --black-random --white-random --games 1
 python test\main_human_eval.py
 python tools\export_model_pth.py save_model\v2.2_large\best.pth.tar
 ```
 
-The V3 `run` command above prints a guarded plan; it does not authorize or start
-formal training. `python training\main_train.py` is intentionally omitted
+The V3 `run` command without `--execute` prints a guarded plan. Explicit
+execution still refuses provisional P6 weights, non-archival storage, and a
+hard reserve below 10 GiB. `python training\main_train.py` is intentionally omitted
 because it is a Legacy entry point. Run it only when the requested task is
 explicitly scoped to Legacy reproduction or compatibility.
 Distillation and historical checkpoint export may also depend on Legacy model

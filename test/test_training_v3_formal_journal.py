@@ -37,6 +37,33 @@ class CoordinatorLockTests(unittest.TestCase):
 
 
 class GenerationJournalTests(unittest.TestCase):
+    def test_staged_commit_can_be_published_after_ready_recovery(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            layout = RunLayout.from_root(directory).create()
+            journal = GenerationJournal.begin(
+                layout, run_id="run-a", generation=2, config_hash=HASH
+            )
+            artifact = layout.checkpoints / "candidate.pt"
+            artifact.write_bytes(b"checkpoint")
+            journal.record_artifact(artifact, kind="checkpoint")
+            journal.stage_commit(
+                {
+                    "schema_version": 1,
+                    "run_id": "run-a",
+                    "generation": 2,
+                    "config_hash": HASH,
+                }
+            )
+            self.assertEqual(reconcile_generation_drafts(layout)[0]["status"], "resume_precommit")
+            restored = GenerationJournal.load(layout, 2)
+            commit = restored.publish_commit()
+            self.assertTrue(commit.is_file())
+            pointer = json.loads(
+                (layout.manifests / "latest_generation.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(pointer["generation"], 2)
+            self.assertEqual(reconcile_generation_drafts(layout)[0]["status"], "committed")
+
     def test_ready_draft_reconciles_without_silent_commit(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             layout = RunLayout.from_root(directory).create()

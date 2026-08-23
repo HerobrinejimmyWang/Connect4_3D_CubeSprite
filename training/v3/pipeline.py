@@ -221,11 +221,24 @@ def _validate_generation_commit(
     for path_key, checksum_key in (
         ("checkpoint", "checkpoint_sha256"),
         ("audit_index", "audit_index_sha256"),
-        ("candidate_path", "candidate_sha256"),
     ):
         artifact = _run_artifact_path(layout, commit.get(path_key))
         if not artifact.is_file() or _sha256_file(artifact) != commit.get(checksum_key):
             raise ValueError(f"generation commit {path_key} is missing or corrupt")
+    candidate_id = commit.get("candidate_model_id")
+    candidate_path = commit.get("candidate_path")
+    candidate_hash = commit.get("candidate_sha256")
+    if candidate_id is None:
+        if candidate_path is not None or candidate_hash is not None:
+            raise ValueError("generation commit has a partial null candidate model")
+    else:
+        candidate_artifact = _run_artifact_path(layout, candidate_path)
+        if (
+            candidate_artifact.stem != candidate_id
+            or not candidate_artifact.is_file()
+            or _sha256_file(candidate_artifact) != candidate_hash
+        ):
+            raise ValueError("generation commit candidate model is missing or corrupt")
 
     checkpoint_path = _run_artifact_path(layout, commit.get("checkpoint"))
     checkpoint = load_checkpoint(checkpoint_path, map_location="cpu")
@@ -246,9 +259,20 @@ def _validate_generation_commit(
     if not isinstance(committed_shards, list) or committed_shards != cursor_shards:
         raise ValueError("generation commit replay shards differ from checkpoint cursor")
     replay_positions = 0
+    ranged_cursor: int | None = None
+    ranged_entries = 0
     for entry in committed_shards:
-        if not isinstance(entry, Mapping) or set(entry) != {"path", "checksum_sha256"}:
+        allowed_entry_schemas = (
+            {"path", "checksum_sha256"},
+            {"path", "checksum_sha256", "position_start", "position_end"},
+        )
+        if not isinstance(entry, Mapping) or set(entry) not in allowed_entry_schemas:
             raise ValueError("generation commit replay shard entry has an invalid schema")
+        if "position_start" in entry and (
+            int(entry["position_start"]) < 0
+            or int(entry["position_end"]) <= int(entry["position_start"])
+        ):
+            raise ValueError("generation commit replay shard position range is invalid")
         replay_path = _run_artifact_path(layout, entry["path"])
         manifest = validate_replay_shard_artifacts(replay_path)
         if manifest.get("checksum_sha256") != entry["checksum_sha256"]:
@@ -257,11 +281,28 @@ def _validate_generation_commit(
             raise ValueError("generation commit replay shard config hash mismatch")
         if manifest.get("run_id") != run_id:
             raise ValueError("generation commit replay shard run_id mismatch")
-        replay_positions += int(manifest["sample_count"])
+        sample_count = int(manifest["sample_count"])
+        if "position_start" in entry:
+            start = int(entry["position_start"])
+            end = int(entry["position_end"])
+            if end - start != sample_count:
+                raise ValueError("generation replay shard position range differs from sample count")
+            if ranged_cursor is not None and start != ranged_cursor:
+                raise ValueError("generation replay shard position ranges are not contiguous")
+            ranged_cursor = end
+            ranged_entries += 1
+        replay_positions += sample_count
+    if ranged_entries not in (0, len(committed_shards)):
+        raise ValueError("generation replay cursor mixes ranged and legacy shard entries")
     if replay_positions != int(replay_cursor.get("raw_positions", -1)):
         raise ValueError("generation commit replay position count differs from checkpoint cursor")
     if replay_positions != int(commit.get("replay_raw_positions", -1)):
         raise ValueError("generation commit replay position count mismatch")
+    cumulative_positions = int(replay_cursor.get("cumulative_raw_positions", replay_positions))
+    if "replay_cumulative_positions" in commit and int(
+        commit["replay_cumulative_positions"]
+    ) != cumulative_positions:
+        raise ValueError("generation commit cumulative replay position count mismatch")
     if int(commit.get("next_game_id", -1)) != int(replay_cursor.get("next_game_id", -2)):
         raise ValueError("generation commit next_game_id differs from checkpoint cursor")
 
@@ -923,9 +964,17 @@ def _load_replay_from_cursor(
     expected_hash: str,
 ) -> ReplayShard:
     shards: list[ReplayShard] = []
+    ranged_cursor: int | None = None
+    ranged_entries = 0
     for entry in cursor.get("shards", []):
-        if not isinstance(entry, Mapping) or set(entry) != {"path", "checksum_sha256"}:
-            raise ValueError("checkpoint replay shard entries need path and checksum_sha256")
+        allowed_entry_schemas = (
+            {"path", "checksum_sha256"},
+            {"path", "checksum_sha256", "position_start", "position_end"},
+        )
+        if not isinstance(entry, Mapping) or set(entry) not in allowed_entry_schemas:
+            raise ValueError(
+                "checkpoint replay shard entries need path/checksum and optional position bounds"
+            )
         relative = str(entry["path"])
         shard, manifest = load_replay_shard(layout.root / relative)
         if manifest.get("checksum_sha256") != entry["checksum_sha256"]:
@@ -934,9 +983,20 @@ def _load_replay_from_cursor(
             raise ValueError(f"checkpoint replay run_id differs for {relative}")
         if manifest.get("config_hash") != expected_hash:
             raise ValueError(f"checkpoint replay config hash differs for {relative}")
+        if "position_start" in entry:
+            start = int(entry["position_start"])
+            end = int(entry["position_end"])
+            if end - start != len(shard):
+                raise ValueError(f"checkpoint replay position range differs for {relative}")
+            if ranged_cursor is not None and start != ranged_cursor:
+                raise ValueError("checkpoint replay shard position ranges are not contiguous")
+            ranged_cursor = end
+            ranged_entries += 1
         shards.append(shard)
     if not shards:
         raise ValueError("checkpoint replay cursor does not reference any shards")
+    if ranged_entries not in (0, len(shards)):
+        raise ValueError("checkpoint replay cursor mixes ranged and legacy shard entries")
     replay = concatenate_replay(shards)
     if len(replay) != int(cursor.get("raw_positions", -1)):
         raise ValueError("checkpoint replay cursor raw_positions does not match loaded shards")
@@ -1517,7 +1577,7 @@ def run_smoke(config: V3Config) -> dict[str, Any]:
 
 
 def formal_run_status(config: V3Config) -> dict[str, Any]:
-    """Return the reviewed production plan while keeping formal training guarded."""
+    """Return the bounded formal-run plan and its remaining readiness gates."""
 
     generation = 0
     search_stage = config.selfplay.stage_for_generation(generation)
@@ -1563,9 +1623,23 @@ def formal_run_status(config: V3Config) -> dict[str, Any]:
         soft_used_fraction=storage.soft_used_fraction,
         hard_free_bytes=int(storage.hard_free_gib * GIB),
     )
+    provisional_auxiliary = (
+        tuple(config.learner.future_occupancy_class_weights) == (1.0, 1.0, 1.0)
+        and config.learner.opponent_reply_loss_weight == 0.15
+        and config.learner.future_occupancy_loss_weight == 0.15
+        and config.learner.moves_left_loss_weight == 0.05
+    )
+    blocking_items: list[str] = []
+    if provisional_auxiliary:
+        blocking_items.append("P6 auxiliary loss and occupancy class weights are still provisional")
+    if storage.mode != "archive_ack_prune":
+        blocking_items.append("formal execution requires archive_ack_prune storage mode")
+    if storage.hard_free_gib < 10.0:
+        blocking_items.append("formal execution requires at least a 10-GiB hard reserve")
     return {
-        "status": "formal-loop-disabled-after-static-review",
-        "production_ready": False,
+        "status": "bounded-formal-run-available",
+        "execution_requires_explicit_flag": True,
+        "production_ready": not blocking_items,
         "run_id": config.run.run_id,
         "run_dir": str(resolve_run_root(config)),
         "active_generation_zero_plan": {
@@ -1585,20 +1659,14 @@ def formal_run_status(config: V3Config) -> dict[str, Any]:
             "policy": asdict(retention_policy),
             "bundle_target_gib": storage.bundle_target_gib,
             "representative_games": storage.representative_games,
-            "deletion_enabled": False,
+            "deletion_enabled": "explicit_receipt_gated_command_only",
             "receipt_required_before_prune": True,
         },
-        "blocking_items": [
-            "formal generation scheduler is not connected to the cumulative replay cursor",
-            "candidate cadence state and gate pair extension are not connected to formal run",
-            "archive catalog, transfer receipts, and explicit prune command are not integrated",
-            "generation journal and coordinator lock exist but are not yet wrapped around the formal multi-generation writer",
-            "shared inference CUDA throughput and queue sizes require a short on-machine benchmark",
-        ],
+        "blocking_items": blocking_items,
         "message": (
-            "Static schedules, hardware roles, retention, and audit replay contracts are "
-            "resolved, but the formal loop remains disabled until the listed scheduler, "
-            "transaction, archive, and GPU throughput work is complete."
+            "The synchronous multi-generation scheduler is available only through explicit "
+            "`run --execute --max-train-positions ...`; it stops at committed generation "
+            "boundaries and refuses execution while any listed readiness gate remains."
         ),
     }
 

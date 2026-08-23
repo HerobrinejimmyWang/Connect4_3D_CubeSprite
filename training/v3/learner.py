@@ -534,6 +534,7 @@ class V3Learner:
             collate_fn=_collate_replay_items,
             generator=loader_generator,
             persistent_workers=self.num_workers > 0,
+            **({"multiprocessing_context": "spawn"} if self.num_workers > 0 else {}),
             **loader_options,
         )
 
@@ -543,6 +544,7 @@ class V3Learner:
         *,
         steps: int,
         token_bucket: TrainTokenBucket | None = None,
+        position_limit: int | None = None,
     ) -> LearnerMetrics:
         if steps < 0:
             raise ValueError("steps cannot be negative")
@@ -578,6 +580,10 @@ class V3Learner:
         permitted_positions = int(steps) * self.batch_size
         if token_bucket is not None:
             permitted_positions = token_bucket.consumable(permitted_positions)
+        if position_limit is not None:
+            if isinstance(position_limit, bool) or int(position_limit) < 0:
+                raise ValueError("position_limit must be a non-negative integer")
+            permitted_positions = min(permitted_positions, int(position_limit))
         batch_sizes: list[int] = []
         while permitted_positions > 0 and len(batch_sizes) < int(steps):
             batch_count = min(self.batch_size, permitted_positions)
