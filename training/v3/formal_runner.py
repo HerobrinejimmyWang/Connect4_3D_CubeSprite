@@ -263,6 +263,72 @@ def _load_training_state(
     if latest is None:
         model = build_model(config.model)
         learner, optimizer = _build_learner(config, model)
+        if config.run.warm_start_mode:
+            source = Path(config.run.warm_start_checkpoint).resolve()
+            if not source.is_file():
+                raise FileNotFoundError(f"warm-start checkpoint does not exist: {source}")
+            source_sha256 = _sha256_file(source)
+            if source_sha256 != config.run.warm_start_checkpoint_sha256:
+                raise ValueError("warm-start checkpoint SHA-256 mismatch")
+            parent = load_checkpoint(source, map_location=config.runtime.device)
+            if parent.extra_state.get("model_config") != asdict(config.model):
+                raise ValueError("warm-start checkpoint model config differs from child config")
+            parent.restore(
+                model=model,
+                optimizer=optimizer,
+                scaler=learner.scaler,
+                restore_rng=True,
+            )
+            learner.load_state_dict(parent.extra_state["learner_state"])
+            parent_state = FormalLoopState.from_dict(parent.extra_state["formal_loop_state"])
+            accepted_model_id = (
+                f"warmstart-g{parent.generation:06d}-s{parent.global_step:08d}"
+            )
+            accepted_path = layout.accepted / f"{accepted_model_id}.pt"
+            if not accepted_path.exists():
+                _atomic_save_model_artifact(
+                    accepted_path,
+                    model=model,
+                    model_config=asdict(config.model),
+                    metadata={
+                        "model_id": accepted_model_id,
+                        "config_hash": expected_hash,
+                        "lineage_root": True,
+                        "warm_start_mode": config.run.warm_start_mode,
+                        "source_checkpoint": str(source),
+                        "source_checkpoint_sha256": source_sha256,
+                        "source_generation": parent.generation,
+                        "source_global_step": parent.global_step,
+                        "source_train_positions_consumed": parent.extra_state.get(
+                            "train_positions_consumed"
+                        ),
+                    },
+                )
+            else:
+                _load_model_artifact(accepted_path, config)
+            formal_state = FormalLoopState(
+                next_generation=0,
+                next_game_id=parent_state.next_game_id,
+                replay_positions=0,
+                train_positions_consumed=0,
+                last_candidate_train_positions=0,
+                accepted_model_id=accepted_model_id,
+            )
+            return (
+                model,
+                learner,
+                optimizer,
+                TrainTokenBucket(config.replay.train_tokens_per_raw_position),
+                formal_state,
+                None,
+                [],
+                0,
+                [],
+                {
+                    "accepted_model_id": accepted_model_id,
+                    "accepted_model_path": _run_relative(layout, accepted_path),
+                },
+            )
         return (
             model,
             learner,
@@ -783,6 +849,15 @@ def run_formal(
             "formal": True,
             "max_train_positions": int(max_train_positions),
         }
+        if config.run.warm_start_mode:
+            run_manifest["warm_start"] = {
+                "mode": config.run.warm_start_mode,
+                "checkpoint": str(Path(config.run.warm_start_checkpoint).resolve()),
+                "checkpoint_sha256": config.run.warm_start_checkpoint_sha256,
+                "replay_policy": "fresh",
+                "optimizer_state": "preserved",
+                "learner_state": "preserved",
+            }
         _atomic_write_json(layout.run_manifest, run_manifest)
         artifact_config = replace(config, run=replace(config.run, run_dir=str(layout.root)))
         _atomic_write_json(layout.resolved_config, artifact_config.to_dict())

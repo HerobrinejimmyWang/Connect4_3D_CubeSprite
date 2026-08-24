@@ -97,6 +97,11 @@ class ConfigTests(unittest.TestCase):
             runtime=replace(config.runtime, mcts_lanes_per_actor=2),
         )
         self.assertNotEqual(config_hash(config), config_hash(lane_change))
+        opening_search_change = replace(
+            config,
+            selfplay=replace(config.selfplay, opening_full_search_plies=12),
+        )
+        self.assertNotEqual(config_hash(config), config_hash(opening_search_change))
         shard_change = replace(
             config,
             replay=replace(config.replay, shard_games=2),

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import tempfile
 import unittest
 from dataclasses import replace
@@ -141,6 +142,45 @@ class FormalRunnerTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(RuntimeError, "provisional P6"):
                 run_formal(config, max_train_positions=5)
+
+    def test_warm_start_preserves_optimizer_and_resets_replay(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            parent_dir = root / "parent"
+            parent_result = run_formal(
+                self._config(parent_dir),
+                max_train_positions=5,
+                max_generations=1,
+            )
+            parent_checkpoint = Path(parent_result["results"][0]["checkpoint"])
+            parent_sha256 = hashlib.sha256(parent_checkpoint.read_bytes()).hexdigest()
+            base = self._config(root / "child")
+            child = replace(
+                base,
+                run=replace(
+                    base.run,
+                    run_id="formal_runner_warm_child",
+                    warm_start_checkpoint=str(parent_checkpoint),
+                    warm_start_checkpoint_sha256=parent_sha256,
+                    warm_start_mode="optimizer_fresh_replay_v1",
+                ),
+                selfplay=replace(base.selfplay, opening_full_search_plies=2),
+            )
+            child_result = run_formal(
+                child,
+                max_train_positions=5,
+                max_generations=1,
+            )
+            self.assertEqual(child_result["generations_completed"], 1)
+            self.assertEqual(child_result["results"][0]["generation"], 0)
+            self.assertTrue(
+                child_result["results"][0]["producer_model_id"].startswith("warmstart-")
+            )
+            self.assertEqual(child_result["formal_loop_state"]["train_positions_consumed"], 5)
+            manifest = json.loads(
+                (root / "child" / "run_manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(manifest["warm_start"]["replay_policy"], "fresh")
 
 
 if __name__ == "__main__":

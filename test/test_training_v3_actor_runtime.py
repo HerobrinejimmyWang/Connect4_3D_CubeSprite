@@ -14,7 +14,7 @@ from training.v3.config import (
     V3Config,
 )
 from training.v3.model import build_model, classic_rule_features
-from training.v3.selfplay import run_self_play_games
+from training.v3.selfplay import SEARCH_FULL, run_self_play_games
 
 
 def _actor_config(
@@ -118,6 +118,17 @@ class ActorPoolTests(unittest.TestCase):
                 accepted_model_state=model.state_dict(),
                 producer_model_id="random",
             )
+
+    def test_pool_can_force_opening_positions_to_full_search(self) -> None:
+        config = _actor_config(games=2, actors=2)
+        pooled = run_self_play_actor_pool(
+            config,
+            force_full_search_before_ply=12,
+        )
+        for game in pooled.games:
+            opening = [move for move in game.moves if move.ply < 12]
+            self.assertTrue(opening)
+            self.assertTrue(all(move.search_kind == SEARCH_FULL for move in opening))
 
 
 class RemotePredictorContractTests(unittest.TestCase):

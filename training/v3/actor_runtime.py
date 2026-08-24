@@ -282,6 +282,7 @@ def _actor_main(
     inference_request_queue: Any | None,
     inference_response_queue: Any | None,
     inference_response_timeout_s: float,
+    force_full_search_before_ply: int,
 ) -> None:
     try:
         predictor = (
@@ -308,6 +309,7 @@ def _actor_main(
                 predictor=predictor,
                 producer_model_id=producer_model_id,
                 mcts_lanes=mcts_lanes,
+                force_full_search_before_ply=force_full_search_before_ply,
             )
             result_queue.put(("game", actor_id, task.game_id, game))
     except BaseException:
@@ -338,6 +340,7 @@ def run_self_play_actor_pool(
     start_method: str = "spawn",
     inference_response_timeout_s: float = 120.0,
     inference_batch_timeout_s: float = 0.001,
+    force_full_search_before_ply: int = 0,
 ) -> ActorPoolResult:
     """Generate one deterministic V3 self-play batch with bounded processes.
 
@@ -349,6 +352,8 @@ def run_self_play_actor_pool(
         raise TypeError("run_self_play_actor_pool requires a resolved V3Config")
     if start_game_id < 0 or generation < 0:
         raise ValueError("start_game_id and generation must be non-negative")
+    if force_full_search_before_ply < 0:
+        raise ValueError("force_full_search_before_ply must be non-negative")
     if accepted_model_state is None:
         if producer_model_id not in (None, "random"):
             raise ValueError("random bootstrap cannot use a non-random producer_model_id")
@@ -448,6 +453,7 @@ def run_self_play_actor_pool(
                     request_queue,
                     None if request_queue is None else response_queues[actor_id],
                     float(inference_response_timeout_s),
+                    int(force_full_search_before_ply),
                 ),
                 name=f"v3-actor-{actor_id}",
             )

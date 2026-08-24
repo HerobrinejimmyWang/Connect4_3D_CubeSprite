@@ -17,12 +17,29 @@ class RunConfig:
     seed: int = 20260810
     run_dir: str = ""
     resume: bool = False
+    warm_start_checkpoint: str = ""
+    warm_start_checkpoint_sha256: str = ""
+    warm_start_mode: str = ""
 
     def __post_init__(self) -> None:
         if not self.run_id or any(part in self.run_id for part in ("/", "\\", "..")):
             raise ValueError("run.run_id must be a non-empty path-safe name.")
         if self.seed < 0:
             raise ValueError("run.seed must be non-negative.")
+        warm_values = (
+            self.warm_start_checkpoint,
+            self.warm_start_checkpoint_sha256,
+            self.warm_start_mode,
+        )
+        if any(warm_values) and not all(warm_values):
+            raise ValueError("run warm-start fields must be supplied together.")
+        if self.warm_start_mode and self.warm_start_mode != "optimizer_fresh_replay_v1":
+            raise ValueError("run.warm_start_mode is unsupported.")
+        if self.warm_start_checkpoint_sha256 and (
+            len(self.warm_start_checkpoint_sha256) != 64
+            or any(character not in "0123456789abcdef" for character in self.warm_start_checkpoint_sha256)
+        ):
+            raise ValueError("run.warm_start_checkpoint_sha256 must be lowercase SHA-256.")
 
 
 @dataclass(frozen=True)
@@ -104,6 +121,7 @@ class SelfPlayConfig:
     virtual_loss: float = 1.0
     rule_id: str = "classic"
     rule_registry_hash: str = DEFAULT_RULE_REGISTRY.registry_hash
+    opening_full_search_plies: int = 0
 
     def __post_init__(self) -> None:
         _validate_starts(
@@ -118,6 +136,8 @@ class SelfPlayConfig:
         )
         if self.cpuct <= 0.0 or self.virtual_loss < 0.0:
             raise ValueError("selfplay.cpuct must be positive and virtual_loss non-negative.")
+        if self.opening_full_search_plies < 0:
+            raise ValueError("selfplay.opening_full_search_plies must be non-negative.")
         try:
             DEFAULT_RULE_REGISTRY.get(self.rule_id)
         except (KeyError, TypeError) as exc:
@@ -562,10 +582,19 @@ def config_hash(config: V3Config) -> str:
 
     replay_semantics = asdict(config.replay)
     replay_semantics.pop("shard_games")
+    run_semantics: dict[str, Any] = {"run_id": config.run.run_id, "seed": config.run.seed}
+    if config.run.warm_start_mode:
+        run_semantics["warm_start_mode"] = config.run.warm_start_mode
+        run_semantics["warm_start_checkpoint_sha256"] = config.run.warm_start_checkpoint_sha256
+    selfplay_semantics = asdict(config.selfplay)
+    # Preserve hashes of pre-extension lineages while making every non-zero
+    # opening override an explicit semantic fork.
+    if selfplay_semantics["opening_full_search_plies"] == 0:
+        selfplay_semantics.pop("opening_full_search_plies")
     semantic = {
-        "run": {"run_id": config.run.run_id, "seed": config.run.seed},
+        "run": run_semantics,
         "model": asdict(config.model),
-        "selfplay": asdict(config.selfplay),
+        "selfplay": selfplay_semantics,
         "replay": replay_semantics,
         "learner": asdict(config.learner),
         "gate": asdict(config.gate),

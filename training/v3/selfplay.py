@@ -341,9 +341,16 @@ def run_self_play_game(
     predictor: Predictor,
     producer_model_id: str,
     mcts_lanes: int = 1,
+    force_full_search_before_ply: int = 0,
 ) -> GameRecord:
     if mcts_lanes < 1:
         raise ValueError("mcts_lanes must be positive")
+    if force_full_search_before_ply < 0:
+        raise ValueError("force_full_search_before_ply must be non-negative")
+    force_full_search_before_ply = max(
+        int(force_full_search_before_ply),
+        int(selfplay_config.opening_full_search_plies),
+    )
     search_stage = selfplay_config.stage_for_generation(generation)
     rule_spec = DEFAULT_RULE_REGISTRY.get(selfplay_config.rule_id)
     engine = RuleEngine(rule_spec)
@@ -401,7 +408,8 @@ def run_self_play_game(
 
         budget_rng = _position_rng(game_seed, state.turn_index, 0)
         is_full = (
-            state.placement_count == forced_full_placement
+            state.turn_index < force_full_search_before_ply
+            or state.placement_count == forced_full_placement
             or float(budget_rng.random()) < search_stage.full_probability
         )
         search_kind = SEARCH_FULL if is_full else SEARCH_FAST
