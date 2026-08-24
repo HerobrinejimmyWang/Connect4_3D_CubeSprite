@@ -214,11 +214,22 @@ adapter extracts only the 25 current gravity-legal actions from a Legacy
 final milestones; the separate `final_512` profile runs only at final. Results
 and anchor scales never mix across profiles.
 
+An independent third ruler lives in
+`configs/anchored_pressure_256v512_historical_v1.json`. In
+`pressure_256v512`, the V3 target always receives 256 simulations and the
+historical anchor always receives 512; the budget follows model identity when
+colors swap. It reports paired score/W-D-L, role splits, confidence intervals,
+and saturation against each anchor, but does not fit or reuse an Elo scale.
+Pressure results must not be numerically mixed with either symmetric profile
+and cannot affect promotion or replay. Keeping this in a separate config also
+preserves the frozen symmetric-config hash and all prior evidence.
+
 The 200-opening manifest is D4-deduplicated, immutable, and checksum-bound.
 Each opening is played with roles swapped. A profile begins at 50 pairs per
 opponent and may append disjoint 50-pair batches up to 200 until saturation or
-the configured 100-Elo descriptive interval-width target is reached. Historical anchors
-first play a one-time round robin for each profile; the resulting scale is
+the configured 100-Elo descriptive interval-width target is reached. For each
+symmetric Elo profile, historical anchors first play a one-time round robin;
+the resulting scale is
 frozen before target ratings are fitted. A saturated matchup reports a finite
 Wilson score/Elo lower bound instead of infinite point Elo. Reports retain
 target-as-FIRST/SECOND W/D/L and cannot feed promotion or self-play.
@@ -230,7 +241,8 @@ python tools\run_v3_anchored_eval.py `
   --config training\v3\configs\anchored_elo_historical_v1.json verify
 ```
 
-Use `match --help`, `calibrate --help`, and `report --help` for the explicit
+Use `match --help`, `calibrate --help`, `report --help`, and
+`pressure-report --help` for the explicit
 batch workflow. Match artifacts use `*.match.json`, are immutable and
 content-hashed, record an evaluator-source hash and runtime versions, and reject
 duplicate opening/role evidence. Anchor calibration

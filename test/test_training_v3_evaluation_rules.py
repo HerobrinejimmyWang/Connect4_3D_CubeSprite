@@ -162,6 +162,34 @@ class GateRuleContractTests(unittest.TestCase):
     def test_gate_turn_limit_is_explicitly_300(self) -> None:
         self.assertEqual(MAX_GATE_TURNS, 300)
 
+    def test_asymmetric_search_budget_follows_model_identity_across_color_swap(self) -> None:
+        opening = Opening("budget-identity", seed=9, columns=(), rule_id="classic", rule_version=1)
+        candidate = RandomPredictor()
+        incumbent = RandomPredictor()
+        seen = []
+
+        def fake_search(predictor, state, *, engine, simulations, **_kwargs):
+            seen.append((predictor, simulations))
+            return int(np.flatnonzero(engine.legal_column_mask(state))[0])
+
+        with mock.patch("training.v3.evaluation._search_column", side_effect=fake_search):
+            for candidate_is_first in (True, False):
+                play_paired_game(
+                    opening,
+                    candidate_is_first=candidate_is_first,
+                    candidate_predictor=candidate,
+                    incumbent_predictor=incumbent,
+                    search_sims=1,
+                    candidate_search_sims=256,
+                    incumbent_search_sims=512,
+                    cpuct=1.0,
+                )
+
+        self.assertTrue(seen)
+        self.assertTrue(
+            all(simulations == (256 if predictor is candidate else 512) for predictor, simulations in seen)
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

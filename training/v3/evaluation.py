@@ -286,10 +286,14 @@ def play_paired_game(
     incumbent_predictor: Predictor | None,
     search_sims: int,
     cpuct: float,
+    candidate_search_sims: int | None = None,
+    incumbent_search_sims: int | None = None,
 ) -> GateGameResult:
     """Play one deterministic gate game; ``None`` denotes a random baseline."""
 
-    if search_sims < 1 or cpuct <= 0.0:
+    candidate_sims = search_sims if candidate_search_sims is None else candidate_search_sims
+    incumbent_sims = search_sims if incumbent_search_sims is None else incumbent_search_sims
+    if search_sims < 1 or candidate_sims < 1 or incumbent_sims < 1 or cpuct <= 0.0:
         raise ValueError("search_sims and cpuct must be positive")
     engine = RuleEngine(opening.rule_id)
     if engine.spec.rule_version != opening.rule_version:
@@ -306,6 +310,7 @@ def play_paired_game(
         ply = state.turn_index
         candidate_turn = (state.player_to_move == 1) == bool(candidate_is_first)
         predictor = candidate_predictor if candidate_turn else incumbent_predictor
+        simulations = candidate_sims if candidate_turn else incumbent_sims
         if predictor is None:
             legal = np.flatnonzero(engine.legal_column_mask(state))
             column = int(_deterministic_rng(opening.seed, ply, 1).choice(legal))
@@ -314,7 +319,7 @@ def play_paired_game(
                 predictor,
                 state,
                 engine=engine,
-                simulations=search_sims,
+                simulations=simulations,
                 cpuct=cpuct,
                 seed=opening.seed,
                 ply=ply,
@@ -339,6 +344,8 @@ def play_paired_openings(
     incumbent_predictor: Predictor | None,
     search_sims: int,
     cpuct: float,
+    candidate_search_sims: int | None = None,
+    incumbent_search_sims: int | None = None,
 ) -> tuple[GateGameResult, ...]:
     rows = tuple(openings)
     rule_contexts = {(opening.rule_id, opening.rule_version) for opening in rows}
@@ -355,6 +362,8 @@ def play_paired_openings(
                     incumbent_predictor=incumbent_predictor,
                     search_sims=search_sims,
                     cpuct=cpuct,
+                    candidate_search_sims=candidate_search_sims,
+                    incumbent_search_sims=incumbent_search_sims,
                 )
             )
     return tuple(results)

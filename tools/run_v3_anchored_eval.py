@@ -17,6 +17,7 @@ from training.v3.anchored_elo import (  # noqa: E402
     LegacyCheckpointPredictor,
     anchored_evaluation_plan,
     build_anchored_report,
+    build_pressure_report,
     calibrate_anchor_scale,
     canonical_anchored_config_hash,
     load_anchored_config,
@@ -75,6 +76,13 @@ def _parser() -> argparse.ArgumentParser:
     report.add_argument("--matches-dir", type=Path, required=True)
     report.add_argument("--anchor-scale", type=Path, required=True)
     report.add_argument("--output", type=Path, required=True)
+    pressure = commands.add_parser(
+        "pressure-report", help="report one asymmetric target-vs-anchor pressure ruler"
+    )
+    pressure.add_argument("--profile", required=True)
+    pressure.add_argument("--target-id", required=True)
+    pressure.add_argument("--matches-dir", type=Path, required=True)
+    pressure.add_argument("--output", type=Path, required=True)
     return parser
 
 
@@ -246,6 +254,19 @@ def main(argv: list[str] | None = None) -> int:
                 profile_id=args.profile,
                 target_model_id=args.target_id,
                 anchor_scale=scale,
+            )
+            _write_report(args.output, report)
+            sys.stdout.write(_json(report))
+            return 0
+        if args.command == "pressure-report":
+            batches = load_match_batches(
+                _batch_paths(args.matches_dir), expected_config_hash=config_hash
+            )
+            report = build_pressure_report(
+                config,
+                batches,
+                profile_id=args.profile,
+                target_model_id=args.target_id,
             )
             _write_report(args.output, report)
             sys.stdout.write(_json(report))

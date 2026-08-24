@@ -469,6 +469,8 @@ def _evaluation_actor_main(
     incumbent_request_queue: Any | None,
     incumbent_response_queue: Any | None,
     search_sims: int,
+    candidate_search_sims: int | None,
+    incumbent_search_sims: int | None,
     cpuct: float,
     response_timeout_s: float,
 ) -> None:
@@ -502,6 +504,8 @@ def _evaluation_actor_main(
                 incumbent_predictor=incumbent,
                 search_sims=search_sims,
                 cpuct=cpuct,
+                candidate_search_sims=candidate_search_sims,
+                incumbent_search_sims=incumbent_search_sims,
             )
             result_queue.put(("game", actor_id, task.task_index, game))
     except BaseException:
@@ -528,6 +532,8 @@ def play_paired_openings_parallel(
     inference_batch_timeout_s: float = 0.001,
     inference_response_timeout_s: float = 300.0,
     start_method: str = "spawn",
+    candidate_search_sims: int | None = None,
+    incumbent_search_sims: int | None = None,
 ) -> PairedEvaluationResult:
     """Run exact paired games concurrently and return topology evidence."""
 
@@ -611,6 +617,8 @@ def play_paired_openings_parallel(
                     incumbent_request_queue,
                     incumbent_response_queues.get(actor_id),
                     search_sims,
+                    candidate_search_sims,
+                    incumbent_search_sims,
                     cpuct,
                     inference_response_timeout_s,
                 ),
@@ -717,6 +725,8 @@ def _replicated_worker_main(
     candidate_source: EvaluationModelSource,
     incumbent_source: EvaluationModelSource | None,
     search_sims: int,
+    candidate_search_sims: int | None,
+    incumbent_search_sims: int | None,
     cpuct: float,
 ) -> None:
     started = time.perf_counter()
@@ -746,6 +756,8 @@ def _replicated_worker_main(
                 incumbent_predictor=incumbent,
                 search_sims=search_sims,
                 cpuct=cpuct,
+                candidate_search_sims=candidate_search_sims,
+                incumbent_search_sims=incumbent_search_sims,
             )
             second = play_paired_game(
                 opening,
@@ -754,6 +766,8 @@ def _replicated_worker_main(
                 incumbent_predictor=incumbent,
                 search_sims=search_sims,
                 cpuct=cpuct,
+                candidate_search_sims=candidate_search_sims,
+                incumbent_search_sims=incumbent_search_sims,
             )
             pairs += 1
             games += 2
@@ -781,6 +795,8 @@ def play_paired_openings_replicated(
     cpuct: float,
     worker_devices: Iterable[str],
     start_method: str = "spawn",
+    candidate_search_sims: int | None = None,
+    incumbent_search_sims: int | None = None,
 ) -> PairedEvaluationResult:
     """Evaluate opening pairs in device-local serial worker replicas.
 
@@ -817,6 +833,8 @@ def play_paired_openings_replicated(
                     candidate_source,
                     incumbent_source,
                     search_sims,
+                    candidate_search_sims,
+                    incumbent_search_sims,
                     cpuct,
                 ),
                 name=f"v3-evaluation-replica-{worker_id}-{device}",

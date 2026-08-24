@@ -10,6 +10,7 @@ from training.v3.anchored_elo import (
     ANCHOR_SCALE_SCHEMA_VERSION,
     anchored_evaluation_plan,
     build_anchored_report,
+    build_pressure_report,
     canonical_anchored_config_hash,
     fit_anchor_scale,
     load_anchored_config,
@@ -24,9 +25,14 @@ from training.v3.search import RandomPredictor
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = ROOT / "training" / "v3" / "configs" / "anchored_elo_historical_v1.json"
+PRESSURE_CONFIG_PATH = (
+    ROOT / "training" / "v3" / "configs" / "anchored_pressure_256v512_historical_v1.json"
+)
 
 
-def _target_batch(config, anchor_id: str, *, score_first: float, score_second: float):
+def _target_batch(
+    config, anchor_id: str, *, score_first: float, score_second: float, profile_id: str = "primary_256"
+):
     results = []
     for index in range(12):
         results.extend(
@@ -47,7 +53,7 @@ def _target_batch(config, anchor_id: str, *, score_first: float, score_second: f
         )
     return {
         "batch_id": f"batch-{anchor_id}",
-        "profile": {"profile_id": "primary_256"},
+        "profile": {"profile_id": profile_id},
         "model_a": {"model_id": "target"},
         "model_b": {"model_id": anchor_id},
         "results": results,
@@ -67,6 +73,39 @@ class AnchoredEloTests(unittest.TestCase):
         self.assertEqual(len(openings), 200)
         self.assertEqual(plan["anchor_calibration_by_profile"]["primary_256"]["initial_games"], 300)
         self.assertEqual(plan["milestone_profiles"]["final"], ["primary_256", "final_512"])
+        self.assertEqual(
+            canonical_anchored_config_hash(self.config),
+            "09c33b7e63eb341f1af2afa1d7481fa997c27efc5211cae34f4b583c6dacbb34",
+        )
+
+    def test_pressure_profile_is_a_separate_asymmetric_ruler(self) -> None:
+        config = load_anchored_config(PRESSURE_CONFIG_PATH)
+        profile = config.profile("pressure_256v512")
+        plan = anchored_evaluation_plan(config)
+        self.assertEqual(profile.search_sims, 256)
+        self.assertEqual(profile.effective_anchor_search_sims, 512)
+        self.assertEqual(profile.report_kind, "pressure")
+        self.assertNotIn("pressure_256v512", plan["anchor_calibration_by_profile"])
+        batches = tuple(
+            _target_batch(
+                config,
+                anchor.anchor_id,
+                score_first=1.0,
+                score_second=0.5,
+                profile_id=profile.profile_id,
+            )
+            for anchor in config.anchors
+        )
+        report = build_pressure_report(
+            config,
+            batches,
+            profile_id=profile.profile_id,
+            target_model_id="target",
+        )
+        self.assertEqual(report["target_search_sims"], 256)
+        self.assertEqual(report["anchor_search_sims"], 512)
+        self.assertIsNone(report["anchored_elo_scale"])
+        self.assertEqual(report["aggregate"]["games"], 72)
 
     def test_opening_checksum_is_portable_across_checkout_newlines(self) -> None:
         source = ROOT / self.config.openings.manifest_path

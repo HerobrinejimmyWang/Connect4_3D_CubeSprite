@@ -46,6 +46,7 @@ ANCHORED_CONFIG_SCHEMA_VERSION = 1
 MATCH_BATCH_SCHEMA_VERSION = 1
 ANCHOR_SCALE_SCHEMA_VERSION = 1
 ANCHORED_REPORT_SCHEMA_VERSION = 1
+PRESSURE_REPORT_SCHEMA_VERSION = 1
 ELO_SCALE = 400.0 / math.log(10.0)
 
 
@@ -99,12 +100,27 @@ class EvaluationProfile:
     pair_increment: int
     max_pairs: int
     milestones: tuple[str, ...]
+    anchor_search_sims: int | None = None
+    report_kind: str = "anchored_elo"
 
     def __post_init__(self) -> None:
         if not self.profile_id or not self.profile_id.isascii():
             raise ValueError("profile_id must be non-empty ASCII")
         if self.search_sims < 1 or self.cpuct <= 0.0:
             raise ValueError("profile search_sims and cpuct must be positive")
+        if self.report_kind not in {"anchored_elo", "pressure"}:
+            raise ValueError("profile report_kind must be anchored_elo or pressure")
+        if self.report_kind == "anchored_elo" and self.anchor_search_sims not in {
+            None,
+            self.search_sims,
+        }:
+            raise ValueError("anchored Elo profiles must use symmetric search budgets")
+        if self.report_kind == "pressure" and (
+            self.anchor_search_sims is None
+            or self.anchor_search_sims < 1
+            or self.anchor_search_sims == self.search_sims
+        ):
+            raise ValueError("pressure profiles need a distinct positive anchor_search_sims")
         if self.initial_pairs < 1 or self.pair_increment < 1:
             raise ValueError("profile pair counts must be positive")
         if self.max_pairs < self.initial_pairs:
@@ -115,6 +131,26 @@ class EvaluationProfile:
         if not milestones or len(set(milestones)) != len(milestones):
             raise ValueError("profile milestones must be non-empty and unique")
         object.__setattr__(self, "milestones", milestones)
+
+    @property
+    def effective_anchor_search_sims(self) -> int:
+        return self.search_sims if self.anchor_search_sims is None else self.anchor_search_sims
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = {
+            "profile_id": self.profile_id,
+            "search_sims": self.search_sims,
+            "cpuct": self.cpuct,
+            "initial_pairs": self.initial_pairs,
+            "pair_increment": self.pair_increment,
+            "max_pairs": self.max_pairs,
+            "milestones": self.milestones,
+        }
+        if self.anchor_search_sims is not None:
+            payload["anchor_search_sims"] = self.anchor_search_sims
+        if self.report_kind != "anchored_elo":
+            payload["report_kind"] = self.report_kind
+        return payload
 
 
 @dataclass(frozen=True)
@@ -206,7 +242,14 @@ class AnchoredEloConfig:
         raise KeyError(f"unknown anchored Elo profile: {profile_id}")
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        return {
+            "reference_anchor_id": self.reference_anchor_id,
+            "rule_id": self.rule_id,
+            "anchors": [asdict(anchor) for anchor in self.anchors],
+            "profiles": [profile.to_dict() for profile in self.profiles],
+            "openings": asdict(self.openings),
+            "statistics": asdict(self.statistics),
+        }
 
 
 def load_anchored_config(path: str | Path) -> AnchoredEloConfig:
@@ -328,7 +371,7 @@ def anchored_evaluation_plan(config: AnchoredEloConfig) -> dict[str, Any]:
     for profile in config.profiles:
         profiles.append(
             {
-                **asdict(profile),
+                **profile.to_dict(),
                 "initial_games_per_target": 2 * profile.initial_pairs * len(config.anchors),
                 "maximum_games_per_target": 2 * profile.max_pairs * len(config.anchors),
             }
@@ -349,6 +392,7 @@ def anchored_evaluation_plan(config: AnchoredEloConfig) -> dict[str, Any]:
                 "scale_must_be_frozen_before_target_rating": True,
             }
             for profile in config.profiles
+            if profile.report_kind == "anchored_elo"
         },
         "milestone_profiles": {
             milestone: [
@@ -524,6 +568,8 @@ def write_match_batch(
     anchor_ids = {anchor.anchor_id for anchor in config.anchors}
     model_ids = {str(model_a.get("model_id")), str(model_b.get("model_id"))}
     anchor_count = len(model_ids.intersection(anchor_ids))
+    if profile.report_kind == "pressure" and anchor_count != 1:
+        raise ValueError("pressure evaluation supports target-vs-anchor matches only")
     if anchor_count == 2:
         if milestone != "calibration":
             raise ValueError("anchor-vs-anchor matches must use milestone=calibration")
@@ -532,6 +578,14 @@ def write_match_batch(
             raise ValueError("target-vs-anchor milestone is not enabled for this profile")
     else:
         raise ValueError("anchored evaluation requires at least one historical anchor")
+    model_a_id = str(model_a.get("model_id"))
+    model_b_id = str(model_b.get("model_id"))
+    model_a_search_sims = (
+        profile.effective_anchor_search_sims if model_a_id in anchor_ids else profile.search_sims
+    )
+    model_b_search_sims = (
+        profile.effective_anchor_search_sims if model_b_id in anchor_ids else profile.search_sims
+    )
     rows = tuple(openings)
     if not rows:
         raise ValueError("match batch requires at least one opening pair")
@@ -552,6 +606,8 @@ def write_match_batch(
             search_sims=profile.search_sims,
             cpuct=profile.cpuct,
             worker_devices=replica_devices,
+            candidate_search_sims=model_a_search_sims,
+            incumbent_search_sims=model_b_search_sims,
         )
         results = evaluated.games
         evaluation_runtime = evaluated.metrics.to_dict()
@@ -563,6 +619,8 @@ def write_match_batch(
             incumbent_predictor=predictor_b,
             search_sims=profile.search_sims,
             cpuct=profile.cpuct,
+            candidate_search_sims=model_a_search_sims,
+            incumbent_search_sims=model_b_search_sims,
         )
         wall_seconds = time.perf_counter() - started
         evaluation_runtime = {
@@ -584,6 +642,8 @@ def write_match_batch(
             parallel_games=parallel_games,
             inference_batch_size=inference_batch_size,
             inference_batch_timeout_s=inference_batch_timeout_s,
+            candidate_search_sims=model_a_search_sims,
+            incumbent_search_sims=model_b_search_sims,
         )
         results = evaluated.games
         evaluation_runtime = evaluated.metrics.to_dict()
@@ -601,7 +661,11 @@ def write_match_batch(
             "evaluation": evaluation_runtime,
             **dict(runtime or {}),
         },
-        "profile": asdict(profile),
+        "profile": profile.to_dict(),
+        "search_budget_by_model_id": {
+            model_a_id: model_a_search_sims,
+            model_b_id: model_b_search_sims,
+        },
         "milestone": milestone,
         "opening_manifest": {
             "path": config.openings.manifest_path,
@@ -815,7 +879,9 @@ def calibrate_anchor_scale(
 ) -> tuple[dict[str, float], tuple[str, ...]]:
     """Fit the immutable historical scale from anchor-vs-anchor batches only."""
 
-    config.profile(profile_id)
+    profile = config.profile(profile_id)
+    if profile.report_kind != "anchored_elo":
+        raise ValueError("pressure profiles do not define an anchor calibration scale")
     anchor_ids = tuple(anchor.anchor_id for anchor in config.anchors)
     anchor_set = set(anchor_ids)
     selected = tuple(
@@ -964,6 +1030,8 @@ def build_anchored_report(
 ) -> dict[str, Any]:
     """Summarize one target without changing the frozen historical scale."""
 
+    if config.profile(profile_id).report_kind != "anchored_elo":
+        raise ValueError("pressure profiles require build_pressure_report")
     if anchor_scale.get("schema_version") != ANCHOR_SCALE_SCHEMA_VERSION:
         raise ValueError("unsupported anchor scale schema")
     if anchor_scale.get("anchored_config_hash") != canonical_anchored_config_hash(config):
@@ -1046,6 +1114,71 @@ def build_anchored_report(
     }
 
 
+def build_pressure_report(
+    config: AnchoredEloConfig,
+    batches: Sequence[Mapping[str, Any]],
+    *,
+    profile_id: str,
+    target_model_id: str,
+) -> dict[str, Any]:
+    """Summarize an asymmetric target-vs-stronger-anchor pressure ruler."""
+
+    profile = config.profile(profile_id)
+    if profile.report_kind != "pressure":
+        raise ValueError("pressure report requires a pressure profile")
+    direct: dict[str, Any] = {}
+    aggregate_scores: list[float] = []
+    for anchor in config.anchors:
+        scores = _paired_scores(
+            batches,
+            profile_id=profile_id,
+            target_model_id=target_model_id,
+            anchor_model_id=anchor.anchor_id,
+        )
+        if not scores:
+            raise ValueError(f"target has no pressure matches against anchor {anchor.anchor_id}")
+        first_scores, second_scores = _role_scores(
+            batches,
+            profile_id=profile_id,
+            target_model_id=target_model_id,
+            anchor_model_id=anchor.anchor_id,
+        )
+        direct[anchor.anchor_id] = {
+            **summarize_direct_matchup(scores, config.statistics),
+            "target_as_first": _score_breakdown(first_scores),
+            "target_as_second": _score_breakdown(second_scores),
+        }
+        aggregate_scores.extend(scores)
+    return {
+        "schema_version": PRESSURE_REPORT_SCHEMA_VERSION,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "anchored_config_hash": canonical_anchored_config_hash(config),
+        "profile_id": profile_id,
+        "report_kind": "asymmetric_pressure",
+        "target_model_id": target_model_id,
+        "target_search_sims": profile.search_sims,
+        "anchor_search_sims": profile.effective_anchor_search_sims,
+        "aggregate": summarize_direct_matchup(aggregate_scores, config.statistics),
+        "direct_matchups": direct,
+        "source_batch_ids": sorted(
+            {
+                str(batch["batch_id"])
+                for batch in batches
+                if batch["profile"]["profile_id"] == profile_id
+                and target_model_id
+                in {
+                    str(batch["model_a"]["model_id"]),
+                    str(batch["model_b"]["model_id"]),
+                }
+            }
+        ),
+        "anchored_elo_scale": None,
+        "comparability": "independent pressure ruler; do not mix with symmetric anchored Elo",
+        "promotion_gate_input": False,
+        "selfplay_replay_input": False,
+    }
+
+
 def write_anchor_scale(
     path: str | Path,
     *,
@@ -1077,6 +1210,7 @@ __all__ = [
     "ANCHORED_CONFIG_SCHEMA_VERSION",
     "ANCHOR_SCALE_SCHEMA_VERSION",
     "MATCH_BATCH_SCHEMA_VERSION",
+    "PRESSURE_REPORT_SCHEMA_VERSION",
     "AnchorSpec",
     "AnchoredEloConfig",
     "AnchoredStatisticsConfig",
@@ -1085,6 +1219,7 @@ __all__ = [
     "OpeningSuiteSpec",
     "anchored_evaluation_plan",
     "build_anchored_report",
+    "build_pressure_report",
     "calibrate_anchor_scale",
     "canonical_anchored_config_hash",
     "evaluator_code_hash",
