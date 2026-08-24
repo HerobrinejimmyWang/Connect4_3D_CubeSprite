@@ -24,6 +24,7 @@ from . import __version__
 from .actor_runtime import run_self_play_actor_pool
 from .checkpoint import CheckpointV1, load_checkpoint, save_checkpoint
 from .config import V3Config
+from .dynamic_exploration import prepare_dynamic_exploration
 from .evaluation import build_openings, write_opening_manifest
 from .evaluation_runtime import EvaluationModelSource
 from .formal_journal import (
@@ -255,6 +256,7 @@ def _load_training_state(
     list[dict[str, Any]],
     int,
     list[GenerationStabilityMetrics],
+    list[GenerationStabilityMetrics],
     dict[str, Any] | None,
 ]:
     latest = _load_latest_generation_commit(
@@ -324,6 +326,7 @@ def _load_training_state(
                 [],
                 0,
                 [],
+                [],
                 {
                     "accepted_model_id": accepted_model_id,
                     "accepted_model_path": _run_relative(layout, accepted_path),
@@ -338,6 +341,7 @@ def _load_training_state(
             None,
             [],
             0,
+            [],
             [],
             None,
         )
@@ -382,6 +386,12 @@ def _load_training_state(
             GenerationStabilityMetrics.from_mapping(row)
             for row in saved.extra_state.get("stability_history", [])
         ],
+        [
+            GenerationStabilityMetrics.from_mapping(row)
+            for row in saved.extra_state.get(
+                "exploration_history", saved.extra_state.get("stability_history", [])
+            )
+        ],
         commit,
     )
 
@@ -402,6 +412,7 @@ def _run_generation(
     replay_entries: list[dict[str, Any]],
     retained_position_start: int,
     stability_history: list[GenerationStabilityMetrics],
+    exploration_history: list[GenerationStabilityMetrics],
     latest_commit: Mapping[str, Any] | None,
     remaining_train_positions: int,
 ) -> tuple[
@@ -410,9 +421,14 @@ def _run_generation(
     list[dict[str, Any]],
     int,
     list[GenerationStabilityMetrics],
+    list[GenerationStabilityMetrics],
     FormalLoopState,
     dict[str, Any],
 ]:
+    effective_selfplay, formal_state, exploration_decision = prepare_dynamic_exploration(
+        config.selfplay, formal_state, exploration_history
+    )
+    generation_config = replace(config, selfplay=effective_selfplay)
     generation = formal_state.next_generation
     journal = GenerationJournal.begin(
         layout,
@@ -428,9 +444,9 @@ def _run_generation(
         accepted_state = {
             name: tensor.detach().cpu() for name, tensor in accepted_model.state_dict().items()
         }
-    search_stage = config.selfplay.stage_for_generation(generation)
+    search_stage = effective_selfplay.stage_for_generation(generation)
     actor_batch = run_self_play_actor_pool(
-        config,
+        generation_config,
         accepted_model_state=accepted_state,
         producer_model_id=accepted_model_id,
         start_game_id=formal_state.next_game_id,
@@ -466,9 +482,12 @@ def _run_generation(
                 "results": _result_counts(shard_games),
                 "search_config": {
                     "active_stage": asdict(search_stage),
-                    "exploration_phases": [asdict(row) for row in config.selfplay.exploration_phases],
-                    "cpuct": config.selfplay.cpuct,
-                    "virtual_loss": config.selfplay.virtual_loss,
+                    "exploration_phases": [
+                        asdict(row) for row in effective_selfplay.exploration_phases
+                    ],
+                    "dynamic_exploration": exploration_decision,
+                    "cpuct": effective_selfplay.cpuct,
+                    "virtual_loss": effective_selfplay.virtual_loss,
                     "mcts_lanes_per_actor": config.runtime.mcts_lanes_per_actor,
                 },
                 "position_range": {"start": position_start, "end": position_start + len(shard)},
@@ -501,7 +520,7 @@ def _run_generation(
         games,
         expected_search_sims={"full": search_stage.full_search_sims, "fast": search_stage.fast_search_sims},
         exploration_phases=(
-            asdict(phase) for phase in config.selfplay.exploration_phases
+            asdict(phase) for phase in effective_selfplay.exploration_phases
         ),
     )
     _append_metric(
@@ -554,8 +573,13 @@ def _run_generation(
         # collapse rule intended for a committed champion.
         stability_history = []
     stability_history = [*stability_history, stability_row]
+    exploration_history = [*exploration_history, stability_row]
     stability = assess_stability(stability_history)
     _append_metric(layout, {"stage": "stability", **stability.to_dict()})
+    _append_metric(
+        layout,
+        {"stage": "dynamic_exploration", "generation": generation, **exploration_decision},
+    )
 
     next_state = formal_state.finish_generation(
         next_game_id=games[-1].game_id + 1,
@@ -675,7 +699,7 @@ def _run_generation(
 
     audit_selections, audit_documents, audit_filenames, audit_references = _prepare_audit_replays(
         games,
-        config=config,
+        config=generation_config,
         generation=generation,
         saved_at=run_created_at,
     )
@@ -717,6 +741,7 @@ def _run_generation(
             "formal_loop_state": next_state.to_dict(),
             "audit_replays": audit_references,
             "stability_history": [asdict(row) for row in stability_history],
+            "exploration_history": [asdict(row) for row in exploration_history],
         },
     )
     checkpoint_path = save_checkpoint(
@@ -756,6 +781,7 @@ def _run_generation(
         "gate_verdict": "not_run" if gate_decision is None else gate_decision.verdict,
         "health_watch_warnings": health["watch_warnings"],
         "stability": stability.to_dict(),
+        "dynamic_exploration": exploration_decision,
         "replay_shards": replay_entries,
         "replay_raw_positions": len(replay),
         "replay_cumulative_positions": next_state.replay_positions,
@@ -779,6 +805,7 @@ def _run_generation(
         "accepted_model_id": accepted_after,
         "health_watch_warnings": health["watch_warnings"],
         "stability": stability.to_dict(),
+        "dynamic_exploration": exploration_decision,
         "checkpoint": str(checkpoint_path),
         "commit": str(commit_path),
     }
@@ -789,6 +816,7 @@ def _run_generation(
         replay_entries,
         retained_position_start,
         stability_history,
+        exploration_history,
         next_state,
         committed,
     )
@@ -891,6 +919,7 @@ def run_formal(
                 replay_entries,
                 retained_position_start,
                 stability_history,
+                exploration_history,
                 latest_commit,
             ) = _load_training_state(config, layout, expected_hash)
             results: list[dict[str, Any]] = []
@@ -912,6 +941,7 @@ def run_formal(
                     replay_entries,
                     retained_position_start,
                     stability_history,
+                    exploration_history,
                     formal_state,
                     latest_commit,
                 ) = _run_generation(
@@ -929,6 +959,7 @@ def run_formal(
                     replay_entries=replay_entries,
                     retained_position_start=retained_position_start,
                     stability_history=stability_history,
+                    exploration_history=exploration_history,
                     latest_commit=latest_commit,
                     remaining_train_positions=remaining,
                 )

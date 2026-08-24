@@ -87,6 +87,19 @@ top-1 rate, selected-visit probability, entropy, opening diversity, short-game
 rate, and committed-champion stability are monitored. The later 0.5 and greedy
 phases remain, so one temperature/noise pair is not used for the whole game.
 
+The optional `selfplay.dynamic_exploration` controller is a separate, semantic
+training recipe. It changes only the end of the opening high-exploration phase
+at committed generation boundaries. The Stage 1 B6 preset starts at 12 plies
+and may advance through 20 to 28 after at least 16 generations in a stage and
+an eight-generation window whose mean game length, short-game rate, and full
+search policy entropy all remain within predeclared ranges. It never decreases
+the window, skips a stage, reacts to a partially written generation, or changes
+search simulations. Checkpoints persist both the controller stage and its
+unreset observation history; metrics, replay manifests, and generation commits
+record every effective phase and transition decision. The 2.4M-position run is
+a recipe-level comparison with the historical from-scratch G343 checkpoint,
+not a single-variable exploration ablation.
+
 ## Data and learner contract
 
 - A deterministic seed is derived from `run_seed + game_id`, independent of

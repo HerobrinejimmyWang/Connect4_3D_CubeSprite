@@ -107,6 +107,39 @@ class ExplorationPhaseConfig:
 
 
 @dataclass(frozen=True)
+class DynamicExplorationConfig:
+    enabled: bool = False
+    high_exploration_plies: tuple[int, ...] = (12, 20, 28)
+    min_generations_per_stage: int = 16
+    stability_window_generations: int = 8
+    mean_game_length_relative_range: float = 0.10
+    short_game_rate_absolute_range: float = 0.06
+    policy_entropy_relative_range: float = 0.10
+
+    def __post_init__(self) -> None:
+        if type(self.enabled) is not bool:
+            raise TypeError("selfplay.dynamic_exploration.enabled must be a boolean.")
+        if not self.high_exploration_plies:
+            raise ValueError("dynamic exploration needs at least one ply boundary.")
+        if (
+            any(type(value) is not int or value < 1 for value in self.high_exploration_plies)
+            or tuple(sorted(set(self.high_exploration_plies))) != self.high_exploration_plies
+        ):
+            raise ValueError("dynamic exploration ply boundaries must be positive and increasing.")
+        if self.min_generations_per_stage < self.stability_window_generations:
+            raise ValueError("dynamic exploration stage retention must cover its stability window.")
+        if self.stability_window_generations < 3:
+            raise ValueError("dynamic exploration stability window must contain at least three generations.")
+        for label, value in (
+            ("mean_game_length_relative_range", self.mean_game_length_relative_range),
+            ("short_game_rate_absolute_range", self.short_game_rate_absolute_range),
+            ("policy_entropy_relative_range", self.policy_entropy_relative_range),
+        ):
+            if not 0.0 < value < 1.0:
+                raise ValueError(f"dynamic exploration {label} must be in (0, 1).")
+
+
+@dataclass(frozen=True)
 class SelfPlayConfig:
     search_schedule: tuple[SearchStageConfig, ...] = field(
         default_factory=lambda: (SearchStageConfig(0, 4, 8, 2, 0.5),)
@@ -122,6 +155,9 @@ class SelfPlayConfig:
     rule_id: str = "classic"
     rule_registry_hash: str = DEFAULT_RULE_REGISTRY.registry_hash
     opening_full_search_plies: int = 0
+    dynamic_exploration: DynamicExplorationConfig = field(
+        default_factory=DynamicExplorationConfig
+    )
 
     def __post_init__(self) -> None:
         _validate_starts(
@@ -138,6 +174,17 @@ class SelfPlayConfig:
             raise ValueError("selfplay.cpuct must be positive and virtual_loss non-negative.")
         if self.opening_full_search_plies < 0:
             raise ValueError("selfplay.opening_full_search_plies must be non-negative.")
+        if self.dynamic_exploration.enabled:
+            if len(self.exploration_phases) < 2:
+                raise ValueError("dynamic exploration requires a post-opening exploration phase.")
+            if (
+                self.dynamic_exploration.high_exploration_plies[-1]
+                != self.exploration_phases[1].start_ply
+            ):
+                raise ValueError(
+                    "the final dynamic exploration boundary must equal the configured "
+                    "post-opening phase boundary."
+                )
         try:
             DEFAULT_RULE_REGISTRY.get(self.rule_id)
         except (KeyError, TypeError) as exc:
@@ -591,6 +638,8 @@ def config_hash(config: V3Config) -> str:
     # opening override an explicit semantic fork.
     if selfplay_semantics["opening_full_search_plies"] == 0:
         selfplay_semantics.pop("opening_full_search_plies")
+    if not selfplay_semantics["dynamic_exploration"]["enabled"]:
+        selfplay_semantics.pop("dynamic_exploration")
     semantic = {
         "run": run_semantics,
         "model": asdict(config.model),
@@ -607,6 +656,7 @@ def config_hash(config: V3Config) -> str:
 
 
 __all__ = [
+    "DynamicExplorationConfig",
     "ExplorationPhaseConfig",
     "GateConfig",
     "GateSearchStageConfig",

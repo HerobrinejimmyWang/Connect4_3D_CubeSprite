@@ -73,6 +73,8 @@ class FormalLoopState:
     last_candidate_train_positions: int = 0
     accepted_model_id: str | None = None
     pending_candidate: PendingCandidateState | None = None
+    exploration_stage_index: int = 0
+    exploration_stage_started_generation: int = 0
 
     def __post_init__(self) -> None:
         counters = (
@@ -81,11 +83,15 @@ class FormalLoopState:
             self.replay_positions,
             self.train_positions_consumed,
             self.last_candidate_train_positions,
+            self.exploration_stage_index,
+            self.exploration_stage_started_generation,
         )
         if any(isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in counters):
             raise ValueError("formal loop counters must be non-negative integers")
         if self.last_candidate_train_positions > self.train_positions_consumed:
             raise ValueError("last candidate cursor cannot exceed consumed train positions")
+        if self.exploration_stage_started_generation > self.next_generation:
+            raise ValueError("exploration stage cannot start after the next generation")
         if self.accepted_model_id is not None and not self.accepted_model_id:
             raise ValueError("accepted_model_id must be None or non-empty")
         if (
@@ -96,7 +102,7 @@ class FormalLoopState:
 
     @classmethod
     def from_dict(cls, raw: Mapping[str, Any]) -> "FormalLoopState":
-        expected = {
+        legacy = {
             "next_generation",
             "next_game_id",
             "replay_positions",
@@ -105,9 +111,15 @@ class FormalLoopState:
             "accepted_model_id",
             "pending_candidate",
         }
-        if set(raw) != expected:
+        current = legacy | {
+            "exploration_stage_index",
+            "exploration_stage_started_generation",
+        }
+        if frozenset(raw) not in {frozenset(legacy), frozenset(current)}:
             raise ValueError("formal loop state has an unsupported schema")
         values = dict(raw)
+        values.setdefault("exploration_stage_index", 0)
+        values.setdefault("exploration_stage_started_generation", 0)
         pending = values["pending_candidate"]
         values["pending_candidate"] = (
             None if pending is None else PendingCandidateState.from_dict(pending)
@@ -150,6 +162,13 @@ class FormalLoopState:
             next_game_id=int(next_game_id),
             replay_positions=int(replay_positions),
             train_positions_consumed=int(train_positions_consumed),
+        )
+
+    def advance_exploration_stage(self) -> "FormalLoopState":
+        return replace(
+            self,
+            exploration_stage_index=self.exploration_stage_index + 1,
+            exploration_stage_started_generation=self.next_generation,
         )
 
     def emit_candidate(self, pending: PendingCandidateState) -> "FormalLoopState":
