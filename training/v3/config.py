@@ -177,13 +177,12 @@ class SelfPlayConfig:
         if self.dynamic_exploration.enabled:
             if len(self.exploration_phases) < 2:
                 raise ValueError("dynamic exploration requires a post-opening exploration phase.")
-            if (
-                self.dynamic_exploration.high_exploration_plies[-1]
-                != self.exploration_phases[1].start_ply
+            if self.exploration_phases[1].start_ply not in (
+                self.dynamic_exploration.high_exploration_plies
             ):
                 raise ValueError(
-                    "the final dynamic exploration boundary must equal the configured "
-                    "post-opening phase boundary."
+                    "the configured dynamic post-opening boundary must be one of the "
+                    "declared dynamic exploration stages."
                 )
         try:
             DEFAULT_RULE_REGISTRY.get(self.rule_id)
