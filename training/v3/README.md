@@ -524,6 +524,10 @@ artifacts and verified local archives rather than Git.
 - Archive and verify checkpoints, replay, logs, and evaluation artifacts before
   retention or pruning. A disk watermark should stop safely rather than risk a
   partial checkpoint.
+- Treat each generation's active-window DataLoader as one-shot. Do not enable
+  persistent workers on a loader that is rebuilt every generation, especially
+  with CUDA pin-memory; monitor parent-process file descriptors in long canaries
+  as well as worker exit status.
 - Store exact experimental measurements under ignored run directories and local
   receipt-verified bundles. Commit only executable contracts, chosen presets,
   generalized conclusions, and reproduction commands.

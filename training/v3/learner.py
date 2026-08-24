@@ -533,7 +533,12 @@ class V3Learner:
             num_workers=self.num_workers,
             collate_fn=_collate_replay_items,
             generator=loader_generator,
-            persistent_workers=self.num_workers > 0,
+            # A fresh active-window dataset and DataLoader are built for every
+            # formal generation, so workers cannot persist across calls.  With
+            # CUDA pin-memory enabled, asking these one-shot loaders for
+            # persistent workers retains multiprocessing pipe descriptors after
+            # iteration and eventually exhausts RLIMIT_NOFILE in long runs.
+            persistent_workers=False,
             **({"multiprocessing_context": "spawn"} if self.num_workers > 0 else {}),
             **loader_options,
         )

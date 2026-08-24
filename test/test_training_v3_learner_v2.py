@@ -1,5 +1,6 @@
 import copy
 import unittest
+from unittest import mock
 
 import numpy as np
 import torch
@@ -191,6 +192,31 @@ class ReplayV2LearnerTests(unittest.TestCase):
             self.assertTrue(np.isfinite(value))
         self.assertEqual(tuple(model.last_role.shape), (2, 2))
         self.assertEqual(tuple(model.last_rules.shape), (2, 32))
+
+    def test_generation_scoped_loader_does_not_request_persistent_workers(self):
+        replay = ReplayShard.from_samples([_place_sample(), _forced_pass_sample()])
+        dataset = OnlineD4Dataset(replay, augmentation_seed=7)
+        model = _TinyAuxNet()
+        optimizer = build_adamw(model, learning_rate=1e-3, weight_decay=0.0)
+        learner = V3Learner(
+            model,
+            optimizer,
+            device="cpu",
+            batch_size=2,
+            grad_clip_norm=1.0,
+            sample_seed=31,
+            num_workers=2,
+            opponent_reply_loss_weight=0.15,
+            future_occupancy_loss_weight=0.15,
+            moves_left_loss_weight=0.05,
+            future_occupancy_class_weights=(1.2, 1.3, 0.5),
+        )
+        with mock.patch("torch.utils.data.DataLoader", return_value=object()) as factory:
+            loader = learner._data_loader(dataset, (2,))
+
+        self.assertIsNotNone(loader)
+        self.assertFalse(factory.call_args.kwargs["persistent_workers"])
+        self.assertEqual(factory.call_args.kwargs["multiprocessing_context"], "spawn")
 
     def test_amp_skip_preserves_cursor_tokens_and_model_with_auxiliary_losses(self):
         replay = ReplayShard.from_samples([_place_sample(), _forced_pass_sample()])
