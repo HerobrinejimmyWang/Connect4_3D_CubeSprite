@@ -1,7 +1,7 @@
 {
   "run": {
     "run_id": "stage1_b8c192_role40_g147_freshreplay_256_32_2x3080ti",
-    "seed": 271828,
+    "seed": 161803,
     "run_dir": "training/runs/stage1_b8c192_role40_g147_freshreplay_256_32_2x3080ti",
     "resume": false,
     "warm_start_checkpoint": "training/runs/stage1_b8c192_v2_stable_coldstart_256_32_2x3080ti/checkpoints/g000147-s00004436.pt",
