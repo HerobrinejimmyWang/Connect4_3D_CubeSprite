@@ -548,6 +548,11 @@ def _run_sequential_gate(
             bootstrap_seed=config.run.seed + 2701,
             accept_threshold=config.gate.accept_threshold,
             role_floor=config.gate.role_floor,
+            role_hard_reject_floor=config.gate.role_hard_reject_floor,
+            allow_role_extension=(
+                config.gate.extend_role_floor_to_max_pairs
+                and completed_pairs < config.gate.max_opening_pairs
+            ),
         )
         looks.append(
             {

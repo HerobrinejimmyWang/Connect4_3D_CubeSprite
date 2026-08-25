@@ -348,6 +348,8 @@ class GateConfig:
     bootstrap_samples: int = 1000
     confidence: float = 0.95
     role_floor: float = 0.45
+    role_hard_reject_floor: float = 0.45
+    extend_role_floor_to_max_pairs: bool = False
     accept_threshold: float = 0.5
 
     def __post_init__(self) -> None:
@@ -376,6 +378,12 @@ class GateConfig:
             raise ValueError("gate.confidence must be in (0.5, 1).")
         if not 0.0 <= self.role_floor <= 1.0:
             raise ValueError("gate.role_floor must be in [0, 1].")
+        if not 0.0 <= self.role_hard_reject_floor <= self.role_floor:
+            raise ValueError(
+                "gate.role_hard_reject_floor must be in [0, role_floor]."
+            )
+        if type(self.extend_role_floor_to_max_pairs) is not bool:
+            raise TypeError("gate.extend_role_floor_to_max_pairs must be boolean.")
         if not 0.0 <= self.accept_threshold <= 1.0:
             raise ValueError("gate.accept_threshold must be in [0, 1].")
 
@@ -675,6 +683,14 @@ def config_hash(config: V3Config) -> str:
     }
     if config.stability != StabilityConfig():
         semantic["stability"] = asdict(config.stability)
+    # Preserve existing lineage hashes when the optional role-floor extension
+    # keeps its legacy immediate-reject semantics.
+    if (
+        config.gate.role_hard_reject_floor == 0.45
+        and not config.gate.extend_role_floor_to_max_pairs
+    ):
+        semantic["gate"].pop("role_hard_reject_floor")
+        semantic["gate"].pop("extend_role_floor_to_max_pairs")
     payload = json.dumps(semantic, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 

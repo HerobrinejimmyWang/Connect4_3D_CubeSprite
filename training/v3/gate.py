@@ -227,11 +227,16 @@ def decide_gate(
     *,
     accept_threshold: float = 0.5,
     role_floor: float = 0.45,
+    role_hard_reject_floor: float | None = None,
+    allow_role_extension: bool = False,
 ) -> GateDecision:
     if not 0.0 <= accept_threshold <= 1.0:
         raise ValueError("accept_threshold must be in [0, 1]")
     if not 0.0 <= role_floor <= 1.0:
         raise ValueError("role_floor must be in [0, 1]")
+    hard_floor = role_floor if role_hard_reject_floor is None else role_hard_reject_floor
+    if not 0.0 <= hard_floor <= role_floor:
+        raise ValueError("role_hard_reject_floor must be in [0, role_floor]")
     first_score = summary.candidate_as_first.point_score
     second_score = summary.candidate_as_second.point_score
     roles_pass = first_score >= role_floor and second_score >= role_floor
@@ -241,16 +246,22 @@ def decide_gate(
             "pair-score confidence interval clears the threshold and both roles clear the floor",
             summary,
         )
-    if first_score < role_floor or second_score < role_floor:
-        return GateDecision(
-            "reject",
-            "candidate failed the first-player or second-player score floor",
-            summary,
-        )
     if summary.ci_upper < accept_threshold:
         return GateDecision(
             "reject",
             "pair-score confidence interval is below the acceptance threshold",
+            summary,
+        )
+    if first_score < role_floor or second_score < role_floor:
+        if allow_role_extension and min(first_score, second_score) >= hard_floor:
+            return GateDecision(
+                "inconclusive",
+                "role score is in the predeclared extension band",
+                summary,
+            )
+        return GateDecision(
+            "reject",
+            "candidate failed the first-player or second-player score floor",
             summary,
         )
     return GateDecision(
@@ -268,6 +279,8 @@ def evaluate_gate(
     bootstrap_seed: int = 0,
     accept_threshold: float = 0.5,
     role_floor: float = 0.45,
+    role_hard_reject_floor: float | None = None,
+    allow_role_extension: bool = False,
 ) -> GateDecision:
     summary = summarize_paired_results(
         results,
@@ -275,7 +288,13 @@ def evaluate_gate(
         confidence=confidence,
         bootstrap_seed=bootstrap_seed,
     )
-    return decide_gate(summary, accept_threshold=accept_threshold, role_floor=role_floor)
+    return decide_gate(
+        summary,
+        accept_threshold=accept_threshold,
+        role_floor=role_floor,
+        role_hard_reject_floor=role_hard_reject_floor,
+        allow_role_extension=allow_role_extension,
+    )
 
 
 __all__ = [

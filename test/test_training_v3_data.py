@@ -647,6 +647,43 @@ class PairedGateTests(unittest.TestCase):
         self.assertEqual(inconclusive.verdict, "inconclusive")
         self.assertEqual(inconclusive.summary.overall.point_score, 0.5)
 
+    def test_role_extension_band_is_inconclusive_until_final_look(self):
+        results = _paired_scores([(1.0, 0.0)] * 6 + [(1.0, 1.0)] * 4)
+        extended = evaluate_gate(
+            results,
+            bootstrap_samples=500,
+            bootstrap_seed=1,
+            role_floor=0.45,
+            role_hard_reject_floor=0.35,
+            allow_role_extension=True,
+        )
+        self.assertEqual(extended.summary.candidate_as_second.point_score, 0.4)
+        self.assertEqual(extended.verdict, "inconclusive")
+        self.assertIn("extension band", extended.reason)
+
+        final = evaluate_gate(
+            results,
+            bootstrap_samples=500,
+            bootstrap_seed=1,
+            role_floor=0.45,
+            role_hard_reject_floor=0.35,
+            allow_role_extension=False,
+        )
+        self.assertEqual(final.verdict, "reject")
+
+    def test_role_score_below_hard_floor_rejects_without_extension(self):
+        results = _paired_scores([(1.0, 0.0)] * 7 + [(1.0, 1.0)] * 3)
+        decision = evaluate_gate(
+            results,
+            bootstrap_samples=500,
+            bootstrap_seed=1,
+            role_floor=0.4,
+            role_hard_reject_floor=0.35,
+            allow_role_extension=True,
+        )
+        self.assertEqual(decision.summary.candidate_as_second.point_score, 0.3)
+        self.assertEqual(decision.verdict, "reject")
+
     def test_pairing_requires_same_seed_and_exact_color_swap(self):
         bad_seed = [
             GateGameResult("opening", 1, True, 1.0),
