@@ -108,6 +108,67 @@ class HistoricalStabilityRegressionTests(unittest.TestCase):
         self.assertEqual(result.action, "pause")
         self.assertEqual(result.first_pause_generation, 11)
 
+    def test_game_length_pause_is_watch_only_during_position_warmup(self) -> None:
+        rows = (
+            GenerationStabilityMetrics(
+                generation=10,
+                games=320,
+                mean_game_length=16.4,
+                game_length_variance=80.0,
+                short_game_rate=0.54,
+                value_loss=0.46,
+                train_positions=100_000,
+                first_player_win_rate=0.64,
+            ),
+            GenerationStabilityMetrics(
+                generation=11,
+                games=320,
+                mean_game_length=11.3,
+                game_length_variance=39.0,
+                short_game_rate=0.77,
+                value_loss=0.29,
+                train_positions=200_000,
+                first_player_win_rate=0.70,
+            ),
+        )
+        result = assess_stability(
+            rows,
+            game_length_pause_start_train_positions=500_000,
+        )
+        self.assertEqual(result.action, "watch")
+        self.assertEqual(result.consecutive_behavioral_alerts, 0)
+        self.assertIn("game_length_pause_warmup", result.contextual_signals)
+
+    def test_game_length_pause_arms_after_position_warmup(self) -> None:
+        rows = (
+            GenerationStabilityMetrics(
+                generation=20,
+                games=320,
+                mean_game_length=16.4,
+                game_length_variance=80.0,
+                short_game_rate=0.54,
+                value_loss=0.46,
+                train_positions=500_000,
+                first_player_win_rate=0.64,
+            ),
+            GenerationStabilityMetrics(
+                generation=21,
+                games=320,
+                mean_game_length=11.3,
+                game_length_variance=39.0,
+                short_game_rate=0.77,
+                value_loss=0.29,
+                train_positions=520_000,
+                first_player_win_rate=0.70,
+            ),
+        )
+        result = assess_stability(
+            rows,
+            game_length_pause_start_train_positions=500_000,
+        )
+        self.assertEqual(result.action, "pause")
+        self.assertEqual(result.first_pause_generation, 21)
+
 
 class PolicyTargetQualityTests(unittest.TestCase):
     def test_fixed_opening_targets_preserve_identity_across_budgets(self) -> None:

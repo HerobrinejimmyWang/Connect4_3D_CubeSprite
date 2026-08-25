@@ -232,7 +232,7 @@ class SequentialGateTests(unittest.TestCase):
             code = cli_main(["print-config", "--config", str(SMOKE_CONFIG)])
         self.assertEqual(code, 0, errors.getvalue())
         self.assertEqual(set(json.loads(output.getvalue())), {
-            "run", "model", "selfplay", "replay", "learner", "gate", "runtime"
+            "run", "model", "selfplay", "replay", "learner", "gate", "stability", "runtime"
         })
 
         output = io.StringIO()

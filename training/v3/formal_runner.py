@@ -69,7 +69,7 @@ from .replay import (
     stable_split_mask,
     write_replay_shard,
 )
-from .stability import GenerationStabilityMetrics, assess_stability
+from .stability import GenerationStabilityMetrics, StabilityThresholds, assess_stability
 
 
 class _DrainRequest:
@@ -566,6 +566,8 @@ def _run_generation(
         short_game_rate=float(health["game_length"]["short_le_12_rate"]),
         mean_policy_entropy=float(health["mean_policy_entropy"]["full"]),
         value_loss=float(learner_metrics.wdl_loss),
+        train_positions=int(bucket.total_positions_consumed),
+        first_player_win_rate=float(health["results"]["p1_wins"]) / len(games),
     )
     if accepted_model_id is None:
         # Random bootstrap has a deliberately untrained game-length distribution.
@@ -574,7 +576,16 @@ def _run_generation(
         stability_history = []
     stability_history = [*stability_history, stability_row]
     exploration_history = [*exploration_history, stability_row]
-    stability = assess_stability(stability_history)
+    stability = assess_stability(
+        stability_history,
+        thresholds=StabilityThresholds(
+            first_player_win_rate_watch=config.stability.first_player_win_rate_watch,
+            first_player_win_rate_rise_watch=config.stability.first_player_win_rate_rise_watch,
+        ),
+        game_length_pause_start_train_positions=(
+            config.stability.game_length_pause_start_train_positions
+        ),
+    )
     _append_metric(layout, {"stage": "stability", **stability.to_dict()})
     _append_metric(
         layout,

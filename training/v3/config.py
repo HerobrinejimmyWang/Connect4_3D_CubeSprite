@@ -237,6 +237,27 @@ class ReplayConfig:
 
 
 @dataclass(frozen=True)
+class StabilityConfig:
+    game_length_pause_start_train_positions: int = 0
+    first_player_win_rate_watch: float = 1.0
+    first_player_win_rate_rise_watch: float = 0.10
+
+    def __post_init__(self) -> None:
+        if self.game_length_pause_start_train_positions < 0:
+            raise ValueError(
+                "stability.game_length_pause_start_train_positions must be non-negative."
+            )
+        if not 0.5 <= self.first_player_win_rate_watch <= 1.0:
+            raise ValueError(
+                "stability.first_player_win_rate_watch must be in [0.5, 1]."
+            )
+        if not 0.0 < self.first_player_win_rate_rise_watch < 1.0:
+            raise ValueError(
+                "stability.first_player_win_rate_rise_watch must be in (0, 1)."
+            )
+
+
+@dataclass(frozen=True)
 class LearningRateStageConfig:
     start_train_positions: int
     learning_rate: float
@@ -473,6 +494,7 @@ class V3Config:
     replay: ReplayConfig = field(default_factory=ReplayConfig)
     learner: LearnerConfig = field(default_factory=LearnerConfig)
     gate: GateConfig = field(default_factory=GateConfig)
+    stability: StabilityConfig = field(default_factory=StabilityConfig)
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
 
     @classmethod
@@ -486,6 +508,7 @@ class V3Config:
             "replay": ReplayConfig,
             "learner": LearnerConfig,
             "gate": GateConfig,
+            "stability": StabilityConfig,
             "runtime": RuntimeConfig,
         }
         unknown = sorted(set(raw) - set(section_types))
@@ -650,6 +673,8 @@ def config_hash(config: V3Config) -> str:
             "mcts_lanes_per_actor": config.runtime.mcts_lanes_per_actor,
         },
     }
+    if config.stability != StabilityConfig():
+        semantic["stability"] = asdict(config.stability)
     payload = json.dumps(semantic, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
@@ -667,6 +692,7 @@ __all__ = [
     "RuntimeConfig",
     "SearchStageConfig",
     "SelfPlayConfig",
+    "StabilityConfig",
     "StoragePolicyConfig",
     "V3Config",
     "canonical_config_json",
