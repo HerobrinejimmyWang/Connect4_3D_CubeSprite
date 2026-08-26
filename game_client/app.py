@@ -301,6 +301,15 @@ def default_model_roots(workspace_root):
         workspace_root / "distillation" / "checkpoints",
         workspace_root / "distillation" / "save_model",
     ]
+    # Every synced V3 run materializes accepted champions under
+    # training/runs/local_archive_validation/<run>/materialized/accepted
+    # (B4/B6/B8 scales across runs).  Collect all of them so no accepted
+    # champion is missed when a new run is synced back.
+    archive_root = workspace_root / "training" / "runs" / "local_archive_validation"
+    if archive_root.is_dir():
+        for accepted_dir in sorted(archive_root.rglob("materialized/accepted")):
+            if accepted_dir.is_dir() and accepted_dir not in candidates:
+                candidates.append(accepted_dir)
     active_training_root = workspace_root.parent / "Connect4_3D_AI_v2.2"
     if active_training_root != workspace_root and active_training_root.is_dir():
         candidates.extend(

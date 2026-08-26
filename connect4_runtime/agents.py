@@ -12,6 +12,28 @@ from arena.agent import (
 )
 
 
+def _v3_artifact_config(payload, expected_shape):
+    """Return a v2.2-style config for a V3 ``connect4-v3-model`` payload, or None."""
+    if not isinstance(payload, dict):
+        return None
+    if payload.get("format") != "connect4-v3-model" or payload.get("format_version") != 1:
+        return None
+    model_config = payload.get("model_config")
+    if not isinstance(model_config, dict) or not isinstance(payload.get("model_state"), dict):
+        return None
+    if tuple(expected_shape) != BOARD_SHAPE:
+        raise ValueError(
+            f"The V3 runtime requires board shape {BOARD_SHAPE}, got {tuple(expected_shape)}."
+        )
+    return {
+        **dict(model_config),
+        "architecture": "gravity_resnet_v3",
+        "board_layers": BOARD_SHAPE[0],
+        "board_size": BOARD_SHAPE[1],
+        "action_dim": 150,
+    }
+
+
 def validate_v22_checkpoint(model_path, game, requested_config=None):
     model_path = Path(model_path)
     expected_shape = tuple(game.get_board_size())
@@ -21,6 +43,9 @@ def validate_v22_checkpoint(model_path, game, requested_config=None):
         raise FileNotFoundError(f"Model checkpoint does not exist: {model_path}")
 
     payload = _load_checkpoint_payload(model_path)
+    v3_config = _v3_artifact_config(payload, expected_shape)
+    if v3_config is not None:
+        return v3_config
     if _is_tiny_payload(payload):
         config = dict(payload.get("model_config") or {})
         layers = int(config.get("board_layers", BOARD_SHAPE[0]))

@@ -41,8 +41,16 @@ class HumanEvalConfig:
 
 
 EVAL_CONFIG = HumanEvalConfig(
-    model_path=WORKSPACE_ROOT / "save_model" / "v2.2_balence" / "model.pth",
-    model_name="v2.2_balence",
+    model_path=(
+        WORKSPACE_ROOT
+        / "training"
+        / "runs"
+        / "local_archive_validation"
+        / "materialized"
+        / "accepted"
+        / "candidate-g000057-s00007713-d00415640.pt"
+    ),
+    model_name="v3_b8c192_g57",
     agent_type="auto",
     human_name="Developer",
     human_plays_first=True,
@@ -50,3 +58,6 @@ EVAL_CONFIG = HumanEvalConfig(
     virtual_loss=0.8,
     temperature=0.1,
 )
+# V3 B8 (192ch x 8 blocks) on CPU is slow at 256 sims; lower num_mcts_sims
+# (e.g. 64) for a responsive UI without a GPU, or point model_path at a
+# smaller accepted artifact (B6/B4) which loads through the same adapter.

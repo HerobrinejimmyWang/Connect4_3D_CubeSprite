@@ -21,7 +21,7 @@ for required_path in (WORKSPACE_ROOT, TRAINING_DIR, TRAIN_FEATURES_DIR):
     if str(required_path) not in sys.path:
         sys.path.insert(0, str(required_path))
 
-from connect4_core.game_rules import infer_board_size_from_action_dim
+from connect4_core.game_rules import BOARD_SIZE, MAX_LAYERS, infer_board_size_from_action_dim
 from mcts import AsyncBatchInferenceManager, MCTS
 from model import Connect4Net, board_to_channels
 
@@ -78,29 +78,46 @@ class MCTSAgent(BaseAgent):
     ):
         model_path = Path(model_path)
         resolved_device = self._resolve_device(device)
-        model, loaded_config, metadata = load_model_checkpoint(
-            model_path=model_path,
-            requested_config=model_config,
-            game=game,
-            device=resolved_device,
-        )
+        v3_payload = _try_load_v3_artifact(model_path)
+        if v3_payload is not None:
+            v3_predictor = V3ModelPredictor(
+                model_path=model_path,
+                device=resolved_device,
+                payload=v3_payload,
+            )
+            display_name = name or model_path.stem
+            super().__init__(game=game, name=display_name)
+            self.agent_type = "mcts"
+            self.model_path = model_path
+            self.device = resolved_device
+            self.model = v3_predictor.model
+            self.model_config = v3_predictor.model_config
+            self.metadata = v3_predictor.metadata
+            self.predictor = v3_predictor
+        else:
+            model, loaded_config, metadata = load_model_checkpoint(
+                model_path=model_path,
+                requested_config=model_config,
+                game=game,
+                device=resolved_device,
+            )
 
-        display_name = name or model_path.stem
-        super().__init__(game=game, name=display_name)
-        self.agent_type = "mcts"
-        self.model_path = model_path
-        self.device = resolved_device
-        self.model = model
-        self.model_config = loaded_config
-        self.metadata = metadata
-        self.predictor = ArenaModelPredictor(
-            model=self.model,
-            game_layers=int(game.get_board_size()[0]),
-            game_size=int(game.get_board_size()[1]),
-            model_layers=int(self.model_config["board_layers"]),
-            model_size=int(self.model_config["board_size"]),
-            input_encoding="single-channel" if self.model_config.get("input_channels") == 1 else "two-channel",
-        )
+            display_name = name or model_path.stem
+            super().__init__(game=game, name=display_name)
+            self.agent_type = "mcts"
+            self.model_path = model_path
+            self.device = resolved_device
+            self.model = model
+            self.model_config = loaded_config
+            self.metadata = metadata
+            self.predictor = ArenaModelPredictor(
+                model=self.model,
+                game_layers=int(game.get_board_size()[0]),
+                game_size=int(game.get_board_size()[1]),
+                model_layers=int(self.model_config["board_layers"]),
+                model_size=int(self.model_config["board_size"]),
+                input_encoding="single-channel" if self.model_config.get("input_channels") == 1 else "two-channel",
+            )
         self.inference_manager = AsyncBatchInferenceManager(
             self.predictor,
             batch_size=inference_batch_size,
@@ -272,6 +289,139 @@ class TinyPolicyAgent(BaseAgent):
         if value_pred is not None:
             info["value"] = value_pred
         return action, info
+
+    @staticmethod
+    def _resolve_device(device):
+        if device:
+            return device
+        return "cuda" if torch.cuda.is_available() else "cpu"
+
+
+def _try_load_v3_artifact(model_path) -> dict | None:
+    """Return the V3 ``connect4-v3-model`` payload, or None for legacy files."""
+    try:
+        payload = _load_checkpoint_payload(model_path)
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    if payload.get("format") != "connect4-v3-model" or payload.get("format_version") != 1:
+        return None
+    if not isinstance(payload.get("model_config"), dict) or not isinstance(
+        payload.get("model_state"), dict
+    ):
+        return None
+    return payload
+
+
+def _role_features_for_canonical(canonical_board: np.ndarray) -> np.ndarray:
+    """Infer the absolute FIRST/SECOND role from a canonical classic-rule board.
+
+    Under the classic rule there is no forced pass: when FIRST is to move both
+    sides have placed an equal number of stones, and when SECOND is to move the
+    canonical +1 side (the side to move) has placed one stone fewer.
+    """
+    board = np.asarray(canonical_board)
+    plus = int(np.count_nonzero(board == 1))
+    minus = int(np.count_nonzero(board == -1))
+    if plus == minus:
+        return np.asarray((1.0, 0.0), dtype=np.float32)
+    if minus == plus + 1:
+        return np.asarray((0.0, 1.0), dtype=np.float32)
+    raise ValueError(
+        f"Cannot infer the absolute role from canonical board parity (+1={plus}, -1={minus})."
+    )
+
+
+class V3ModelPredictor:
+    """Adapt a V3 ``connect4-v3-model`` artifact to the arena MCTS predict contract.
+
+    The legacy arena MCTS searches the 150-action legacy space over canonical
+    boards.  The V3 network consumes canonical [6,5,5] boards together with the
+    absolute FIRST/SECOND role and the frozen classic rule features, and emits
+    a 25-column policy plus a WDL distribution.  This adapter performs the role
+    inference and the column-to-legacy policy/value conversion so the existing
+    ``AsyncBatchInferenceManager``/``MCTS`` stack is reused unchanged.  The
+    network is built from the artifact's own ``model_config``, so any V3 scale
+    (B4/B6/B8) loads through the same path.
+    """
+
+    def __init__(self, model_path, device=None, payload=None):
+        model_path = Path(model_path)
+        resolved_device = self._resolve_device(device)
+
+        from training.v3.config import ModelConfig
+        from training.v3.model import (
+            TorchPredictor,
+            build_model,
+            classic_rule_features,
+            column_policy_to_legacy,
+            wdl_expected_value,
+        )
+
+        if payload is None:
+            payload = _try_load_v3_artifact(model_path)
+        if payload is None:
+            raise ValueError(f"Not a V3 model artifact: {model_path}")
+
+        model_config = ModelConfig(**dict(payload["model_config"]))
+        model = build_model(model_config)
+        model.load_state_dict(payload["model_state"], strict=True)
+
+        self.model = model
+        self.predictor = TorchPredictor(model, device=resolved_device)
+        self.model_lock = threading.Lock()
+        self.device = resolved_device
+        self.model_config = {
+            "board_size": BOARD_SIZE,
+            "board_layers": MAX_LAYERS,
+            "architecture": "gravity_resnet_v3",
+            "channels": model_config.channels,
+            "blocks": model_config.blocks,
+            "global_input_schema": model_config.global_input_schema,
+            "output_schema": model_config.output_schema,
+        }
+        self.metadata = dict(payload.get("metadata") or {})
+        self.metadata.update(
+            {
+                "model_path": str(model_path),
+                "device": str(resolved_device),
+                "architecture": "gravity_resnet_v3",
+            }
+        )
+        self._rule_features = classic_rule_features(1)[0].numpy().astype(np.float32)
+        self._column_policy_to_legacy = column_policy_to_legacy
+        self._wdl_expected_value = wdl_expected_value
+
+    def predict(self, batch_states):
+        boards = np.stack(
+            [np.asarray(state, dtype=np.int8) for state in batch_states], axis=0
+        )
+        if boards.ndim != 4 or boards.shape[1:] != (MAX_LAYERS, BOARD_SIZE, BOARD_SIZE):
+            raise ValueError(
+                f"V3 predictor expects canonical boards {(MAX_LAYERS, BOARD_SIZE, BOARD_SIZE)}, "
+                f"got {tuple(boards.shape)}."
+            )
+        roles = np.stack(
+            [_role_features_for_canonical(board) for board in boards], axis=0
+        ).astype(np.float32)
+        rules = np.tile(self._rule_features, (len(boards), 1))
+        with self.model_lock:
+            columns, wdl = self.predictor.predict_batch(
+                boards, role_to_play=roles, rule_features=rules
+            )
+        policies = np.stack(
+            [
+                self._column_policy_to_legacy(columns[index], boards[index])
+                for index in range(len(boards))
+            ],
+            axis=0,
+        ).astype(np.float32, copy=False)
+        values = np.asarray(
+            [self._wdl_expected_value(wdl[index]) for index in range(len(wdl))],
+            dtype=np.float32,
+        )
+        return policies, values
 
     @staticmethod
     def _resolve_device(device):
