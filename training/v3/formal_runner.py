@@ -645,7 +645,7 @@ def _run_generation(
                 accepted_model_id,
             )
         )
-        gate_results, gate_decision, gate_looks = _run_sequential_gate(
+        gate_results, gate_control_results, gate_decision, gate_looks = _run_sequential_gate(
             config,
             generation=generation,
             openings=openings,
@@ -668,6 +668,7 @@ def _run_generation(
                 "pair_increment": config.gate.pair_increment,
                 "max_pairs": config.gate.max_opening_pairs,
                 "games": [asdict(result) for result in gate_results],
+                "role_control_games": [asdict(result) for result in gate_control_results],
                 "looks": gate_looks,
                 "evaluation_runtime": gate_evaluation_runtime,
                 **gate_decision.to_dict(),

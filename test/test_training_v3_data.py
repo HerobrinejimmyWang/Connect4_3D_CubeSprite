@@ -684,6 +684,72 @@ class PairedGateTests(unittest.TestCase):
         self.assertEqual(decision.summary.candidate_as_second.point_score, 0.3)
         self.assertEqual(decision.verdict, "reject")
 
+    def test_relative_role_guard_accepts_progress_with_low_absolute_second_score(self):
+        candidate = _paired_scores([(1.0, 1.0)] * 8 + [(1.0, 0.0)] * 32)
+        accepted_control = _paired_scores([(1.0, 0.0)] * 40)
+        absolute = evaluate_gate(
+            candidate,
+            bootstrap_samples=500,
+            bootstrap_seed=1,
+            role_floor=0.3,
+        )
+        relative = evaluate_gate(
+            candidate,
+            bootstrap_samples=500,
+            bootstrap_seed=1,
+            role_guard_mode="relative_noninferiority",
+            role_control_results=accepted_control,
+            role_noninferiority_margin=0.05,
+        )
+        self.assertEqual(absolute.verdict, "reject")
+        self.assertEqual(relative.verdict, "accept")
+        self.assertEqual(relative.summary.candidate_as_second.point_score, 0.2)
+        self.assertFalse(relative.role_noninferiority.regression_established)
+        self.assertAlmostEqual(relative.role_noninferiority.point_delta, 0.2)
+
+    def test_relative_role_guard_vetoes_established_second_player_regression(self):
+        candidate = _paired_scores([(1.0, 1.0)] * 10 + [(1.0, 0.0)] * 30)
+        accepted_control = _paired_scores([(1.0, 1.0)] * 20 + [(1.0, 0.0)] * 20)
+        decision = evaluate_gate(
+            candidate,
+            bootstrap_samples=500,
+            bootstrap_seed=1,
+            role_guard_mode="relative_noninferiority",
+            role_control_results=accepted_control,
+            role_noninferiority_margin=0.05,
+        )
+        self.assertGreater(decision.summary.ci_lower, 0.5)
+        self.assertEqual(decision.verdict, "reject")
+        self.assertTrue(decision.role_noninferiority.regression_established)
+        self.assertLess(decision.role_noninferiority.ci_upper, -0.05)
+
+    def test_relative_role_guard_does_not_replace_overall_superiority(self):
+        candidate = _paired_scores([(1.0, 0.0)] * 20)
+        accepted_control = _paired_scores([(1.0, 0.0)] * 20)
+        decision = evaluate_gate(
+            candidate,
+            bootstrap_samples=500,
+            bootstrap_seed=1,
+            role_guard_mode="relative_noninferiority",
+            role_control_results=accepted_control,
+        )
+        self.assertEqual(decision.summary.overall.point_score, 0.5)
+        self.assertEqual(decision.verdict, "inconclusive")
+
+    def test_relative_role_guard_requires_matching_control_openings(self):
+        candidate = _paired_scores([(1.0, 0.0), (1.0, 1.0)])
+        accepted_control = [
+            GateGameResult("different", 7, True, 1.0),
+            GateGameResult("different", 7, False, 0.0),
+        ]
+        with self.assertRaisesRegex(ValueError, "identical openings and seeds"):
+            evaluate_gate(
+                candidate,
+                bootstrap_samples=50,
+                role_guard_mode="relative_noninferiority",
+                role_control_results=accepted_control,
+            )
+
     def test_pairing_requires_same_seed_and_exact_color_swap(self):
         bad_seed = [
             GateGameResult("opening", 1, True, 1.0),

@@ -86,7 +86,7 @@ class SequentialGateTests(unittest.TestCase):
                 ],
             ),
         ):
-            results, final_decision, looks = _run_sequential_gate(
+            results, control_results, final_decision, looks = _run_sequential_gate(
                 config,
                 generation=0,
                 openings=list(range(6)),
@@ -96,6 +96,7 @@ class SequentialGateTests(unittest.TestCase):
 
         self.assertEqual(played_slices, [(0, 1), (2, 3), (4, 5)])
         self.assertEqual(len(results), 12)
+        self.assertEqual(control_results, [])
         self.assertEqual(final_decision.verdict, "accept")
         self.assertEqual([look["pairs"] for look in looks], [2, 4, 6])
 
@@ -142,7 +143,7 @@ class SequentialGateTests(unittest.TestCase):
             mock.patch("training.v3.pipeline.play_paired_openings") as serial,
             mock.patch("training.v3.pipeline.evaluate_gate", return_value=decision),
         ):
-            results, final_decision, looks = _run_sequential_gate(
+            results, control_results, final_decision, looks = _run_sequential_gate(
                 config,
                 generation=0,
                 openings=list(range(2)),
@@ -154,6 +155,7 @@ class SequentialGateTests(unittest.TestCase):
         parallel.assert_called_once()
         serial.assert_not_called()
         self.assertEqual(len(results), 4)
+        self.assertEqual(control_results, [])
         self.assertEqual(final_decision.verdict, "accept")
         self.assertEqual([look["pairs"] for look in looks], [2])
         self.assertEqual(runtime_records[0]["pair_start"], 0)
@@ -207,7 +209,7 @@ class SequentialGateTests(unittest.TestCase):
             mock.patch("training.v3.pipeline.play_paired_openings") as serial,
             mock.patch("training.v3.pipeline.evaluate_gate", return_value=decision),
         ):
-            results, final_decision, _looks = _run_sequential_gate(
+            results, control_results, final_decision, _looks = _run_sequential_gate(
                 config,
                 generation=0,
                 openings=list(range(2)),
@@ -222,8 +224,62 @@ class SequentialGateTests(unittest.TestCase):
         central.assert_not_called()
         serial.assert_not_called()
         self.assertEqual(len(results), 4)
+        self.assertEqual(control_results, [])
         self.assertEqual(final_decision.verdict, "accept")
         self.assertEqual(runtime_records[0]["worker_processes"], 2)
+
+    def test_relative_role_guard_collects_matching_accepted_control_games(self) -> None:
+        config = load_config(SMOKE_CONFIG)
+        config = replace(
+            config,
+            gate=replace(
+                config.gate,
+                initial_opening_pairs=2,
+                pair_increment=2,
+                max_opening_pairs=2,
+                role_guard_mode="relative_noninferiority",
+                role_noninferiority_margin=0.05,
+            ),
+        )
+        candidate_games = [object()] * 4
+        control_games = [object()] * 4
+        decision = SimpleNamespace(
+            verdict="accept",
+            role_guard_mode="relative_noninferiority",
+            role_noninferiority=None,
+            summary=SimpleNamespace(
+                overall=SimpleNamespace(point_score=0.75),
+                ci_lower=0.6,
+                ci_upper=0.9,
+            ),
+        )
+        runtime_records = []
+        with (
+            mock.patch(
+                "training.v3.pipeline.play_paired_openings",
+                side_effect=[candidate_games, control_games],
+            ) as serial,
+            mock.patch("training.v3.pipeline.evaluate_gate", return_value=decision) as evaluate,
+        ):
+            results, controls, final_decision, looks = _run_sequential_gate(
+                config,
+                generation=0,
+                openings=list(range(2)),
+                candidate_predictor=object(),
+                incumbent_predictor=object(),
+                runtime_records=runtime_records,
+            )
+
+        self.assertEqual(serial.call_count, 2)
+        self.assertEqual(results, candidate_games)
+        self.assertEqual(controls, control_games)
+        self.assertEqual(final_decision.verdict, "accept")
+        self.assertEqual(looks[0]["role_guard_mode"], "relative_noninferiority")
+        self.assertEqual(
+            [row["evidence"] for row in runtime_records],
+            ["candidate_vs_incumbent", "accepted_champion_control"],
+        )
+        self.assertEqual(evaluate.call_args.kwargs["role_control_results"], control_games)
 
     def test_cli_print_config_and_guarded_run(self) -> None:
         output = io.StringIO()

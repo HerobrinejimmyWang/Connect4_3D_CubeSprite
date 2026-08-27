@@ -9,6 +9,7 @@ import numpy as np
 
 
 VALID_VERDICTS = frozenset({"accept", "reject", "inconclusive"})
+VALID_ROLE_GUARD_MODES = frozenset({"absolute_floor", "relative_noninferiority"})
 
 
 @dataclass(frozen=True)
@@ -95,20 +96,46 @@ class GateSummary:
 
 
 @dataclass(frozen=True)
+class RoleNonInferiorityStats:
+    role: str
+    games: int
+    candidate_point_score: float
+    control_point_score: float
+    point_delta: float
+    margin: float
+    confidence: float
+    ci_lower: float
+    ci_upper: float
+    bootstrap_samples: int
+    regression_established: bool
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
 class GateDecision:
     verdict: str
     reason: str
     summary: GateSummary
+    role_guard_mode: str = "absolute_floor"
+    role_noninferiority: RoleNonInferiorityStats | None = None
 
     def __post_init__(self) -> None:
         if self.verdict not in VALID_VERDICTS:
             raise ValueError(f"invalid gate verdict: {self.verdict!r}")
+        if self.role_guard_mode not in VALID_ROLE_GUARD_MODES:
+            raise ValueError(f"invalid role guard mode: {self.role_guard_mode!r}")
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "verdict": self.verdict,
             "reason": self.reason,
             "summary": self.summary.to_dict(),
+            "role_guard_mode": self.role_guard_mode,
+            "role_noninferiority": (
+                None if self.role_noninferiority is None else self.role_noninferiority.to_dict()
+            ),
         }
 
 
@@ -222,6 +249,65 @@ def summarize_paired_results(
     )
 
 
+def summarize_role_noninferiority(
+    candidate: GateSummary,
+    control: GateSummary,
+    *,
+    margin: float,
+    bootstrap_samples: int,
+    confidence: float = 0.95,
+    bootstrap_seed: int = 0,
+) -> RoleNonInferiorityStats:
+    """Compare candidate and accepted-control second-player scores by opening.
+
+    The control is the accepted champion playing both colors under the exact
+    opening, search, and seed contract used by the candidate gate.  A role
+    regression is established only when the *upper* confidence bound of the
+    paired candidate-minus-control delta is below ``-margin``.  Uncertain
+    evidence therefore does not become a rejection by default.
+    """
+
+    if not 0.0 <= margin <= 1.0:
+        raise ValueError("role non-inferiority margin must be in [0, 1]")
+    if bootstrap_samples < 1:
+        raise ValueError("bootstrap_samples must be positive")
+    if not 0.5 < confidence < 1.0:
+        raise ValueError("confidence must be in (0.5, 1)")
+    candidate_pairs = {(pair.opening_id, pair.seed): pair for pair in candidate.pairs}
+    control_pairs = {(pair.opening_id, pair.seed): pair for pair in control.pairs}
+    if candidate_pairs.keys() != control_pairs.keys():
+        raise ValueError("candidate and control role evidence must use identical openings and seeds")
+    if not candidate_pairs:
+        raise ValueError("role non-inferiority needs at least one opening pair")
+    deltas = np.asarray(
+        [
+            candidate_pairs[key].candidate_second_score
+            - control_pairs[key].candidate_second_score
+            for key in sorted(candidate_pairs)
+        ],
+        dtype=np.float64,
+    )
+    rng = np.random.default_rng(int(bootstrap_seed))
+    sampled_indices = rng.integers(0, len(deltas), size=(bootstrap_samples, len(deltas)))
+    bootstrap_means = deltas[sampled_indices].mean(axis=1)
+    tail = (1.0 - confidence) / 2.0
+    lower, upper = np.quantile(bootstrap_means, (tail, 1.0 - tail))
+    point_delta = float(deltas.mean())
+    return RoleNonInferiorityStats(
+        role="second",
+        games=len(deltas),
+        candidate_point_score=candidate.candidate_as_second.point_score,
+        control_point_score=control.candidate_as_second.point_score,
+        point_delta=point_delta,
+        margin=float(margin),
+        confidence=float(confidence),
+        ci_lower=float(lower),
+        ci_upper=float(upper),
+        bootstrap_samples=int(bootstrap_samples),
+        regression_established=bool(float(upper) < -float(margin)),
+    )
+
+
 def decide_gate(
     summary: GateSummary,
     *,
@@ -229,6 +315,8 @@ def decide_gate(
     role_floor: float = 0.45,
     role_hard_reject_floor: float | None = None,
     allow_role_extension: bool = False,
+    role_guard_mode: str = "absolute_floor",
+    role_noninferiority: RoleNonInferiorityStats | None = None,
 ) -> GateDecision:
     if not 0.0 <= accept_threshold <= 1.0:
         raise ValueError("accept_threshold must be in [0, 1]")
@@ -237,20 +325,56 @@ def decide_gate(
     hard_floor = role_floor if role_hard_reject_floor is None else role_hard_reject_floor
     if not 0.0 <= hard_floor <= role_floor:
         raise ValueError("role_hard_reject_floor must be in [0, role_floor]")
+    if role_guard_mode not in VALID_ROLE_GUARD_MODES:
+        raise ValueError(f"invalid role guard mode: {role_guard_mode!r}")
+    if role_guard_mode == "relative_noninferiority" and role_noninferiority is None:
+        raise ValueError("relative_noninferiority requires accepted-control role evidence")
     first_score = summary.candidate_as_first.point_score
     second_score = summary.candidate_as_second.point_score
     roles_pass = first_score >= role_floor and second_score >= role_floor
-    if summary.ci_lower > accept_threshold and roles_pass:
-        return GateDecision(
-            "accept",
-            "pair-score confidence interval clears the threshold and both roles clear the floor",
-            summary,
-        )
     if summary.ci_upper < accept_threshold:
         return GateDecision(
             "reject",
             "pair-score confidence interval is below the acceptance threshold",
             summary,
+            role_guard_mode,
+            role_noninferiority,
+        )
+    if (
+        role_guard_mode == "relative_noninferiority"
+        and role_noninferiority is not None
+        and role_noninferiority.regression_established
+    ):
+        return GateDecision(
+            "reject",
+            "accepted-control evidence establishes second-player regression beyond the margin",
+            summary,
+            role_guard_mode,
+            role_noninferiority,
+        )
+    if summary.ci_lower > accept_threshold and (
+        role_guard_mode == "relative_noninferiority" or roles_pass
+    ):
+        reason = (
+            "pair-score confidence interval clears the threshold without established "
+            "second-player regression"
+            if role_guard_mode == "relative_noninferiority"
+            else "pair-score confidence interval clears the threshold and both roles clear the floor"
+        )
+        return GateDecision(
+            "accept",
+            reason,
+            summary,
+            role_guard_mode,
+            role_noninferiority,
+        )
+    if role_guard_mode == "relative_noninferiority":
+        return GateDecision(
+            "inconclusive",
+            "available pairs do not establish overall improvement at the requested confidence",
+            summary,
+            role_guard_mode,
+            role_noninferiority,
         )
     if first_score < role_floor or second_score < role_floor:
         if allow_role_extension and min(first_score, second_score) >= hard_floor:
@@ -258,16 +382,22 @@ def decide_gate(
                 "inconclusive",
                 "role score is in the predeclared extension band",
                 summary,
+                role_guard_mode,
+                role_noninferiority,
             )
         return GateDecision(
             "reject",
             "candidate failed the first-player or second-player score floor",
             summary,
+            role_guard_mode,
+            role_noninferiority,
         )
     return GateDecision(
         "inconclusive",
         "available pairs do not establish improvement at the requested confidence",
         summary,
+        role_guard_mode,
+        role_noninferiority,
     )
 
 
@@ -281,6 +411,9 @@ def evaluate_gate(
     role_floor: float = 0.45,
     role_hard_reject_floor: float | None = None,
     allow_role_extension: bool = False,
+    role_guard_mode: str = "absolute_floor",
+    role_control_results: Iterable[object] | None = None,
+    role_noninferiority_margin: float = 0.05,
 ) -> GateDecision:
     summary = summarize_paired_results(
         results,
@@ -288,12 +421,32 @@ def evaluate_gate(
         confidence=confidence,
         bootstrap_seed=bootstrap_seed,
     )
+    role_noninferiority = None
+    if role_guard_mode == "relative_noninferiority":
+        if role_control_results is None:
+            raise ValueError("relative_noninferiority requires role_control_results")
+        control_summary = summarize_paired_results(
+            role_control_results,
+            bootstrap_samples=bootstrap_samples,
+            confidence=confidence,
+            bootstrap_seed=bootstrap_seed + 1,
+        )
+        role_noninferiority = summarize_role_noninferiority(
+            summary,
+            control_summary,
+            margin=role_noninferiority_margin,
+            bootstrap_samples=bootstrap_samples,
+            confidence=confidence,
+            bootstrap_seed=bootstrap_seed + 2,
+        )
     return decide_gate(
         summary,
         accept_threshold=accept_threshold,
         role_floor=role_floor,
         role_hard_reject_floor=role_hard_reject_floor,
         allow_role_extension=allow_role_extension,
+        role_guard_mode=role_guard_mode,
+        role_noninferiority=role_noninferiority,
     )
 
 
@@ -302,9 +455,12 @@ __all__ = [
     "GateGameResult",
     "GateSummary",
     "PairStats",
+    "RoleNonInferiorityStats",
     "RoleStats",
+    "VALID_ROLE_GUARD_MODES",
     "VALID_VERDICTS",
     "decide_gate",
     "evaluate_gate",
+    "summarize_role_noninferiority",
     "summarize_paired_results",
 ]

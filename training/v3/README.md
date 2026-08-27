@@ -139,8 +139,18 @@ results. Smoke executes only the initial batch. A one-look gate uses 95%; a
 multi-look gate applies a Bonferroni confidence of
 `1 - (1 - confidence) / sequential_looks` at every promotion decision, while
 retaining ordinary 95% intervals for descriptive reporting. Acceptance also
-requires both role scores to be at least 0.45. Diagnostic matches against
-milestones or tactical suites must not silently change this promotion protocol.
+uses an explicit role guard. `absolute_floor` preserves historical lineages and
+requires both role scores to clear their configured floor.
+`relative_noninferiority` is intended for rules with a large structural
+first-player advantage: the paired-score confidence interval remains the
+promotion criterion, while the candidate's second-player score is compared
+with an accepted-champion self-match control on the identical openings, seeds,
+search budget, and colors. It vetoes promotion only when the upper confidence
+bound of candidate-minus-control performance is below the configured negative
+margin; uncertain role evidence is not treated as regression. Candidate and
+control games, the margin, interval, and runtime topology are persisted in the
+gate artifact. Diagnostic matches against milestones or tactical suites must
+not silently change this promotion protocol.
 
 Self-play accepts only the committed accepted champion. A candidate is moved to
 accepted/rejected or remains inconclusive, then checkpoint and audit artifacts

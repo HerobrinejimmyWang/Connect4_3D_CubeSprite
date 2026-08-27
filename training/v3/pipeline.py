@@ -450,13 +450,15 @@ def _run_sequential_gate(
     candidate_predictor: Any,
     incumbent_predictor: Any,
     existing_results: Iterable[Any] = (),
+    existing_control_results: Iterable[Any] = (),
     runtime_records: list[dict[str, Any]] | None = None,
     candidate_source: EvaluationModelSource | None = None,
     incumbent_source: EvaluationModelSource | None = None,
-) -> tuple[list[Any], Any, list[dict[str, Any]]]:
+) -> tuple[list[Any], list[Any], Any, list[dict[str, Any]]]:
     """Append only new opening pairs until the gate resolves or reaches its cap."""
 
     results = list(existing_results)
+    control_results = list(existing_control_results)
     if len(results) % 2 != 0:
         raise ValueError("paired gate history must contain an even number of games")
     completed_pairs = len(results) // 2
@@ -465,69 +467,95 @@ def _run_sequential_gate(
     target_pairs = max(config.gate.initial_opening_pairs, completed_pairs)
     if len(openings) < config.gate.max_opening_pairs:
         raise ValueError("opening suite does not cover gate.max_opening_pairs")
+    relative_role_guard = config.gate.role_guard_mode == "relative_noninferiority"
+    if relative_role_guard:
+        if incumbent_predictor is None and incumbent_source is None:
+            raise ValueError(
+                "relative role non-inferiority requires a committed accepted champion"
+            )
+        if len(control_results) != len(results):
+            raise ValueError(
+                "relative role control history must cover the same opening pairs as the gate"
+            )
+    elif control_results:
+        raise ValueError("absolute role-floor gates cannot carry role control history")
 
     gate_search_sims = config.gate.search_sims_for_generation(generation)
     looks: list[dict[str, Any]] = []
+
+    def evaluate_batch(
+        batch_openings: list[Any],
+        *,
+        batch_candidate_predictor: Any,
+        batch_incumbent_predictor: Any,
+        batch_candidate_source: EvaluationModelSource | None,
+        batch_incumbent_source: EvaluationModelSource | None,
+    ) -> tuple[list[Any], dict[str, Any]]:
+        if config.runtime.evaluation_devices and batch_candidate_source is not None:
+            replica_devices = tuple(
+                device
+                for _ in range(config.runtime.evaluation_replicas_per_device)
+                for device in config.runtime.evaluation_devices
+            )
+            evaluated = play_paired_openings_replicated(
+                batch_openings,
+                candidate_source=batch_candidate_source,
+                incumbent_source=batch_incumbent_source,
+                search_sims=gate_search_sims,
+                cpuct=config.gate.cpuct,
+                worker_devices=replica_devices,
+            )
+            return list(evaluated.games), evaluated.metrics.to_dict()
+        if (
+            config.runtime.evaluation_parallel_games == 1
+            and config.runtime.evaluation_inference_batch_size == 1
+        ):
+            started = time.perf_counter()
+            games = play_paired_openings(
+                batch_openings,
+                candidate_predictor=batch_candidate_predictor,
+                incumbent_predictor=batch_incumbent_predictor,
+                search_sims=gate_search_sims,
+                cpuct=config.gate.cpuct,
+            )
+            wall_seconds = time.perf_counter() - started
+            return list(games), {
+                "parallel_games": 1,
+                "worker_processes": 0,
+                "start_method": "serial",
+                "games": len(games),
+                "wall_seconds": wall_seconds,
+                "games_per_second": len(games) / max(wall_seconds, 1e-12),
+                "inference_services": [],
+            }
+        evaluated = play_paired_openings_parallel(
+            batch_openings,
+            candidate_predictor=batch_candidate_predictor,
+            incumbent_predictor=batch_incumbent_predictor,
+            search_sims=gate_search_sims,
+            cpuct=config.gate.cpuct,
+            parallel_games=config.runtime.evaluation_parallel_games,
+            inference_batch_size=config.runtime.evaluation_inference_batch_size,
+            inference_batch_timeout_s=(
+                config.runtime.evaluation_inference_batch_timeout_ms / 1000.0
+            ),
+        )
+        return list(evaluated.games), evaluated.metrics.to_dict()
     while True:
         if completed_pairs < target_pairs:
             pair_start = completed_pairs
             new_openings = openings[completed_pairs:target_pairs]
-            if config.runtime.evaluation_devices and candidate_source is not None:
-                replica_devices = tuple(
-                    device
-                    for _ in range(config.runtime.evaluation_replicas_per_device)
-                    for device in config.runtime.evaluation_devices
-                )
-                evaluated = play_paired_openings_replicated(
-                    new_openings,
-                    candidate_source=candidate_source,
-                    incumbent_source=incumbent_source,
-                    search_sims=gate_search_sims,
-                    cpuct=config.gate.cpuct,
-                    worker_devices=replica_devices,
-                )
-                new_results = evaluated.games
-                evaluation_runtime = evaluated.metrics.to_dict()
-            elif (
-                config.runtime.evaluation_parallel_games == 1
-                and config.runtime.evaluation_inference_batch_size == 1
-            ):
-                started = time.perf_counter()
-                new_results = play_paired_openings(
-                    new_openings,
-                    candidate_predictor=candidate_predictor,
-                    incumbent_predictor=incumbent_predictor,
-                    search_sims=gate_search_sims,
-                    cpuct=config.gate.cpuct,
-                )
-                wall_seconds = time.perf_counter() - started
-                evaluation_runtime = {
-                    "parallel_games": 1,
-                    "worker_processes": 0,
-                    "start_method": "serial",
-                    "games": len(new_results),
-                    "wall_seconds": wall_seconds,
-                    "games_per_second": len(new_results) / max(wall_seconds, 1e-12),
-                    "inference_services": [],
-                }
-            else:
-                evaluated = play_paired_openings_parallel(
-                    new_openings,
-                    candidate_predictor=candidate_predictor,
-                    incumbent_predictor=incumbent_predictor,
-                    search_sims=gate_search_sims,
-                    cpuct=config.gate.cpuct,
-                    parallel_games=config.runtime.evaluation_parallel_games,
-                    inference_batch_size=config.runtime.evaluation_inference_batch_size,
-                    inference_batch_timeout_s=(
-                        config.runtime.evaluation_inference_batch_timeout_ms / 1000.0
-                    ),
-                )
-                new_results = evaluated.games
-                evaluation_runtime = evaluated.metrics.to_dict()
+            new_results, evaluation_runtime = evaluate_batch(
+                new_openings,
+                batch_candidate_predictor=candidate_predictor,
+                batch_incumbent_predictor=incumbent_predictor,
+                batch_candidate_source=candidate_source,
+                batch_incumbent_source=incumbent_source,
+            )
             if runtime_records is not None:
                 runtime_records.append(
                     {
+                        "evidence": "candidate_vs_incumbent",
                         "pair_start": pair_start,
                         "pair_stop": target_pairs,
                         **evaluation_runtime,
@@ -539,6 +567,29 @@ def _run_sequential_gate(
                     f"paired gate returned {len(new_results)} games, expected {expected_games}"
                 )
             results.extend(new_results)
+            if relative_role_guard:
+                control_batch, control_runtime = evaluate_batch(
+                    new_openings,
+                    batch_candidate_predictor=incumbent_predictor,
+                    batch_incumbent_predictor=incumbent_predictor,
+                    batch_candidate_source=incumbent_source,
+                    batch_incumbent_source=incumbent_source,
+                )
+                if len(control_batch) != expected_games:
+                    raise RuntimeError(
+                        "accepted-control gate returned "
+                        f"{len(control_batch)} games, expected {expected_games}"
+                    )
+                control_results.extend(control_batch)
+                if runtime_records is not None:
+                    runtime_records.append(
+                        {
+                            "evidence": "accepted_champion_control",
+                            "pair_start": pair_start,
+                            "pair_stop": target_pairs,
+                            **control_runtime,
+                        }
+                    )
             completed_pairs = target_pairs
 
         decision = evaluate_gate(
@@ -553,19 +604,25 @@ def _run_sequential_gate(
                 config.gate.extend_role_floor_to_max_pairs
                 and completed_pairs < config.gate.max_opening_pairs
             ),
+            role_guard_mode=config.gate.role_guard_mode,
+            role_control_results=(control_results if relative_role_guard else None),
+            role_noninferiority_margin=config.gate.role_noninferiority_margin,
         )
-        looks.append(
-            {
-                "pairs": completed_pairs,
-                "games": len(results),
-                "verdict": decision.verdict,
-                "overall_point_score": decision.summary.overall.point_score,
-                "ci_lower": decision.summary.ci_lower,
-                "ci_upper": decision.summary.ci_upper,
-            }
-        )
+        look = {
+            "pairs": completed_pairs,
+            "games": len(results),
+            "verdict": decision.verdict,
+            "overall_point_score": decision.summary.overall.point_score,
+            "ci_lower": decision.summary.ci_lower,
+            "ci_upper": decision.summary.ci_upper,
+            "role_guard_mode": getattr(decision, "role_guard_mode", "absolute_floor"),
+        }
+        role_noninferiority = getattr(decision, "role_noninferiority", None)
+        if role_noninferiority is not None:
+            look["role_noninferiority"] = role_noninferiority.to_dict()
+        looks.append(look)
         if decision.verdict != "inconclusive" or completed_pairs >= config.gate.max_opening_pairs:
-            return results, decision, looks
+            return results, control_results, decision, looks
         target_pairs = min(
             config.gate.max_opening_pairs,
             completed_pairs + config.gate.pair_increment,
@@ -1459,7 +1516,7 @@ def run_smoke(config: V3Config) -> dict[str, Any]:
         candidate_predictor = TorchPredictor(model, config.runtime.device)
         gate_search_sims = config.gate.search_sims_for_generation(generation)
         gate_evaluation_runtime: list[dict[str, Any]] = []
-        gate_results, gate_decision, gate_looks = _run_sequential_gate(
+        gate_results, gate_control_results, gate_decision, gate_looks = _run_sequential_gate(
             config,
             generation=generation,
             openings=openings,
@@ -1480,6 +1537,7 @@ def run_smoke(config: V3Config) -> dict[str, Any]:
             "decision_confidence": config.gate.decision_confidence(),
             "descriptive_confidence": config.gate.confidence,
             "games": [asdict(result) for result in gate_results],
+            "role_control_games": [asdict(result) for result in gate_control_results],
             "looks": gate_looks,
             "evaluation_runtime": gate_evaluation_runtime,
             **gate_decision.to_dict(),

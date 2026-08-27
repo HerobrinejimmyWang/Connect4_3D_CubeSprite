@@ -87,6 +87,8 @@ The third review also closed issues found only after integration:
 - position-based LR stages are applied at learner batch boundaries and remain
   exact across checkpoint restore;
 - sequential gate looks use Bonferroni-adjusted decision confidence;
+- the optional relative role guard uses same-opening accepted-champion control
+  games and rejects only statistically established second-player regression;
 - maximum opening suites skip terminal and immediate-win prefixes instead of
   aborting generation;
 - MCTS lane count is part of the semantic hash, while shard size is operational;

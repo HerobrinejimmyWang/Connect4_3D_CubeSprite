@@ -350,6 +350,8 @@ class GateConfig:
     role_floor: float = 0.45
     role_hard_reject_floor: float = 0.45
     extend_role_floor_to_max_pairs: bool = False
+    role_guard_mode: str = "absolute_floor"
+    role_noninferiority_margin: float = 0.05
     accept_threshold: float = 0.5
 
     def __post_init__(self) -> None:
@@ -384,6 +386,13 @@ class GateConfig:
             )
         if type(self.extend_role_floor_to_max_pairs) is not bool:
             raise TypeError("gate.extend_role_floor_to_max_pairs must be boolean.")
+        if self.role_guard_mode not in {"absolute_floor", "relative_noninferiority"}:
+            raise ValueError(
+                "gate.role_guard_mode must be 'absolute_floor' or "
+                "'relative_noninferiority'."
+            )
+        if not 0.0 <= self.role_noninferiority_margin <= 1.0:
+            raise ValueError("gate.role_noninferiority_margin must be in [0, 1].")
         if not 0.0 <= self.accept_threshold <= 1.0:
             raise ValueError("gate.accept_threshold must be in [0, 1].")
 
@@ -691,6 +700,15 @@ def config_hash(config: V3Config) -> str:
     ):
         semantic["gate"].pop("role_hard_reject_floor")
         semantic["gate"].pop("extend_role_floor_to_max_pairs")
+    # These fields were added after the original V3 lineages.  Their default
+    # values preserve the legacy absolute-floor contract and therefore must not
+    # change an existing config hash merely because newer code can parse them.
+    if (
+        config.gate.role_guard_mode == "absolute_floor"
+        and config.gate.role_noninferiority_margin == 0.05
+    ):
+        semantic["gate"].pop("role_guard_mode")
+        semantic["gate"].pop("role_noninferiority_margin")
     payload = json.dumps(semantic, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
