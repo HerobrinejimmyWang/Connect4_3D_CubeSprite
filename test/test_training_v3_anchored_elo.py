@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
+from unittest.mock import patch
 
 from training.v3.anchored_elo import (
     ANCHOR_SCALE_SCHEMA_VERSION,
@@ -21,12 +22,18 @@ from training.v3.anchored_elo import (
     write_match_batch,
 )
 from training.v3.search import RandomPredictor
+from training.v3.evaluation_runtime import EvaluationModelSource
+from tools.run_v3_anchored_eval import _identity_for_anchor, _resolve_model
 
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = ROOT / "training" / "v3" / "configs" / "anchored_elo_historical_v1.json"
 PRESSURE_CONFIG_PATH = (
     ROOT / "training" / "v3" / "configs" / "anchored_pressure_256v512_historical_v1.json"
+)
+V2_CONFIG_PATH = ROOT / "training" / "v3" / "configs" / "anchored_elo_historical_v2.json"
+V2_PRESSURE_CONFIG_PATH = (
+    ROOT / "training" / "v3" / "configs" / "anchored_pressure_256v512_historical_v2.json"
 )
 
 
@@ -106,6 +113,59 @@ class AnchoredEloTests(unittest.TestCase):
         self.assertEqual(report["anchor_search_sims"], 512)
         self.assertIsNone(report["anchored_elo_scale"])
         self.assertEqual(report["aggregate"]["games"], 72)
+
+    def test_v2_registry_adds_frozen_v3_b6_anchor_without_mutating_v1(self) -> None:
+        config = load_anchored_config(V2_CONFIG_PATH)
+        pressure = load_anchored_config(V2_PRESSURE_CONFIG_PATH)
+        plan = anchored_evaluation_plan(config)
+        anchor = config.anchor("b6_dynamic_g150")
+
+        self.assertEqual(anchor.predictor_kind, "v3")
+        self.assertEqual(
+            anchor.checksum_sha256,
+            "d30e98568163d70b97173be201a093c4502bdba5a6b61be5445ee5430a55658d",
+        )
+        self.assertEqual(len(config.anchors), 4)
+        self.assertEqual(len(pressure.anchors), 4)
+        self.assertEqual(
+            plan["anchor_calibration_by_profile"]["primary_256"]["initial_games"],
+            600,
+        )
+        self.assertEqual(
+            canonical_anchored_config_hash(config),
+            "ee9e491ebdb6bb675d516a4f918d1b860ece1ba9729da01c81486e460037a0f7",
+        )
+        self.assertEqual(
+            canonical_anchored_config_hash(self.config),
+            "09c33b7e63eb341f1af2afa1d7481fa997c27efc5211cae34f4b583c6dacbb34",
+        )
+
+    def test_v3_anchor_uses_v3_artifact_loader_and_replicated_source(self) -> None:
+        config = load_anchored_config(V2_CONFIG_PATH)
+        anchor = config.anchor("b6_dynamic_g150")
+        sentinel = object()
+        loaded_identity = {
+            "checksum_sha256": anchor.checksum_sha256,
+            "model_config": {"blocks": 6, "channels": 128},
+        }
+        with patch(
+            "tools.run_v3_anchored_eval.load_v3_artifact_predictor",
+            return_value=(sentinel, loaded_identity),
+        ) as loader:
+            predictor, identity = _resolve_model(
+                "anchor:b6_dynamic_g150", model_id=None, config=config, device="cpu"
+            )
+
+        self.assertIs(predictor, sentinel)
+        loader.assert_called_once()
+        self.assertEqual(identity["lineage"], "v3_anchor")
+        self.assertEqual(identity["model_config"], loaded_identity["model_config"])
+        source = EvaluationModelSource.from_identity(identity)
+        self.assertEqual(source.kind, "v3_artifact")
+        self.assertEqual(source.model_id, "b6_dynamic_g150")
+        self.assertEqual(
+            _identity_for_anchor(config, "b6_dynamic_g150")["predictor_kind"], "v3"
+        )
 
     def test_opening_checksum_is_portable_across_checkout_newlines(self) -> None:
         source = ROOT / self.config.openings.manifest_path

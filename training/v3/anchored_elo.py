@@ -1,7 +1,7 @@
-"""Historical-anchor evaluation on the common V3 rules and MCTS kernel.
+"""Frozen-anchor evaluation on the common V3 rules and MCTS kernel.
 
-Legacy checkpoints are external opponents only. They never become V3 lineage
-artifacts and their games never enter self-play replay.
+Legacy and V3 checkpoints are evaluation opponents only. They never become the
+training lineage's accepted model and their games never enter self-play replay.
 """
 
 from __future__ import annotations
@@ -77,18 +77,34 @@ class AnchorSpec:
     label: str
     path: str
     checksum_sha256: str
+    predictor_kind: str = "legacy"
 
     def __post_init__(self) -> None:
         if not self.anchor_id or not self.anchor_id.isascii():
             raise ValueError("anchor_id must be non-empty ASCII")
         if not self.label:
             raise ValueError("anchor label must not be empty")
+        if self.predictor_kind not in {"legacy", "v3"}:
+            raise ValueError("anchor predictor_kind must be legacy or v3")
         object.__setattr__(self, "path", _relative_path(self.path, "anchor path"))
         object.__setattr__(
             self,
             "checksum_sha256",
             _sha256(self.checksum_sha256, "anchor checksum_sha256"),
         )
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = {
+            "anchor_id": self.anchor_id,
+            "label": self.label,
+            "path": self.path,
+            "checksum_sha256": self.checksum_sha256,
+        }
+        # Omit the historical default so the immutable v1 config hash remains
+        # byte-for-byte compatible with already collected match evidence.
+        if self.predictor_kind != "legacy":
+            payload["predictor_kind"] = self.predictor_kind
+        return payload
 
 
 @dataclass(frozen=True)
@@ -215,7 +231,7 @@ class AnchoredEloConfig:
 
     def __post_init__(self) -> None:
         if self.rule_id != CLASSIC_RULE.rule_id:
-            raise ValueError("historical anchored Elo v1 supports classic only")
+            raise ValueError("anchored evaluation registries support classic only")
         anchors = tuple(self.anchors)
         profiles = tuple(self.profiles)
         anchor_ids = [item.anchor_id for item in anchors]
@@ -245,7 +261,7 @@ class AnchoredEloConfig:
         return {
             "reference_anchor_id": self.reference_anchor_id,
             "rule_id": self.rule_id,
-            "anchors": [asdict(anchor) for anchor in self.anchors],
+            "anchors": [anchor.to_dict() for anchor in self.anchors],
             "profiles": [profile.to_dict() for profile in self.profiles],
             "openings": asdict(self.openings),
             "statistics": asdict(self.statistics),

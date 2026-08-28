@@ -278,6 +278,35 @@ duplicate opening/role evidence. Anchor calibration
 uses `--milestone calibration`; target batches use `early`, `middle`, or
 `final` according to the selected profile.
 
+### Anchored Elo v2
+
+The immutable v2 registry is
+`configs/anchored_elo_historical_v2.json`. It preserves all three v1 anchors
+and adds the independent V3 Research B6C128 dynamic G150 accepted checkpoint
+as `b6_dynamic_g150`. The checkpoint is frozen by SHA-256 and installed at
+`.tmp/anchored-models-v2/b6_dynamic_g150.pt`; it remains evaluation-only and
+cannot produce replay or become an accepted training model. The corresponding
+asymmetric ruler is
+`configs/anchored_pressure_256v512_historical_v2.json`.
+
+V1 match batches and frozen scales cannot be reused as v2 evidence because the
+registry hash is different. Calibrate a fresh four-anchor round robin for each
+symmetric profile before rating targets. At 50 opening pairs this is six
+matchups and 600 games per profile. Existing G150 target-vs-v1 matches remain
+historical diagnostics; they do not silently become anchor-calibration batches.
+Keep v1 configs and reports unchanged so old ratings remain reproducible.
+
+```powershell
+python tools\run_v3_anchored_eval.py `
+  --config training\v3\configs\anchored_elo_historical_v2.json plan
+python tools\run_v3_anchored_eval.py `
+  --config training\v3\configs\anchored_elo_historical_v2.json verify
+```
+
+Use `anchor:b6_dynamic_g150` in `match` commands. The evaluator selects the V3
+artifact loader from the frozen anchor registry while continuing to load the
+three historical checkpoints through the Legacy compatibility boundary.
+
 ## Hardware plan
 
 The reference MCTS batches the virtual-loss lanes of one game through

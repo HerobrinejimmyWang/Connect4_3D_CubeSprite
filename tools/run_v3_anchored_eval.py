@@ -98,7 +98,10 @@ def _identity_for_anchor(config: Any, anchor_id: str) -> dict[str, Any]:
         "label": anchor.label,
         "path": str(path),
         "checksum_sha256": anchor.checksum_sha256,
-        "lineage": "external_legacy_anchor",
+        "lineage": (
+            "external_legacy_anchor" if anchor.predictor_kind == "legacy" else "v3_anchor"
+        ),
+        "predictor_kind": anchor.predictor_kind,
     }
 
 
@@ -112,7 +115,16 @@ def _resolve_model(
         if model_id is not None and model_id != value:
             raise ValueError("--model-*-id cannot rename a frozen anchor")
         identity = _identity_for_anchor(config, value)
-        predictor = LegacyCheckpointPredictor(identity["path"], device=device)
+        anchor = config.anchor(value)
+        if anchor.predictor_kind == "legacy":
+            predictor = LegacyCheckpointPredictor(identity["path"], device=device)
+        else:
+            predictor, loaded_identity = load_v3_artifact_predictor(
+                identity["path"], device=device
+            )
+            if loaded_identity["checksum_sha256"] != anchor.checksum_sha256:
+                raise ValueError(f"anchor checksum mismatch: {anchor.anchor_id}")
+            identity["model_config"] = loaded_identity["model_config"]
         return predictor, identity
     if kind == "v3":
         predictor, identity = load_v3_artifact_predictor(value, device=device)
