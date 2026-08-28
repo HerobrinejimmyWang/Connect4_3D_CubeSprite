@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from typing import Any, Iterable, Mapping
 
 import numpy as np
@@ -137,6 +137,28 @@ class GateDecision:
                 None if self.role_noninferiority is None else self.role_noninferiority.to_dict()
             ),
         }
+
+
+def reject_terminal_inconclusive(decision: GateDecision) -> GateDecision:
+    """Resolve exhausted evidence as no-promotion while retaining its meaning.
+
+    Intermediate sequential looks remain ``inconclusive`` so the evaluator can
+    append more paired openings.  Once the declared maximum pair budget is
+    exhausted, however, training should not require an operator to clear a
+    third promotion state.  The candidate is rejected for insufficient
+    evidence, which is deliberately distinct from evidence that it is weaker.
+    """
+
+    if decision.verdict != "inconclusive":
+        return decision
+    return replace(
+        decision,
+        verdict="reject",
+        reason=(
+            "maximum pair budget exhausted without establishing promotion; "
+            "candidate rejected for insufficient evidence"
+        ),
+    )
 
 
 def _value(result: object, name: str, default: Any = None) -> Any:
@@ -461,6 +483,7 @@ __all__ = [
     "VALID_VERDICTS",
     "decide_gate",
     "evaluate_gate",
+    "reject_terminal_inconclusive",
     "summarize_role_noninferiority",
     "summarize_paired_results",
 ]

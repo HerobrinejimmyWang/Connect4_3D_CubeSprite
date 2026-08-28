@@ -8,7 +8,9 @@ from dataclasses import replace
 from pathlib import Path
 
 from training.v3.config import load_config
-from training.v3.formal_runner import run_formal
+from training.v3.formal_runner import _resolve_exhausted_pending_gate, run_formal
+from training.v3.formal_state import FormalLoopState, PendingCandidateState
+from training.v3.layout import RunLayout
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -42,6 +44,50 @@ class FormalRunnerTests(unittest.TestCase):
                 ),
             ),
         )
+
+    def test_legacy_terminal_inconclusive_is_audited_and_cleared_on_resume(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            layout = RunLayout.from_root(Path(directory) / "run").create()
+            candidate_id = "candidate-g000039-s00003808-d00242393"
+            candidate_path = layout.candidates / f"{candidate_id}.pt"
+            candidate_path.write_bytes(b"frozen candidate")
+            gate_path = layout.metrics / "gate_g000039.json"
+            gate_path.write_text(
+                json.dumps(
+                    {
+                        "candidate_model_id": candidate_id,
+                        "incumbent_model_id": "accepted-g32",
+                        "verdict": "inconclusive",
+                        "max_pairs": 2,
+                        "games": [{}, {}, {}, {}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            pending = PendingCandidateState(
+                candidate_model_id=candidate_id,
+                candidate_path=f"candidates/{candidate_id}.pt",
+                incumbent_model_id="accepted-g32",
+                gate_path="metrics/gate_g000039.json",
+                opening_manifest="manifests/gate_openings.json",
+                pairs_evaluated=2,
+                max_pairs=2,
+            )
+            state = FormalLoopState(
+                accepted_model_id="accepted-g32", pending_candidate=pending
+            )
+
+            resolved = _resolve_exhausted_pending_gate(layout, state)
+            self.assertIsNone(resolved.pending_candidate)
+            self.assertEqual(resolved.accepted_model_id, "accepted-g32")
+            audit = layout.metrics / f"gate_resolution_{candidate_id}.json"
+            payload = json.loads(audit.read_text(encoding="utf-8"))
+            self.assertEqual(payload["resolution"], "reject")
+            self.assertEqual(
+                payload["rejection_basis"], "insufficient_evidence_at_max_pairs"
+            )
+            self.assertTrue(candidate_path.is_file())
+            self.assertEqual(_resolve_exhausted_pending_gate(layout, state), resolved)
 
     def test_one_generation_commits_and_exact_position_bound_resumes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

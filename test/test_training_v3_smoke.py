@@ -100,6 +100,56 @@ class SequentialGateTests(unittest.TestCase):
         self.assertEqual(final_decision.verdict, "accept")
         self.assertEqual([look["pairs"] for look in looks], [2, 4, 6])
 
+    def test_max_pair_inconclusive_is_terminal_rejection(self) -> None:
+        config = load_config(SMOKE_CONFIG)
+        config = replace(
+            config,
+            gate=replace(
+                config.gate,
+                initial_opening_pairs=2,
+                pair_increment=2,
+                max_opening_pairs=2,
+            ),
+        )
+        inconclusive = SimpleNamespace(
+            verdict="inconclusive",
+            summary=SimpleNamespace(
+                overall=SimpleNamespace(point_score=0.51),
+                ci_lower=0.45,
+                ci_upper=0.57,
+            ),
+            role_guard_mode="absolute_floor",
+            role_noninferiority=None,
+        )
+        rejected = SimpleNamespace(
+            verdict="reject",
+            summary=inconclusive.summary,
+            role_guard_mode="absolute_floor",
+            role_noninferiority=None,
+        )
+        with (
+            mock.patch(
+                "training.v3.pipeline.play_paired_openings",
+                return_value=[object()] * 4,
+            ),
+            mock.patch("training.v3.pipeline.evaluate_gate", return_value=inconclusive),
+            mock.patch(
+                "training.v3.pipeline.reject_terminal_inconclusive",
+                return_value=rejected,
+            ) as terminalize,
+        ):
+            _results, _control, final_decision, looks = _run_sequential_gate(
+                config,
+                generation=0,
+                openings=list(range(2)),
+                candidate_predictor=object(),
+                incumbent_predictor=None,
+            )
+
+        terminalize.assert_called_once_with(inconclusive)
+        self.assertEqual(final_decision.verdict, "reject")
+        self.assertEqual(looks[-1]["verdict"], "reject")
+
     def test_gate_uses_operational_game_parallel_runtime_without_changing_looks(self) -> None:
         config = load_config(SMOKE_CONFIG)
         config = replace(

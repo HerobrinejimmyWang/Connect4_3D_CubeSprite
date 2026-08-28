@@ -16,7 +16,12 @@ from training.v3.checkpoint import (
     restore_rng_state,
     save_checkpoint,
 )
-from training.v3.gate import GateGameResult, evaluate_gate, summarize_paired_results
+from training.v3.gate import (
+    GateGameResult,
+    evaluate_gate,
+    reject_terminal_inconclusive,
+    summarize_paired_results,
+)
 from training.v3.learner import (
     DeterministicKeyBatchSampler,
     OnlineD4Dataset,
@@ -646,6 +651,18 @@ class PairedGateTests(unittest.TestCase):
         )
         self.assertEqual(inconclusive.verdict, "inconclusive")
         self.assertEqual(inconclusive.summary.overall.point_score, 0.5)
+
+    def test_terminal_inconclusive_is_rejected_for_insufficient_evidence(self):
+        inconclusive = evaluate_gate(
+            _paired_scores([(1.0, 0.0), (0.0, 1.0)] * 4),
+            bootstrap_samples=500,
+            bootstrap_seed=1,
+        )
+        resolved = reject_terminal_inconclusive(inconclusive)
+        self.assertEqual(resolved.verdict, "reject")
+        self.assertIn("insufficient evidence", resolved.reason)
+        self.assertEqual(resolved.summary, inconclusive.summary)
+        self.assertIs(reject_terminal_inconclusive(resolved), resolved)
 
     def test_role_extension_band_is_inconclusive_until_final_look(self):
         results = _paired_scores([(1.0, 0.0)] * 6 + [(1.0, 1.0)] * 4)

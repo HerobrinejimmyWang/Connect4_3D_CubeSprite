@@ -35,7 +35,7 @@ from .evaluation_runtime import (
     play_paired_openings_replicated,
 )
 from .formal_state import FormalLoopState, PendingCandidateState
-from .gate import evaluate_gate
+from .gate import evaluate_gate, reject_terminal_inconclusive
 from .hardware_plan import plan_hardware
 from .layout import RunLayout
 from .learner import OnlineD4Dataset, V3Learner, build_adamw
@@ -618,6 +618,9 @@ def _run_sequential_gate(
             role_control_results=(control_results if relative_role_guard else None),
             role_noninferiority_margin=config.gate.role_noninferiority_margin,
         )
+        at_max_pairs = completed_pairs >= config.gate.max_opening_pairs
+        if at_max_pairs:
+            decision = reject_terminal_inconclusive(decision)
         look = {
             "pairs": completed_pairs,
             "games": len(results),
@@ -631,7 +634,7 @@ def _run_sequential_gate(
         if role_noninferiority is not None:
             look["role_noninferiority"] = role_noninferiority.to_dict()
         looks.append(look)
-        if decision.verdict != "inconclusive" or completed_pairs >= config.gate.max_opening_pairs:
+        if decision.verdict != "inconclusive" or at_max_pairs:
             return results, control_results, decision, looks
         target_pairs = min(
             config.gate.max_opening_pairs,

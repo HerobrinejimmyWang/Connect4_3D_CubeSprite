@@ -242,6 +242,66 @@ def _resume_ready_commit(layout: RunLayout, expected_hash: str) -> None:
         )
 
 
+def _resolve_exhausted_pending_gate(
+    layout: RunLayout, formal_state: FormalLoopState
+) -> FormalLoopState:
+    """Migrate the former terminal-inconclusive state to no-promotion.
+
+    Older commits intentionally left a max-pair inconclusive candidate pending
+    for operator review.  The unified policy now treats that outcome as an
+    insufficient-evidence rejection.  The committed candidate artifact stays
+    at its historical path so the immutable generation commit remains valid;
+    an audit artifact records the logical resolution.  The next generation
+    checkpoint persists the cleared pending state.
+    """
+
+    pending = formal_state.pending_candidate
+    if pending is None:
+        return formal_state
+    if pending.pairs_evaluated < pending.max_pairs:
+        return formal_state
+    gate_path = layout.root / pending.gate_path
+    if not gate_path.is_file():
+        raise FileNotFoundError(f"pending gate artifact is missing: {gate_path}")
+    gate = json.loads(gate_path.read_text(encoding="utf-8"))
+    if gate.get("candidate_model_id") != pending.candidate_model_id:
+        raise ValueError("pending candidate differs from its gate artifact")
+    if gate.get("incumbent_model_id") != pending.incumbent_model_id:
+        raise ValueError("pending incumbent differs from its gate artifact")
+    if gate.get("verdict") != "inconclusive":
+        raise RuntimeError("terminal pending gate is not an inconclusive legacy state")
+    if int(gate.get("max_pairs", -1)) != pending.max_pairs:
+        raise ValueError("pending max pairs differ from the gate artifact")
+    if len(gate.get("games", ())) // 2 != pending.pairs_evaluated:
+        raise ValueError("pending pair count differs from the gate artifact")
+    candidate_path = layout.root / pending.candidate_path
+    if not candidate_path.is_file():
+        raise FileNotFoundError(f"pending candidate artifact is missing: {candidate_path}")
+    resolution = {
+        "schema_version": 1,
+        "candidate_model_id": pending.candidate_model_id,
+        "incumbent_model_id": pending.incumbent_model_id,
+        "source_gate_path": pending.gate_path,
+        "source_gate_sha256": _sha256_file(gate_path),
+        "candidate_path": pending.candidate_path,
+        "candidate_sha256": _sha256_file(candidate_path),
+        "original_verdict": "inconclusive",
+        "resolution": "reject",
+        "rejection_basis": "insufficient_evidence_at_max_pairs",
+        "accepted_model_unchanged": True,
+    }
+    resolution_path = layout.metrics / (
+        f"gate_resolution_{pending.candidate_model_id}.json"
+    )
+    if resolution_path.exists():
+        existing = json.loads(resolution_path.read_text(encoding="utf-8"))
+        if existing != resolution:
+            raise ValueError("terminal gate resolution audit artifact drift")
+    else:
+        _atomic_write_json(resolution_path, resolution)
+    return formal_state.resolve_pending_candidate(accepted=False)
+
+
 def _load_training_state(
     config: V3Config,
     layout: RunLayout,
@@ -367,6 +427,7 @@ def _load_training_state(
         saved.replay_cursor.get("cumulative_raw_positions", saved.replay_cursor["raw_positions"])
     ):
         raise ValueError("formal state cumulative replay count differs from the replay cursor")
+    formal_state = _resolve_exhausted_pending_gate(layout, formal_state)
     replay = _load_replay_from_cursor(
         layout,
         saved.replay_cursor,

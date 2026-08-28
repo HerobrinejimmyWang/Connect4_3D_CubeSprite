@@ -158,10 +158,18 @@ the formal-runner call site and cannot silently turn a missing incumbent into a
 random control. Diagnostic matches against milestones or tactical suites must
 not silently change this promotion protocol.
 
-Self-play accepts only the committed accepted champion. A candidate is moved to
-accepted/rejected or remains inconclusive, then checkpoint and audit artifacts
-are written, and a generation commit is published last. Orphan model files are
-therefore ignored after an interrupted commit.
+Self-play accepts only the committed accepted champion. Inconclusive
+intermediate looks append the next disjoint pair increment. If the maximum pair
+budget is exhausted without establishing promotion, the candidate is rejected
+for `insufficient_evidence_at_max_pairs`; this is a no-promotion disposition,
+not a claim that the candidate was proven weaker. Training continues with the
+unchanged accepted champion. A candidate is moved to accepted/rejected before
+checkpoint and audit artifacts are written, and a generation commit is
+published last. Orphan model files are therefore ignored after an interrupted
+commit. Runs created under the former operator-review contract resolve an
+already committed terminal-inconclusive pending candidate through an explicit
+checksum-bound audit artifact on resume, while preserving its historical
+candidate path so the old generation commit remains immutable.
 
 All formal V3 head-to-head paths use the same operational evaluation runtime:
 same-lineage candidate gates, Historical Anchored Elo (including anchor-scale
