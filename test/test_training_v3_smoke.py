@@ -281,6 +281,80 @@ class SequentialGateTests(unittest.TestCase):
         )
         self.assertEqual(evaluate.call_args.kwargs["role_control_results"], control_games)
 
+    def test_relative_role_guard_uses_explicit_random_bootstrap_control(self) -> None:
+        config = load_config(SMOKE_CONFIG)
+        config = replace(
+            config,
+            gate=replace(
+                config.gate,
+                initial_opening_pairs=2,
+                pair_increment=2,
+                max_opening_pairs=2,
+                role_guard_mode="relative_noninferiority",
+                role_noninferiority_margin=0.05,
+            ),
+        )
+        candidate_games = [object()] * 4
+        control_games = [object()] * 4
+        decision = SimpleNamespace(
+            verdict="accept",
+            role_guard_mode="relative_noninferiority",
+            role_noninferiority=None,
+            summary=SimpleNamespace(
+                overall=SimpleNamespace(point_score=0.75),
+                ci_lower=0.6,
+                ci_upper=0.9,
+            ),
+        )
+        runtime_records = []
+        with (
+            mock.patch(
+                "training.v3.pipeline.play_paired_openings",
+                side_effect=[candidate_games, control_games],
+            ) as serial,
+            mock.patch("training.v3.pipeline.evaluate_gate", return_value=decision) as evaluate,
+        ):
+            results, controls, final_decision, _looks = _run_sequential_gate(
+                config,
+                generation=0,
+                openings=list(range(2)),
+                candidate_predictor=object(),
+                incumbent_predictor=None,
+                runtime_records=runtime_records,
+                allow_random_bootstrap_control=True,
+            )
+
+        self.assertEqual(serial.call_count, 2)
+        self.assertEqual(results, candidate_games)
+        self.assertEqual(controls, control_games)
+        self.assertEqual(final_decision.verdict, "accept")
+        self.assertEqual(
+            [row["evidence"] for row in runtime_records],
+            ["candidate_vs_incumbent", "random_bootstrap_control"],
+        )
+        self.assertEqual(evaluate.call_args.kwargs["role_control_results"], control_games)
+
+    def test_relative_role_guard_rejects_implicit_missing_incumbent(self) -> None:
+        config = load_config(SMOKE_CONFIG)
+        config = replace(
+            config,
+            gate=replace(
+                config.gate,
+                initial_opening_pairs=2,
+                pair_increment=2,
+                max_opening_pairs=2,
+                role_guard_mode="relative_noninferiority",
+            ),
+        )
+        with self.assertRaisesRegex(ValueError, "committed accepted champion"):
+            _run_sequential_gate(
+                config,
+                generation=0,
+                openings=list(range(2)),
+                candidate_predictor=object(),
+                incumbent_predictor=None,
+            )
+
     def test_cli_print_config_and_guarded_run(self) -> None:
         output = io.StringIO()
         errors = io.StringIO()

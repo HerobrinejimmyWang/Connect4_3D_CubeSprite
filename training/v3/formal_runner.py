@@ -654,6 +654,7 @@ def _run_generation(
             runtime_records=gate_evaluation_runtime,
             candidate_source=candidate_source,
             incumbent_source=incumbent_source,
+            allow_random_bootstrap_control=accepted_model_id is None,
         )
         gate_path = layout.metrics / f"gate_g{generation:06d}.json"
         _atomic_write_json(
@@ -669,6 +670,16 @@ def _run_generation(
                 "max_pairs": config.gate.max_opening_pairs,
                 "games": [asdict(result) for result in gate_results],
                 "role_control_games": [asdict(result) for result in gate_control_results],
+                "role_control_baseline": (
+                    "random_bootstrap"
+                    if config.gate.role_guard_mode == "relative_noninferiority"
+                    and accepted_model_id is None
+                    else (
+                        "accepted_champion"
+                        if config.gate.role_guard_mode == "relative_noninferiority"
+                        else None
+                    )
+                ),
                 "looks": gate_looks,
                 "evaluation_runtime": gate_evaluation_runtime,
                 **gate_decision.to_dict(),

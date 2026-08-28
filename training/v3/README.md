@@ -149,7 +149,13 @@ search budget, and colors. It vetoes promotion only when the upper confidence
 bound of candidate-minus-control performance is below the configured negative
 margin; uncertain role evidence is not treated as regression. Candidate and
 control games, the margin, interval, and runtime topology are persisted in the
-gate artifact. Diagnostic matches against milestones or tactical suites must
+gate artifact. Before a cold-start lineage has a committed champion, the first
+scheduled candidate is evaluated against the explicit random bootstrap
+incumbent and its role control is the matching random-vs-random baseline. The
+artifact labels this as `random_bootstrap`; later gates require and label the
+committed `accepted_champion` control. This bootstrap exception is explicit at
+the formal-runner call site and cannot silently turn a missing incumbent into a
+random control. Diagnostic matches against milestones or tactical suites must
 not silently change this promotion protocol.
 
 Self-play accepts only the committed accepted champion. A candidate is moved to

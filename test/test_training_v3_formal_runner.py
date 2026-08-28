@@ -125,6 +125,34 @@ class FormalRunnerTests(unittest.TestCase):
             self.assertEqual(resumed["generations_completed"], 0)
             self.assertEqual(resumed["formal_loop_state"]["replay_positions"], result["formal_loop_state"]["replay_positions"])
 
+    def test_cold_start_relative_role_gate_uses_random_bootstrap_control(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            base = self._config(run_dir)
+            config = replace(
+                base,
+                gate=replace(
+                    base.gate,
+                    bootstrap_candidate_train_positions=1,
+                    role_floor=0.0,
+                    role_hard_reject_floor=0.0,
+                    role_guard_mode="relative_noninferiority",
+                    role_noninferiority_margin=0.05,
+                ),
+            )
+            result = run_formal(config, max_train_positions=5, max_generations=1)
+
+            self.assertEqual(result["generations_completed"], 1)
+            gate_path = run_dir / "metrics" / "gate_g000000.json"
+            gate = json.loads(gate_path.read_text(encoding="utf-8"))
+            self.assertEqual(gate["incumbent_model_id"], "random")
+            self.assertEqual(gate["role_control_baseline"], "random_bootstrap")
+            self.assertEqual(len(gate["role_control_games"]), len(gate["games"]))
+            self.assertEqual(
+                [row["evidence"] for row in gate["evaluation_runtime"]],
+                ["candidate_vs_incumbent", "random_bootstrap_control"],
+            )
+
     def test_provisional_auxiliary_weights_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             base = load_config(ROOT / "training" / "v3" / "configs" / "smoke_cpu.json")

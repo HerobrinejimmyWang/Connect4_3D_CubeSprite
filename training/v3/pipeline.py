@@ -454,6 +454,7 @@ def _run_sequential_gate(
     runtime_records: list[dict[str, Any]] | None = None,
     candidate_source: EvaluationModelSource | None = None,
     incumbent_source: EvaluationModelSource | None = None,
+    allow_random_bootstrap_control: bool = False,
 ) -> tuple[list[Any], list[Any], Any, list[dict[str, Any]]]:
     """Append only new opening pairs until the gate resolves or reaches its cap."""
 
@@ -468,8 +469,13 @@ def _run_sequential_gate(
     if len(openings) < config.gate.max_opening_pairs:
         raise ValueError("opening suite does not cover gate.max_opening_pairs")
     relative_role_guard = config.gate.role_guard_mode == "relative_noninferiority"
+    random_bootstrap_control = (
+        relative_role_guard
+        and incumbent_predictor is None
+        and incumbent_source is None
+    )
     if relative_role_guard:
-        if incumbent_predictor is None and incumbent_source is None:
+        if random_bootstrap_control and not allow_random_bootstrap_control:
             raise ValueError(
                 "relative role non-inferiority requires a committed accepted champion"
             )
@@ -584,7 +590,11 @@ def _run_sequential_gate(
                 if runtime_records is not None:
                     runtime_records.append(
                         {
-                            "evidence": "accepted_champion_control",
+                            "evidence": (
+                                "random_bootstrap_control"
+                                if random_bootstrap_control
+                                else "accepted_champion_control"
+                            ),
                             "pair_start": pair_start,
                             "pair_stop": target_pairs,
                             **control_runtime,
@@ -1523,6 +1533,7 @@ def run_smoke(config: V3Config) -> dict[str, Any]:
             candidate_predictor=candidate_predictor,
             incumbent_predictor=accepted_predictor,
             runtime_records=gate_evaluation_runtime,
+            allow_random_bootstrap_control=accepted_model_id is None,
         )
         gate_payload = {
             "schema_version": 1,
@@ -1538,6 +1549,16 @@ def run_smoke(config: V3Config) -> dict[str, Any]:
             "descriptive_confidence": config.gate.confidence,
             "games": [asdict(result) for result in gate_results],
             "role_control_games": [asdict(result) for result in gate_control_results],
+            "role_control_baseline": (
+                "random_bootstrap"
+                if config.gate.role_guard_mode == "relative_noninferiority"
+                and accepted_model_id is None
+                else (
+                    "accepted_champion"
+                    if config.gate.role_guard_mode == "relative_noninferiority"
+                    else None
+                )
+            ),
             "looks": gate_looks,
             "evaluation_runtime": gate_evaluation_runtime,
             **gate_decision.to_dict(),
