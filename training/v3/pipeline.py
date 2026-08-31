@@ -840,10 +840,20 @@ def _build_active_datasets(
     validation_games = sorted({int(replay.game_id[index]) for index in validation_indices})
     if set(train_games).intersection(validation_games):
         raise RuntimeError("Game-level train/validation split leaked a game across splits.")
+    train_sampling_groups = None
+    if config.selfplay.opening_temperature_mixture.enabled:
+        train_sampling_groups = np.asarray(
+            [
+                config.selfplay.exploration_variant_index_for_game(int(game_id))
+                for game_id in train_replay.game_id
+            ],
+            dtype=np.int64,
+        )
     dataset = OnlineD4Dataset(
         train_replay,
         augmentation_seed=config.run.seed + 701,
         source_positions=train_indices,
+        sampling_groups=train_sampling_groups,
     )
     validation_dataset = None
     if len(validation_indices):
@@ -868,6 +878,20 @@ def _build_active_datasets(
         "train_sample_id_digest": _sample_id_digest(replay, train_indices),
         "validation_sample_id_digest": _sample_id_digest(replay, validation_indices),
     }
+    if train_sampling_groups is not None:
+        selection["position_balanced_sampling"] = {
+            "schema_version": 1,
+            "strategy": "checkpoint_cursor_alternating_v1",
+            "target_train_position_fractions": {
+                "baseline": 0.5,
+                "lowered_opening_temperature": 0.5,
+            },
+            "available_train_positions": {
+                "baseline": int(np.sum(train_sampling_groups == 0)),
+                "lowered_opening_temperature": int(np.sum(train_sampling_groups == 1)),
+            },
+            "absolute_sample_cursor_parity_selects_group": True,
+        }
     return dataset, validation_dataset, selection
 
 
@@ -1409,6 +1433,9 @@ def run_smoke(config: V3Config) -> dict[str, Any]:
                         "exploration_phases": [
                             asdict(phase) for phase in config.selfplay.exploration_phases
                         ],
+                        "opening_temperature_mixture": asdict(
+                            config.selfplay.opening_temperature_mixture
+                        ),
                         "cpuct": config.selfplay.cpuct,
                         "virtual_loss": config.selfplay.virtual_loss,
                         "mcts_lanes_per_actor": config.runtime.mcts_lanes_per_actor,
@@ -1435,6 +1462,33 @@ def run_smoke(config: V3Config) -> dict[str, Any]:
                 asdict(phase) for phase in config.selfplay.exploration_phases
             ),
         )
+        if config.selfplay.opening_temperature_mixture.enabled:
+            mixture_health: dict[str, Any] = {}
+            for variant in ("baseline", "lowered_opening_temperature"):
+                variant_games = [
+                    game for game in games if game.exploration_variant == variant
+                ]
+                variant_selfplay = config.selfplay.for_exploration_variant(variant)
+                mixture_health[variant] = {
+                    "games": len(variant_games),
+                    "raw_positions": sum(len(game.samples) for game in variant_games),
+                    "health": _selfplay_health(
+                        variant_games,
+                        expected_search_sims={
+                            "full": search_stage.full_search_sims,
+                            "fast": search_stage.fast_search_sims,
+                        },
+                        exploration_phases=(
+                            asdict(phase)
+                            for phase in variant_selfplay.exploration_phases
+                        ),
+                    ),
+                }
+            health["opening_temperature_mixture"] = {
+                "schema_version": 1,
+                "assignment": "alternating_game_id_v1",
+                "variants": mixture_health,
+            }
         _append_metric(
             layout,
             {

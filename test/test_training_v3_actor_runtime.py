@@ -10,6 +10,7 @@ from training.v3.actor_runtime import RemotePredictor, run_self_play_actor_pool
 from training.v3.config import (
     ExplorationPhaseConfig,
     ModelConfig,
+    OpeningTemperatureMixtureConfig,
     SearchStageConfig,
     V3Config,
 )
@@ -43,6 +44,44 @@ def _actor_config(
 
 
 class ActorPoolTests(unittest.TestCase):
+    def test_opening_temperature_mixture_assigns_equal_games_and_only_changes_temperature(self) -> None:
+        config = _actor_config(games=4, actors=2)
+        mixture = OpeningTemperatureMixtureConfig(enabled=True)
+        config = replace(
+            config,
+            selfplay=replace(
+                config.selfplay,
+                exploration_phases=(
+                    ExplorationPhaseConfig(0, 1.0, 0.24, 0.06),
+                    ExplorationPhaseConfig(28, 0.5, 0.5, 0.005),
+                    ExplorationPhaseConfig(50, 0.0, 0.0, 0.0),
+                ),
+                opening_temperature_mixture=mixture,
+            ),
+        )
+        lowered = config.selfplay.for_exploration_variant(
+            "lowered_opening_temperature"
+        )
+        self.assertEqual(
+            [phase.start_ply for phase in lowered.exploration_phases],
+            [0, 8, 28, 50],
+        )
+        self.assertEqual(lowered.exploration_for_ply(7).temperature, 0.5)
+        self.assertEqual(lowered.exploration_for_ply(8).temperature, 1.0)
+        self.assertEqual(lowered.exploration_for_ply(7).dirichlet_alpha, 0.24)
+        self.assertEqual(lowered.exploration_for_ply(7).dirichlet_epsilon, 0.06)
+
+        pooled = run_self_play_actor_pool(config, start_game_id=10, generation=0)
+        self.assertEqual(
+            [game.exploration_variant for game in pooled.games],
+            [
+                "baseline",
+                "lowered_opening_temperature",
+                "baseline",
+                "lowered_opening_temperature",
+            ],
+        )
+
     def test_random_actor_pool_matches_sequential_game_identity(self) -> None:
         config = _actor_config(games=4, actors=2)
         sequential = run_self_play_games(config, start_game_id=9, generation=0)

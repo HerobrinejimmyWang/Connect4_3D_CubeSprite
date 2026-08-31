@@ -442,6 +442,61 @@ class LearnerCheckpointTests(unittest.TestCase):
         self.assertNotIn("pin_memory", dataloader.call_args.kwargs)
         self.assertNotIn("prefetch_factor", dataloader.call_args.kwargs)
 
+    def test_position_balanced_sampler_is_exact_and_resume_stable(self):
+        pools = (
+            np.asarray([0, 1, 2], dtype=np.int64),
+            np.asarray([3, 4, 5, 6, 7], dtype=np.int64),
+        )
+        continuous = list(
+            DeterministicKeyBatchSampler(
+                dataset_size=8,
+                sample_seed=19,
+                start_cursor=0,
+                batch_sizes=(6, 4),
+                balanced_index_pools=pools,
+            )
+        )
+        first = list(
+            DeterministicKeyBatchSampler(
+                dataset_size=8,
+                sample_seed=19,
+                start_cursor=0,
+                batch_sizes=(6,),
+                balanced_index_pools=pools,
+            )
+        )
+        resumed = list(
+            DeterministicKeyBatchSampler(
+                dataset_size=8,
+                sample_seed=19,
+                start_cursor=6,
+                batch_sizes=(4,),
+                balanced_index_pools=pools,
+            )
+        )
+        self.assertEqual(continuous, [*first, *resumed])
+        flattened = [index for batch in continuous for index, _cursor in batch]
+        self.assertEqual(sum(index in pools[0] for index in flattened), 5)
+        self.assertEqual(sum(index in pools[1] for index in flattened), 5)
+
+    def test_learner_reports_exact_position_mix_not_raw_pool_sizes(self):
+        replay = _make_replay(12)
+        groups = np.asarray([0] * 3 + [1] * 9, dtype=np.int64)
+        dataset = OnlineD4Dataset(
+            replay,
+            augmentation_seed=8,
+            sampling_groups=groups,
+        )
+        _model, _optimizer, _scheduler, learner = _make_training_stack()
+        bucket = TrainTokenBucket(tokens_per_position=4.0)
+        bucket.add(12)
+        metrics = learner.train_steps(dataset, steps=2, token_bucket=bucket)
+        self.assertEqual(metrics.positions, 8)
+        self.assertEqual(
+            metrics.sampling_group_positions,
+            {"baseline": 4, "lowered_opening_temperature": 4},
+        )
+
     def test_position_limit_stops_at_exact_absolute_budget(self):
         model, optimizer, _, learner = _make_training_stack()
         dataset = OnlineD4Dataset(_make_replay(12), augmentation_seed=8)

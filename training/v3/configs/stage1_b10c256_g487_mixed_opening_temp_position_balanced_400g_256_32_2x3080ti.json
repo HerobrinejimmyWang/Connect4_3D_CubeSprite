@@ -1,0 +1,95 @@
+{
+  "run": {
+    "run_id": "stage1_b10c256_g487_mixed_opening_temp_position_balanced_400g_256_32_2x3080ti",
+    "seed": 271828,
+    "run_dir": "training/runs/stage1_b10c256_g487_mixed_opening_temp_position_balanced_400g_256_32_2x3080ti",
+    "resume": false,
+    "warm_start_checkpoint": "training/runs/stage1_b10c256_relative_role_guard_coldstart_400g_256_32_2x3080ti/checkpoints/g000487-s00053839.pt",
+    "warm_start_checkpoint_sha256": "855a748856b7bab76dbc09ec7e372c2e232bba5ef831409fb0787857cdd14b53",
+    "warm_start_mode": "optimizer_fresh_replay_v1"
+  },
+  "model": {
+    "architecture": "gravity_resnet", "channels": 256, "blocks": 10,
+    "global_input_schema": "role_rule_v1", "output_schema": "policy_wdl_aux_v1",
+    "rule_feature_dim": 32, "moves_left_classes": 301
+  },
+  "selfplay": {
+    "search_schedule": [
+      {"start_generation": 0, "games": 400, "full_search_sims": 256, "fast_search_sims": 32, "full_probability": 0.5}
+    ],
+    "exploration_phases": [
+      {"start_ply": 0, "temperature": 1.0, "dirichlet_alpha": 0.24, "dirichlet_epsilon": 0.06},
+      {"start_ply": 28, "temperature": 0.5, "dirichlet_alpha": 0.5, "dirichlet_epsilon": 0.005},
+      {"start_ply": 50, "temperature": 0.0, "dirichlet_alpha": 0.0, "dirichlet_epsilon": 0.0}
+    ],
+    "dynamic_exploration": {
+      "enabled": true,
+      "high_exploration_plies": [28],
+      "min_generations_per_stage": 16,
+      "stability_window_generations": 8,
+      "mean_game_length_relative_range": 0.10,
+      "short_game_rate_absolute_range": 0.06,
+      "policy_entropy_relative_range": 0.10
+    },
+    "opening_temperature_mixture": {
+      "enabled": true,
+      "lowered_temperature_plies": 8,
+      "lowered_temperature_multiplier": 0.5,
+      "lowered_game_fraction": 0.5,
+      "lowered_train_position_fraction": 0.5
+    },
+    "cpuct": 1.5,
+    "virtual_loss": 1.0,
+    "rule_id": "classic",
+    "rule_registry_hash": "4c21f13e4e5c9529f0a2a3695bb70015893191bdad65a4208076438e79db90ca",
+    "opening_full_search_plies": 12
+  },
+  "replay": {
+    "train_fraction": 0.95, "window_c": 250000, "window_alpha": 0.75,
+    "window_beta": 0.4, "train_tokens_per_raw_position": 4.0, "shard_games": 40
+  },
+  "learner": {
+    "max_optimizer_steps_per_cycle": 256, "batch_size": 256,
+    "lr_schedule": [
+      {"start_train_positions": 0, "learning_rate": 0.0005},
+      {"start_train_positions": 100000, "learning_rate": 0.00025},
+      {"start_train_positions": 500000, "learning_rate": 0.00015},
+      {"start_train_positions": 2000000, "learning_rate": 0.0001},
+      {"start_train_positions": 5000000, "learning_rate": 0.00005}
+    ],
+    "weight_decay": 0.0001, "grad_clip_norm": 1.0,
+    "policy_loss_weight": 1.0, "wdl_loss_weight": 1.0,
+    "opponent_reply_loss_weight": 0.15, "future_occupancy_loss_weight": 0.15,
+    "moves_left_loss_weight": 0.05,
+    "future_occupancy_class_weights": [5.0, 5.0, 0.35561042132416815]
+  },
+  "gate": {
+    "bootstrap_candidate_train_positions": 100000, "candidate_train_positions": 200000,
+    "initial_opening_pairs": 50, "pair_increment": 25, "max_opening_pairs": 200,
+    "opening_depths": [0, 2, 4, 6, 8, 10, 12],
+    "search_schedule": [{"start_generation": 0, "search_sims": 256}],
+    "cpuct": 1.5, "bootstrap_samples": 10000, "confidence": 0.95,
+    "role_floor": 0.0, "role_hard_reject_floor": 0.0,
+    "extend_role_floor_to_max_pairs": false,
+    "role_guard_mode": "relative_noninferiority",
+    "role_noninferiority_margin": 0.05,
+    "accept_threshold": 0.5
+  },
+  "stability": {
+    "game_length_pause_start_train_positions": 200000,
+    "first_player_win_rate_watch": 0.8,
+    "first_player_win_rate_rise_watch": 0.1
+  },
+  "runtime": {
+    "device": "cuda:0", "selfplay_devices": ["cuda:0", "cuda:1"],
+    "actor_processes": 40, "mcts_lanes_per_actor": 4, "inference_batch_size": 32,
+    "evaluation_devices": ["cuda:0", "cuda:1"], "evaluation_replicas_per_device": 4,
+    "num_workers": 2, "torch_threads": 4, "deterministic": false, "learner_amp": true,
+    "storage": {
+      "mode": "archive_ack_prune", "soft_used_fraction": 0.7, "hard_free_gib": 10.0,
+      "active_window_margin": 1.25, "bundle_target_gib": 4.0,
+      "keep_checkpoints": 3, "keep_accepted": 2, "keep_rejected": 1,
+      "representative_games": 5
+    }
+  }
+}

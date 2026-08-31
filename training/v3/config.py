@@ -140,6 +140,37 @@ class DynamicExplorationConfig:
 
 
 @dataclass(frozen=True)
+class OpeningTemperatureMixtureConfig:
+    """Two-route opening exploration with position-balanced learner sampling.
+
+    V1 deliberately fixes both mixture fractions at one half.  Consecutive
+    game IDs alternate routes, while the learner alternates replay strata by
+    its checkpointed sample cursor.  This makes the game-production and
+    consumed-training-position contracts independently auditable.
+    """
+
+    enabled: bool = False
+    lowered_temperature_plies: int = 8
+    lowered_temperature_multiplier: float = 0.5
+    lowered_game_fraction: float = 0.5
+    lowered_train_position_fraction: float = 0.5
+
+    def __post_init__(self) -> None:
+        if type(self.enabled) is not bool:
+            raise TypeError("selfplay.opening_temperature_mixture.enabled must be a boolean.")
+        if self.lowered_temperature_plies < 1:
+            raise ValueError("opening temperature mixture needs a positive ply boundary.")
+        if not 0.0 < self.lowered_temperature_multiplier < 1.0:
+            raise ValueError("opening temperature multiplier must be in (0, 1).")
+        for label, value in (
+            ("lowered_game_fraction", self.lowered_game_fraction),
+            ("lowered_train_position_fraction", self.lowered_train_position_fraction),
+        ):
+            if value != 0.5:
+                raise ValueError(f"opening temperature mixture V1 requires {label}=0.5.")
+
+
+@dataclass(frozen=True)
 class SelfPlayConfig:
     search_schedule: tuple[SearchStageConfig, ...] = field(
         default_factory=lambda: (SearchStageConfig(0, 4, 8, 2, 0.5),)
@@ -157,6 +188,9 @@ class SelfPlayConfig:
     opening_full_search_plies: int = 0
     dynamic_exploration: DynamicExplorationConfig = field(
         default_factory=DynamicExplorationConfig
+    )
+    opening_temperature_mixture: OpeningTemperatureMixtureConfig = field(
+        default_factory=OpeningTemperatureMixtureConfig
     )
 
     def __post_init__(self) -> None:
@@ -183,6 +217,19 @@ class SelfPlayConfig:
                 raise ValueError(
                     "the configured dynamic post-opening boundary must be one of the "
                     "declared dynamic exploration stages."
+                )
+        if self.opening_temperature_mixture.enabled:
+            boundary = self.opening_temperature_mixture.lowered_temperature_plies
+            if any(stage.games % 2 for stage in self.search_schedule):
+                raise ValueError(
+                    "opening temperature mixture requires an even game count in every search stage."
+                )
+            if (
+                boundary >= self.exploration_phases[-1].start_ply
+                and self.exploration_phases[-1].temperature == 0.0
+            ):
+                raise ValueError(
+                    "opening temperature mixture boundary must precede the greedy phase."
                 )
         try:
             DEFAULT_RULE_REGISTRY.get(self.rule_id)
@@ -212,6 +259,51 @@ class SelfPlayConfig:
                 break
             selected = phase
         return selected
+
+    def exploration_variant_for_game(self, game_id: int) -> str:
+        if game_id < 0:
+            raise ValueError("game_id must be non-negative.")
+        if not self.opening_temperature_mixture.enabled:
+            return "baseline"
+        return "baseline" if int(game_id) % 2 == 0 else "lowered_opening_temperature"
+
+    def exploration_variant_index_for_game(self, game_id: int) -> int:
+        return 0 if self.exploration_variant_for_game(game_id) == "baseline" else 1
+
+    def for_exploration_variant(self, variant: str) -> "SelfPlayConfig":
+        if variant == "baseline":
+            return self
+        if variant != "lowered_opening_temperature":
+            raise ValueError(f"unknown opening exploration variant: {variant!r}")
+        mixture = self.opening_temperature_mixture
+        if not mixture.enabled:
+            raise ValueError("lowered opening exploration requires an enabled mixture")
+        boundary = mixture.lowered_temperature_plies
+        phases: list[ExplorationPhaseConfig] = []
+        for phase in self.exploration_phases:
+            phases.append(
+                replace(
+                    phase,
+                    temperature=(
+                        phase.temperature * mixture.lowered_temperature_multiplier
+                        if phase.start_ply < boundary
+                        else phase.temperature
+                    ),
+                )
+            )
+        if all(phase.start_ply != boundary for phase in phases):
+            base = self.exploration_for_ply(boundary)
+            phases.append(replace(base, start_ply=boundary))
+            phases.sort(key=lambda phase: phase.start_ply)
+        return replace(
+            self,
+            exploration_phases=tuple(phases),
+            # The generation-level controller has already resolved the base
+            # boundary before a per-game route is derived.  Disabling it on
+            # this ephemeral view prevents the inserted ply-8 restoration
+            # phase from being mistaken for another controller stage.
+            dynamic_exploration=replace(self.dynamic_exploration, enabled=False),
+        )
 
 
 @dataclass(frozen=True)
@@ -679,6 +771,8 @@ def config_hash(config: V3Config) -> str:
         selfplay_semantics.pop("opening_full_search_plies")
     if not selfplay_semantics["dynamic_exploration"]["enabled"]:
         selfplay_semantics.pop("dynamic_exploration")
+    if not selfplay_semantics["opening_temperature_mixture"]["enabled"]:
+        selfplay_semantics.pop("opening_temperature_mixture")
     semantic = {
         "run": run_semantics,
         "model": asdict(config.model),
@@ -721,6 +815,7 @@ __all__ = [
     "LearnerConfig",
     "LearningRateStageConfig",
     "ModelConfig",
+    "OpeningTemperatureMixtureConfig",
     "ReplayConfig",
     "RunConfig",
     "RuntimeConfig",

@@ -7,7 +7,7 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 
-from training.v3.config import load_config
+from training.v3.config import OpeningTemperatureMixtureConfig, load_config
 from training.v3.formal_runner import _resolve_exhausted_pending_gate, run_formal
 from training.v3.formal_state import FormalLoopState, PendingCandidateState
 from training.v3.layout import RunLayout
@@ -121,6 +121,55 @@ class FormalRunnerTests(unittest.TestCase):
             self.assertEqual(resumed["formal_loop_state"]["train_positions_consumed"], 5)
             manifest = json.loads((run_dir / "run_manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(len(manifest["runtime_invocations"]), 2)
+
+    def test_formal_mixture_balances_consumed_positions_independently_of_raw_pool(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "mixed"
+            base = self._config(run_dir)
+            config = replace(
+                base,
+                selfplay=replace(
+                    base.selfplay,
+                    opening_temperature_mixture=OpeningTemperatureMixtureConfig(
+                        enabled=True
+                    ),
+                ),
+                replay=replace(
+                    base.replay,
+                    train_fraction=0.999999,
+                    window_c=1000,
+                ),
+            )
+            result = run_formal(
+                config,
+                max_train_positions=8,
+                max_generations=1,
+            )
+            self.assertEqual(result["formal_loop_state"]["train_positions_consumed"], 8)
+            metrics = [
+                json.loads(line)
+                for line in (run_dir / "metrics" / "metrics.jsonl")
+                .read_text(encoding="utf-8")
+                .splitlines()
+            ]
+            learner = next(row for row in metrics if row["stage"] == "learner")
+            self.assertEqual(
+                learner["sampling_group_positions"],
+                {"baseline": 4, "lowered_opening_temperature": 4},
+            )
+            selfplay = next(row for row in metrics if row["stage"] == "selfplay")
+            variants = selfplay["health"]["opening_temperature_mixture"]["variants"]
+            self.assertEqual(variants["baseline"]["games"], 2)
+            self.assertEqual(variants["lowered_opening_temperature"]["games"], 2)
+            selection = json.loads(
+                (run_dir / "replay" / "shuffle" / "selection_g000000.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(
+                selection["position_balanced_sampling"]["target_train_position_fractions"],
+                {"baseline": 0.5, "lowered_opening_temperature": 0.5},
+            )
 
     def test_second_generation_uses_only_the_previous_committed_champion(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

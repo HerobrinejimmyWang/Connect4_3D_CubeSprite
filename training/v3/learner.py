@@ -42,6 +42,7 @@ class OnlineD4Dataset(torch.utils.data.Dataset[dict[str, Any]]):
         *,
         augmentation_seed: int,
         source_positions: Sequence[int] | np.ndarray | None = None,
+        sampling_groups: Sequence[int] | np.ndarray | None = None,
         rule_registry: RuleRegistry = DEFAULT_RULE_REGISTRY,
     ) -> None:
         self.replay = replay
@@ -57,6 +58,20 @@ class OnlineD4Dataset(torch.utils.data.Dataset[dict[str, Any]]):
             self.source_positions = np.asarray(source_positions, dtype=np.int64)
             if self.source_positions.shape != (len(replay),):
                 raise ValueError("source_positions must have one entry per replay sample")
+        self.sampling_groups: np.ndarray | None = None
+        self.balanced_index_pools: tuple[np.ndarray, ...] | None = None
+        if sampling_groups is not None:
+            groups = np.asarray(sampling_groups, dtype=np.int64)
+            if groups.shape != (len(replay),):
+                raise ValueError("sampling_groups must have one entry per replay sample")
+            unique = tuple(int(value) for value in np.unique(groups))
+            if unique != (0, 1):
+                raise ValueError("position-balanced replay requires non-empty groups 0 and 1")
+            self.sampling_groups = groups
+            self.balanced_index_pools = tuple(
+                np.flatnonzero(groups == group).astype(np.int64, copy=False)
+                for group in unique
+            )
         self._epoch = 0
         self._newest_source_position = (
             int(self.source_positions.max()) if len(self.source_positions) else -1
@@ -154,6 +169,9 @@ class OnlineD4Dataset(torch.utils.data.Dataset[dict[str, Any]]):
                 int(self.replay.remaining_turns[index]), dtype=torch.long
             ),
             "sample_id": (game_id, ply),
+            "sampling_group": (
+                -1 if self.sampling_groups is None else int(self.sampling_groups[index])
+            ),
             "sample_age": max(0, self._newest_source_position - source_position),
             "d4": transform,
         }
@@ -171,6 +189,7 @@ class DeterministicKeyBatchSampler(
         sample_seed: int,
         start_cursor: int,
         batch_sizes: Sequence[int],
+        balanced_index_pools: Sequence[Sequence[int] | np.ndarray] | None = None,
     ) -> None:
         if dataset_size <= 0:
             raise ValueError("dataset_size must be positive")
@@ -182,6 +201,20 @@ class DeterministicKeyBatchSampler(
         self.sample_seed = int(sample_seed)
         self.start_cursor = int(start_cursor)
         self.batch_sizes = tuple(int(size) for size in batch_sizes)
+        self.balanced_index_pools: tuple[np.ndarray, ...] | None = None
+        if balanced_index_pools is not None:
+            pools = tuple(np.asarray(pool, dtype=np.int64) for pool in balanced_index_pools)
+            if len(pools) != 2 or any(pool.ndim != 1 or len(pool) == 0 for pool in pools):
+                raise ValueError("balanced sampling requires two non-empty one-dimensional pools")
+            combined = np.concatenate(pools)
+            if (
+                len(combined) != self.dataset_size
+                or len(np.unique(combined)) != self.dataset_size
+                or int(combined.min()) != 0
+                or int(combined.max()) != self.dataset_size - 1
+            ):
+                raise ValueError("balanced sampling pools must partition the dataset")
+            self.balanced_index_pools = pools
 
     def __len__(self) -> int:
         return len(self.batch_sizes)
@@ -191,9 +224,19 @@ class DeterministicKeyBatchSampler(
         for batch_size in self.batch_sizes:
             batch: list[tuple[int, int]] = []
             for _ in range(batch_size):
-                batch.append(
-                    (_cursor_index(self.sample_seed, cursor, self.dataset_size), cursor)
-                )
+                if self.balanced_index_pools is None:
+                    index = _cursor_index(self.sample_seed, cursor, self.dataset_size)
+                else:
+                    group = cursor % len(self.balanced_index_pools)
+                    group_cursor = cursor // len(self.balanced_index_pools)
+                    pool = self.balanced_index_pools[group]
+                    local_index = _cursor_index(
+                        self.sample_seed ^ ((group + 1) * 0x6A09E667),
+                        group_cursor,
+                        len(pool),
+                    )
+                    index = int(pool[local_index])
+                batch.append((index, cursor))
                 cursor += 1
             yield batch
 
@@ -222,6 +265,7 @@ def _collate_replay_items(items: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             )
         },
         "sample_ids": [tuple(map(int, item["sample_id"])) for item in items],
+        "sampling_groups": [int(item["sampling_group"]) for item in items],
         "average_sample_age": sum(float(item["sample_age"]) for item in items) / len(items),
     }
 
@@ -251,8 +295,9 @@ class LearnerMetrics:
     train_data_ratio: float
     positions_per_second: float
     learning_rate: float
+    sampling_group_positions: dict[str, int]
 
-    def to_dict(self) -> dict[str, int | float]:
+    def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["future_occupancy_accuracy_unweighted"] = (
             self.future_occupancy_accuracy
@@ -517,6 +562,7 @@ class V3Learner:
             sample_seed=self.sample_seed,
             start_cursor=self.sample_cursor,
             batch_sizes=batch_sizes,
+            balanced_index_pools=dataset.balanced_index_pools,
         )
         loader_generator = torch.Generator()
         loader_generator.manual_seed(
@@ -577,6 +623,7 @@ class V3Learner:
         correct_moves_left = 0
         weighted_brier = 0.0
         weighted_age = 0.0
+        sampling_group_positions = {"baseline": 0, "lowered_opening_temperature": 0}
         last_grad_norm = 0.0
         calibration = _CalibrationAccumulator(self.ece_bins)
         self.last_sample_ids = []
@@ -599,6 +646,7 @@ class V3Learner:
         for batch in loader:
             batch_count = int(batch["board"].shape[0])
             sample_ids = batch.pop("sample_ids")
+            sampling_groups = tuple(int(value) for value in batch.pop("sampling_groups"))
             average_age = float(batch.pop("average_sample_age"))
             batch = {
                 name: tensor.to(self.device, non_blocking=self.non_blocking)
@@ -804,6 +852,8 @@ class V3Learner:
             self.sample_cursor += batch_count
             self.global_step += 1
             self.last_sample_ids.extend(sample_ids)
+            sampling_group_positions["baseline"] += sampling_groups.count(0)
+            sampling_group_positions["lowered_opening_temperature"] += sampling_groups.count(1)
             positions += batch_count
             batch_policy_positions = int((policy_weights > 0).sum().detach().cpu())
             policy_positions += batch_policy_positions
@@ -867,6 +917,11 @@ class V3Learner:
             train_data_ratio=(token_bucket.train_data_ratio if token_bucket is not None else 0.0),
             positions_per_second=positions / elapsed,
             learning_rate=learning_rate,
+            sampling_group_positions=(
+                sampling_group_positions
+                if any(sampling_group_positions.values())
+                else {}
+            ),
         )
 
 

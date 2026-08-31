@@ -228,6 +228,7 @@ class GameRecord:
     full_search_positions: int
     fast_search_positions: int
     total_simulations: int
+    exploration_variant: str = "baseline"
     rule_id: str = "classic"
     rule_code: int = 0
     rule_version: int = 1
@@ -347,12 +348,14 @@ def run_self_play_game(
         raise ValueError("mcts_lanes must be positive")
     if force_full_search_before_ply < 0:
         raise ValueError("force_full_search_before_ply must be non-negative")
+    exploration_variant = selfplay_config.exploration_variant_for_game(game_id)
+    effective_selfplay = selfplay_config.for_exploration_variant(exploration_variant)
     force_full_search_before_ply = max(
         int(force_full_search_before_ply),
-        int(selfplay_config.opening_full_search_plies),
+        int(effective_selfplay.opening_full_search_plies),
     )
-    search_stage = selfplay_config.stage_for_generation(generation)
-    rule_spec = DEFAULT_RULE_REGISTRY.get(selfplay_config.rule_id)
+    search_stage = effective_selfplay.stage_for_generation(generation)
+    rule_spec = DEFAULT_RULE_REGISTRY.get(effective_selfplay.rule_id)
     engine = RuleEngine(rule_spec)
     game_seed = derive_game_seed(run_seed, game_id)
     state = engine.initial_state()
@@ -416,12 +419,12 @@ def run_self_play_game(
         simulations = (
             search_stage.full_search_sims if is_full else search_stage.fast_search_sims
         )
-        exploration = selfplay_config.exploration_for_ply(state.turn_index)
+        exploration = effective_selfplay.exploration_for_ply(state.turn_index)
         search = MCTS(
             predictor,
             engine=engine,
-            cpuct=selfplay_config.cpuct,
-            virtual_loss=selfplay_config.virtual_loss,
+            cpuct=effective_selfplay.cpuct,
+            virtual_loss=effective_selfplay.virtual_loss,
             num_threads=mcts_lanes,
         )
         result = search.search(
@@ -503,6 +506,7 @@ def run_self_play_game(
         fast_search_positions=fast_count,
         forced_pass_positions=pass_count,
         total_simulations=total_simulations,
+        exploration_variant=exploration_variant,
         rule_id=rule_spec.rule_id,
         rule_code=rule_spec.rule_code,
         rule_version=rule_spec.rule_version,

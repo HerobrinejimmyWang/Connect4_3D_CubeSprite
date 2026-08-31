@@ -194,10 +194,20 @@ def _build_global_active_datasets(
     validation_games = sorted({int(replay.game_id[index]) for index in validation_indices})
     if set(train_games).intersection(validation_games):
         raise RuntimeError("formal replay split leaked a game between train and validation")
+    train_sampling_groups = None
+    if config.selfplay.opening_temperature_mixture.enabled:
+        train_sampling_groups = np.asarray(
+            [
+                config.selfplay.exploration_variant_index_for_game(int(game_id))
+                for game_id in train_replay.game_id
+            ],
+            dtype=np.int64,
+        )
     dataset = OnlineD4Dataset(
         train_replay,
         augmentation_seed=config.run.seed + 701,
         source_positions=train_indices + retained_position_start,
+        sampling_groups=train_sampling_groups,
     )
     validation = None
     if len(validation_indices):
@@ -206,7 +216,7 @@ def _build_global_active_datasets(
             augmentation_seed=config.run.seed + 702,
             source_positions=validation_indices + retained_position_start,
         )
-    return dataset, validation, {
+    selection = {
         "schema_version": 1,
         "raw_positions": cumulative_positions,
         "retained_position_start": retained_position_start,
@@ -223,6 +233,21 @@ def _build_global_active_datasets(
         "train_sample_id_digest": _sample_id_digest(replay, train_indices),
         "validation_sample_id_digest": _sample_id_digest(replay, validation_indices),
     }
+    if train_sampling_groups is not None:
+        names = ("baseline", "lowered_opening_temperature")
+        selection["position_balanced_sampling"] = {
+            "schema_version": 1,
+            "strategy": "checkpoint_cursor_alternating_v1",
+            "target_train_position_fractions": {
+                names[index]: 0.5 for index in range(2)
+            },
+            "available_train_positions": {
+                names[index]: int(np.sum(train_sampling_groups == index))
+                for index in range(2)
+            },
+            "absolute_sample_cursor_parity_selects_group": True,
+        }
+    return dataset, validation, selection
 
 
 def _resume_ready_commit(layout: RunLayout, expected_hash: str) -> None:
@@ -547,6 +572,23 @@ def _run_generation(
                         asdict(row) for row in effective_selfplay.exploration_phases
                     ],
                     "dynamic_exploration": exploration_decision,
+                    "opening_temperature_mixture": asdict(
+                        effective_selfplay.opening_temperature_mixture
+                    ),
+                    "exploration_variant_games": {
+                        variant: sum(
+                            game.exploration_variant == variant for game in shard_games
+                        )
+                        for variant in ("baseline", "lowered_opening_temperature")
+                    },
+                    "exploration_variant_positions": {
+                        variant: sum(
+                            len(game.samples)
+                            for game in shard_games
+                            if game.exploration_variant == variant
+                        )
+                        for variant in ("baseline", "lowered_opening_temperature")
+                    },
                     "cpuct": effective_selfplay.cpuct,
                     "virtual_loss": effective_selfplay.virtual_loss,
                     "mcts_lanes_per_actor": config.runtime.mcts_lanes_per_actor,
@@ -584,6 +626,31 @@ def _run_generation(
             asdict(phase) for phase in effective_selfplay.exploration_phases
         ),
     )
+    if effective_selfplay.opening_temperature_mixture.enabled:
+        mixture_health: dict[str, Any] = {}
+        for variant in ("baseline", "lowered_opening_temperature"):
+            variant_games = [game for game in games if game.exploration_variant == variant]
+            variant_selfplay = effective_selfplay.for_exploration_variant(variant)
+            variant_health = _selfplay_health(
+                variant_games,
+                expected_search_sims={
+                    "full": search_stage.full_search_sims,
+                    "fast": search_stage.fast_search_sims,
+                },
+                exploration_phases=(
+                    asdict(phase) for phase in variant_selfplay.exploration_phases
+                ),
+            )
+            mixture_health[variant] = {
+                "games": len(variant_games),
+                "raw_positions": sum(len(game.samples) for game in variant_games),
+                "health": variant_health,
+            }
+        health["opening_temperature_mixture"] = {
+            "schema_version": 1,
+            "assignment": "alternating_game_id_v1",
+            "variants": mixture_health,
+        }
     _append_metric(
         layout,
         {

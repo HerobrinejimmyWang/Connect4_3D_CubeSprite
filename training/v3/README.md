@@ -100,6 +100,21 @@ record every effective phase and transition decision. The 2.4M-position run is
 a recipe-level comparison with the historical from-scratch G343 checkpoint,
 not a single-variable exploration ablation.
 
+The optional `selfplay.opening_temperature_mixture` is another explicit
+semantic fork. In its V1 contract, consecutive game IDs alternate between the
+unchanged exploration schedule and a route that multiplies temperature by
+0.5 only for plies 0-7; root-noise alpha/epsilon, search simulations, and the
+schedule from ply 8 onward remain unchanged. Every search stage must contain an
+even number of games, so each committed generation produces exactly half of
+each route independent of actor completion order. The learner does not sample
+the resulting raw pool uniformly: its checkpointed absolute sample cursor
+alternates two position pools, giving each route exactly half of consumed
+training positions even when their game-length distributions differ. Shuffle
+manifests, learner metrics, self-play health, and replay manifests record both
+the available raw-position skew and the consumed 50/50 position contract. The
+G487 B10 preset uses a fresh replay child so pre-fork positions cannot dilute
+the comparison.
+
 ## Data and learner contract
 
 - A deterministic seed is derived from `run_seed + game_id`, independent of
