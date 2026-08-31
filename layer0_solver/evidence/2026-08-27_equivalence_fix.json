@@ -1,0 +1,38 @@
+{
+  "issue": "The previous AcceptanceSolver labeled safe-coloring template moves as equal game-theoretic values; random selection could enter a forced loss.",
+  "delivery_location": "Connect4_3D_game_refactor/layer0_solver",
+  "fix": {
+    "runtime": "Persistent native alpha-beta server; one transposition table is reused for every move in a game.",
+    "selection_rule": "Random selection is restricted to native moves whose exact child value equals the exact current value.",
+    "fallback": "No heuristic or coloring-template fallback is exposed as equal-value in pygame, analyze, or self-play.",
+    "cache_limit_entries": 32000000
+  },
+  "fixed_regression": {
+    "moves": [13],
+    "side_to_move": "blue",
+    "exact_value": "draw",
+    "exact_equal_value_moves": [7, 9, 17, 19],
+    "old_random_move": 18,
+    "old_random_move_is_equal_value": false,
+    "continuation_after_old_move": {
+      "moves": [13, 18],
+      "value_for_red": "win",
+      "red_optimal_moves": [7, 9, 12, 14, 17, 19]
+    }
+  },
+  "random_exact_self_play": {
+    "command": "python -B -m layer0_solver.cli --root-timeout 180 --games 8 --seed 20260827 self-play",
+    "games": 8,
+    "full_board_draws": 8,
+    "total_exact_proof_steps": 187,
+    "plies_per_game": [25, 25, 25, 25, 25, 25, 25, 25]
+  },
+  "default_tests": {
+    "command": "python -B -m unittest discover -s tests -v",
+    "tests": 16,
+    "passed": 15,
+    "skipped_slow": 1,
+    "seconds": 17.715
+  },
+  "alphazero_assistance": "Not used. Exhaustive native search supplies stronger deterministic WDL ground truth for this regression."
+}

@@ -1,0 +1,40 @@
+{
+  "scope": "Connect4 3D Layer0 5x5 strong four-in-a-row prototype",
+  "numbering": "row-major positions 1..25",
+  "native_build": {
+    "compiler": "g++ 13.2.0 MinGW-W64 x86_64-ucrt-posix-seh",
+    "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\build_native.ps1"
+  },
+  "root_proof": {
+    "command": ".\\build\\layer0_native.exe",
+    "value": "draw",
+    "optimal_moves": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25],
+    "nodes": 41738004,
+    "cache_hits": 16420405,
+    "cache_size": 25317599,
+    "seconds": 48.7851,
+    "note": "One local Windows run; runtime and memory are machine-dependent. Observed peak private memory was approximately 0.95 GB."
+  },
+  "known_v3_path_proof": {
+    "command": ".\\build\\layer0_native.exe 13 9 8 18 14 12 20 2 7 pass",
+    "value_for_red": "win",
+    "optimal_moves": [19],
+    "nodes": 29007,
+    "cache_hits": 8916,
+    "cache_size": 20091,
+    "seconds": 0.0146265,
+    "continuation": [19, 1, 25],
+    "winning_line": [7, 13, 19, 25]
+  },
+  "unit_tests": {
+    "command": "python -B -m unittest discover -s tests -v",
+    "tests": 14,
+    "result": "OK (one opt-in slow root proof skipped in the default run)"
+  },
+  "pygame": {
+    "status": "rendered successfully with pygame-ce 2.5.8, SDL 2.32.10, Python 3.14.5",
+    "command": ".\\.ui_test_venv\\Scripts\\python.exe -B -m tools.render_ui_smoke",
+    "artifact": "evidence/ui_smoke.png",
+    "note": "pygame 2.6.1 had no cp314 wheel; requirements select API-compatible pygame-ce on Python 3.14 and standard pygame on earlier supported Python versions."
+  }
+}

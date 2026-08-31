@@ -1,0 +1,15 @@
+[project]
+name = "connect4-3d-layer0-solver"
+version = "0.1.0"
+description = "Exact 5x5 Layer0 solver prototype for Connect4 3D"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+ui = [
+  "pygame>=2.5,<3; python_version < '3.14'",
+  "pygame-ce>=2.5.8,<3; python_version >= '3.14'",
+]
+
+[tool.unittest]
+start-directory = "tests"
