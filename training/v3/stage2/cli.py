@@ -10,6 +10,7 @@ from .data import audit_trajectory, freeze_regime_datasets
 from .design import build_experiment_design
 from .elo import verify_stage2_elo_protocol
 from .offline import evaluate_checkpoint, train_offline
+from .preflight import preflight_stage1_sources
 from .selfplay import generate_stage2b_configs
 from .summary import summarize_reports
 
@@ -59,6 +60,13 @@ def _parser() -> argparse.ArgumentParser:
     elo = commands.add_parser("verify-elo")
     elo.add_argument("--protocol", required=True, type=Path)
     elo.add_argument("--repo-root", type=Path, default=Path.cwd())
+
+    preflight = commands.add_parser("preflight-data")
+    preflight.add_argument("--standard-run-dir", required=True, type=Path)
+    preflight.add_argument("--mixed-run-dir", required=True, type=Path)
+    preflight.add_argument("--output", required=True, type=Path)
+    preflight.add_argument("--standard-required-positions", type=int, default=3_150_000)
+    preflight.add_argument("--mixed-required-positions", type=int, default=1_050_000)
 
     train = commands.add_parser("train")
     train.add_argument("--config", required=True, type=Path)
@@ -116,6 +124,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         _write_json(args.output, result)
     elif args.command == "verify-elo":
         result = verify_stage2_elo_protocol(args.protocol, repo_root=args.repo_root)
+    elif args.command == "preflight-data":
+        result = preflight_stage1_sources(
+            standard_run_dir=args.standard_run_dir,
+            mixed_run_dir=args.mixed_run_dir,
+            standard_required_positions=args.standard_required_positions,
+            mixed_required_positions=args.mixed_required_positions,
+        )
+        _write_json(args.output, result)
     elif args.command == "train":
         result = train_offline(args.config)
     elif args.command == "evaluate":

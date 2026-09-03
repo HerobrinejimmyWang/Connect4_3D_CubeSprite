@@ -667,6 +667,7 @@ trained:
 
 ```powershell
 python -m training.v3.stage2 audit-data --source-dir <standard-b10-replay> --metrics <standard-metrics.jsonl> --mixed-source-dir <mixed-b10-replay> --mixed-metrics <mixed-metrics.jsonl> --output <audit.json>
+python -m training.v3.stage2 preflight-data --standard-run-dir <standard-b10-run> --mixed-run-dir <mixed-b10-run> --output training/runs/stage2/bootstrap/source_preflight.json
 python -m training.v3.stage2 freeze-data --audit <audit.json> --output-dir training/runs/stage2/pools
 python -m training.v3.stage2 calibrate-models --output training/runs/stage2/architecture_matrix.json
 python -m training.v3.stage2 design-matrix --output training/runs/stage2/experiment_design.json
