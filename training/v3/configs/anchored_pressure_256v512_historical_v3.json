@@ -32,7 +32,7 @@
       "anchor_id": "b8_role30_g268",
       "label": "V3 Stage 1 B8C192 accepted G268",
       "path": ".tmp/anchored-models-v3/b8_role30_g268.pt",
-      "checksum_sha256": "79f0f7a922fea6ded932054e00de7020cfee65db1c80733ebe4da8e6928592f7",
+      "checksum_sha256": "3a3f33e36799e14a31b80a3cbf5541ac46ca229eeb06ea0c34002f6b7e3fbbbc",
       "predictor_kind": "v3"
     },
     {

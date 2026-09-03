@@ -35,13 +35,17 @@ class AnchoredEloV3Tests(unittest.TestCase):
 
         self.assertEqual(canonical_anchored_config_hash(v1), "09c33b7e63eb341f1af2afa1d7481fa997c27efc5211cae34f4b583c6dacbb34")
         self.assertEqual(canonical_anchored_config_hash(v2), "ee9e491ebdb6bb675d516a4f918d1b860ece1ba9729da01c81486e460037a0f7")
-        self.assertEqual(canonical_anchored_config_hash(v3), "a874ff835102a1221246b49a4ebe0a8cac8bf983c6795c28563aa4daf2624db7")
-        self.assertEqual(canonical_anchored_config_hash(pressure), "7f6d93d68aa5fc3d66b2772487f9eb4842b160cc2cb5d4c5e4fd14782ccbfaf0")
+        self.assertEqual(canonical_anchored_config_hash(v3), "806753498c10ce585a9b7586276eaa9037637be2b050072d0b684b9461773b79")
+        self.assertEqual(canonical_anchored_config_hash(pressure), "46d336eeee44542b8fa153053c25e69ef9b67e9c6eb1a416910d39638ea63529")
         self.assertEqual(v3.reference_anchor_id, "v2_2_balance")
         self.assertEqual(len(v3.anchors), 6)
         self.assertEqual(tuple(a.anchor_id for a in pressure.anchors), tuple(a.anchor_id for a in v3.anchors))
         self.assertEqual(v3.anchor("b8_role30_g268").predictor_kind, "v3")
         self.assertEqual(v3.anchor("b10_mixed_final_g258").predictor_kind, "v3")
+        self.assertEqual(
+            v3.anchor("b8_role30_g268").checksum_sha256,
+            "3a3f33e36799e14a31b80a3cbf5541ac46ca229eeb06ea0c34002f6b7e3fbbbc",
+        )
 
     def test_six_anchor_profiles_require_fresh_fifteen_match_calibration(self) -> None:
         symmetric = load_anchored_config(V3)

@@ -336,7 +336,7 @@ The Stage 2 ruler is an additive, immutable successor to v2. The symmetric
 registry is `configs/anchored_elo_historical_v3.json`; the independent
 asymmetric pressure ruler is
 `configs/anchored_pressure_256v512_historical_v3.json`. V3 preserves the four
-v2 anchors and adds the final accepted Stage 1 B8C192 G268 champion plus the
+v2 anchors and adds the final accepted Stage 1 B8C192 G268 model artifact plus the
 final accepted B10C256 mixed-opening-temperature G258 champion. Both additions
 are checksum-frozen V3 artifacts under `.tmp/anchored-models-v3/`, are
 evaluation-only, and must never produce replay or enter a training lineage.
