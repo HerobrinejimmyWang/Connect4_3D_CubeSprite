@@ -9,6 +9,7 @@ from .calibration import calibrate_architecture_matrix, write_architecture_matri
 from .data import audit_trajectory, freeze_regime_datasets
 from .design import build_experiment_design
 from .elo import verify_stage2_elo_protocol
+from .metrics import prepare_trajectory_metrics
 from .offline import evaluate_checkpoint, train_offline
 from .preflight import preflight_stage1_sources
 from .selfplay import generate_stage2b_configs
@@ -67,6 +68,12 @@ def _parser() -> argparse.ArgumentParser:
     preflight.add_argument("--output", required=True, type=Path)
     preflight.add_argument("--standard-required-positions", type=int, default=3_150_000)
     preflight.add_argument("--mixed-required-positions", type=int, default=1_050_000)
+
+    metrics = commands.add_parser("prepare-metrics")
+    metrics.add_argument("--events", required=True, type=Path)
+    metrics.add_argument("--strength-points", required=True, type=Path)
+    metrics.add_argument("--output", required=True, type=Path)
+    metrics.add_argument("--cadence-window", type=int, default=16)
 
     train = commands.add_parser("train")
     train.add_argument("--config", required=True, type=Path)
@@ -132,6 +139,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             mixed_required_positions=args.mixed_required_positions,
         )
         _write_json(args.output, result)
+    elif args.command == "prepare-metrics":
+        result = prepare_trajectory_metrics(
+            args.events,
+            args.strength_points,
+            args.output,
+            cadence_window=args.cadence_window,
+        )
     elif args.command == "train":
         result = train_offline(args.config)
     elif args.command == "evaluate":

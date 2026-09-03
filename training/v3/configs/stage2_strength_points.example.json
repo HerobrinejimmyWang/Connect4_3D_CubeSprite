@@ -1,0 +1,22 @@
+{
+  "schema": "connect4-v3-stage2-strength-points-v1",
+  "registry_hash": "806753498c10ce585a9b7586276eaa9037637be2b050072d0b684b9461773b79",
+  "profile_id": "primary_256",
+  "points": [
+    {
+      "generation": 0,
+      "anchored_strength": 0.0,
+      "report_sha256": "replace-with-fresh-v3-report-sha256"
+    },
+    {
+      "generation": 277,
+      "anchored_strength": 0.0,
+      "report_sha256": "replace-with-fresh-v3-report-sha256"
+    },
+    {
+      "generation": 554,
+      "anchored_strength": 0.0,
+      "report_sha256": "replace-with-fresh-v3-report-sha256"
+    }
+  ]
+}
