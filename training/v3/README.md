@@ -330,6 +330,31 @@ Use `anchor:b6_dynamic_g150` in `match` commands. The evaluator selects the V3
 artifact loader from the frozen anchor registry while continuing to load the
 three historical checkpoints through the Legacy compatibility boundary.
 
+### Anchored Elo v3
+
+The Stage 2 ruler is an additive, immutable successor to v2. The symmetric
+registry is `configs/anchored_elo_historical_v3.json`; the independent
+asymmetric pressure ruler is
+`configs/anchored_pressure_256v512_historical_v3.json`. V3 preserves the four
+v2 anchors and adds the final accepted Stage 1 B8C192 G268 champion plus the
+final accepted B10C256 mixed-opening-temperature G258 champion. Both additions
+are checksum-frozen V3 artifacts under `.tmp/anchored-models-v3/`, are
+evaluation-only, and must never produce replay or enter a training lineage.
+
+Changing the registry changes its canonical hash. Consequently, no v1 or v2
+match batch, calibration scale, or report is valid v3 evidence. A symmetric v3
+profile starts with all 15 pairwise matchups among the six anchors (1,500 games
+at 50 paired openings); `primary_256` and `final_512` receive separate frozen
+scales. `pressure_256v512` remains an independent asymmetric report and is not
+converted into an Elo rating. Extensions must use disjoint opening ranges up
+to the configured 200-pair ceiling.
+
+```powershell
+python tools\run_v3_anchored_eval.py --config training\v3\configs\anchored_elo_historical_v3.json plan
+python tools\run_v3_anchored_eval.py --config training\v3\configs\anchored_elo_historical_v3.json verify
+python tools\run_v3_anchored_eval.py --config training\v3\configs\anchored_pressure_256v512_historical_v3.json verify
+```
+
 ## Hardware plan
 
 The reference MCTS batches the virtual-loss lanes of one game through

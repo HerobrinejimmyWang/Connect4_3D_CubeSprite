@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "reference_anchor_id": "v2_2_balance",
+  "rule_id": "classic",
+  "anchors": [
+    {
+      "anchor_id": "v2_2_balance",
+      "label": "v2.2 Balance",
+      "path": ".tmp/public-models-v0.1.0/v2.2_balance.pth",
+      "checksum_sha256": "29d87e1d2b060bf458def0aa840a224ce3c5bd955a45047aa996f501f138cbdd"
+    },
+    {
+      "anchor_id": "cubesprite_v3_iter240",
+      "label": "CubeSprite V3 iter240",
+      "path": ".tmp/public-models-v0.1.0/cubesprite_v3_iter240.pth",
+      "checksum_sha256": "4485ac9a4e4ab5b49a6d2cd1f90acf323ec1d66b78d5e7e40ebe04e7c3606087"
+    },
+    {
+      "anchor_id": "cubesprite_v3_mini_iter260",
+      "label": "CubeSprite V3 Mini iter260",
+      "path": ".tmp/public-models-v0.1.0/cubesprite_v3_mini_iter260.pth",
+      "checksum_sha256": "b570e02c0eec88c9a1cf5d880e2f5c94c64f81aab5f2a572ea7d30346e961166"
+    },
+    {
+      "anchor_id": "b6_dynamic_g150",
+      "label": "V3 Research B6C128 dynamic G150",
+      "path": ".tmp/anchored-models-v2/b6_dynamic_g150.pt",
+      "checksum_sha256": "d30e98568163d70b97173be201a093c4502bdba5a6b61be5445ee5430a55658d",
+      "predictor_kind": "v3"
+    },
+    {
+      "anchor_id": "b8_role30_g268",
+      "label": "V3 Stage 1 B8C192 accepted G268",
+      "path": ".tmp/anchored-models-v3/b8_role30_g268.pt",
+      "checksum_sha256": "79f0f7a922fea6ded932054e00de7020cfee65db1c80733ebe4da8e6928592f7",
+      "predictor_kind": "v3"
+    },
+    {
+      "anchor_id": "b10_mixed_final_g258",
+      "label": "V3 Stage 1 B10C256 mixed-temperature final accepted G258",
+      "path": ".tmp/anchored-models-v3/b10_mixed_final_g258.pt",
+      "checksum_sha256": "c630c10222eadac5789a57cded191a159f35586d22ff9c1e81f77882a7055ba2",
+      "predictor_kind": "v3"
+    }
+  ],
+  "profiles": [
+    {
+      "profile_id": "pressure_256v512",
+      "search_sims": 256,
+      "anchor_search_sims": 512,
+      "report_kind": "pressure",
+      "cpuct": 1.5,
+      "initial_pairs": 50,
+      "pair_increment": 50,
+      "max_pairs": 200,
+      "milestones": ["early", "middle", "final"]
+    }
+  ],
+  "openings": {
+    "manifest_path": "training/v3/evaluation/anchored_openings_classic_v1.json",
+    "checksum_sha256": "3b602a730c79b0fbefae0303da0711ea60f3f96df75337cb212c08f6e763fcda",
+    "count": 200,
+    "seed": 314159,
+    "prefix_lengths": [0, 2, 4, 6, 8]
+  },
+  "statistics": {
+    "confidence": 0.95,
+    "saturation_score": 0.95,
+    "saturation_lower_bound": 0.9,
+    "sentinel_pairs": 20,
+    "rating_prior_sigma": 800.0,
+    "max_elo_interval_width": 100.0
+  }
+}
