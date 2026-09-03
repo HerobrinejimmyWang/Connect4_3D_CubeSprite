@@ -657,6 +657,36 @@ artifacts and verified local archives rather than Git.
   receipt-verified bundles. Commit only executable contracts, chosen presets,
   generalized conclusions, and reproduction commands.
 
+## Stage 2 architecture experiments
+
+Stage 2 is isolated under `training/v3/stage2/`. It adds seven experimental
+architectures alongside the unchanged `gravity_resnet` control, while preserving
+the V3 role/rule inputs, 25-column policy, WDL output, and auxiliary heads. The
+offline workflow validates and freezes B10 Replay V2 pools before any model is
+trained:
+
+```powershell
+python -m training.v3.stage2 audit-data --source-dir <standard-b10-replay> --metrics <standard-metrics.jsonl> --mixed-source-dir <mixed-b10-replay> --mixed-metrics <mixed-metrics.jsonl> --output <audit.json>
+python -m training.v3.stage2 freeze-data --audit <audit.json> --output-dir training/runs/stage2/pools
+python -m training.v3.stage2 calibrate-models --output training/runs/stage2/architecture_matrix.json
+python -m training.v3.stage2 design-matrix --output training/runs/stage2/experiment_design.json
+python -m training.v3.stage2 verify-elo --protocol training/v3/configs/stage2_elo_protocol_v1.json
+python -m training.v3.stage2 train --config training/v3/configs/stage2_offline_run.example.json
+python -m training.v3.stage2 generate-stage2b --base-config <formal.json> --architecture-matrix <matrix.json> --finalists <finalists.json> --output-dir <stage2b-configs>
+```
+
+`audit-data` freezes three continuous standard-line pools plus a separately
+lineaged `mixed_late` pool. It requires anchored strength, mean game length,
+short-game rate, policy entropy, and accepted cadence instead of falling back to
+a position-only split. Standard early/mid/late are the training screen;
+`mixed_late` is initially evaluation-only and may train only a promoted model
+from an exact standard-late checkpoint. Its paired standard-late control and
+mixed branch both inherit weights only and reset optimizer, scheduler,
+augmentation stream, and sample cursor.
+See `stage2_mixed_promotion.example.json` for that contract. Raw pools,
+checkpoints, and reports belong under ignored run directories. The detailed research protocol is in
+`tmp_models_plan/PLAN_Stage2_Architecture_Experiments_V1.md`.
+
 ## Smoke artifacts
 
 ```text

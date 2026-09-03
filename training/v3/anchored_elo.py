@@ -23,7 +23,7 @@ import torch
 
 from connect4_core.rules import CLASSIC_RULE, DEFAULT_RULE_REGISTRY
 
-from .config import ModelConfig
+from .config import ModelConfig, model_config_dict
 from .evaluation import Opening, load_opening_manifest, play_paired_openings
 from .evaluation_runtime import (
     EvaluationModelSource,
@@ -529,7 +529,7 @@ def load_v3_artifact_predictor(
         "label": path.stem,
         "path": str(path.resolve()),
         "checksum_sha256": sha256_file(path),
-        "model_config": asdict(model_config),
+        "model_config": model_config_dict(model_config),
         "lineage": "v3",
     }
     return TorchPredictor(model, device=device), identity

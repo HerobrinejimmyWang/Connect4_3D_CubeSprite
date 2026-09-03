@@ -15,7 +15,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from training.v3.actor_runtime import run_self_play_actor_pool  # noqa: E402
-from training.v3.config import config_hash, load_config  # noqa: E402
+from training.v3.config import config_hash, load_config, model_config_dict  # noqa: E402
 from training.v3.model import build_model  # noqa: E402
 from training.v3.pipeline import (  # noqa: E402
     _atomic_save_model_artifact,
@@ -68,7 +68,7 @@ def main(argv: list[str] | None = None) -> int:
         _atomic_save_model_artifact(
             producer_path,
             model=model,
-            model_config=asdict(config.model),
+            model_config=model_config_dict(config.model),
             metadata={
                 "producer_model_id": producer_id,
                 "purpose": "P6 calibration only; never eligible for formal replay or promotion",

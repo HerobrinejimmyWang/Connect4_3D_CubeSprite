@@ -1,0 +1,26 @@
+{
+  "base_config": "training/v3/configs/stage1_scale_screen_b6c128.json",
+  "model": {
+    "architecture": "column_resnet",
+    "channels": 128,
+    "blocks": 6,
+    "global_input_schema": "role_rule_v1",
+    "output_schema": "policy_wdl_aux_v1",
+    "rule_feature_dim": 32,
+    "moves_left_classes": 301
+  },
+  "train_regime": "mixed_late",
+  "train_replay": "training/runs/stage2/pools/mixed_late/train.npz",
+  "validation_replays": {
+    "standard_early": "training/runs/stage2/pools/standard_early/validation.npz",
+    "standard_mid": "training/runs/stage2/pools/standard_mid/validation.npz",
+    "standard_late": "training/runs/stage2/pools/standard_late/validation.npz",
+    "mixed_late": "training/runs/stage2/pools/mixed_late/validation.npz"
+  },
+  "warm_start_checkpoint": "training/runs/stage2/scaling/column_resnet/b8/standard_late/seed271828/checkpoint.pt",
+  "output_dir": "training/runs/stage2/mixed_promotion/column_resnet/b8/seed271828",
+  "seed": 271828,
+  "target_positions": 1000000,
+  "device": "cuda:0",
+  "resume": false
+}

@@ -23,7 +23,7 @@ import torch
 from . import __version__
 from .actor_runtime import run_self_play_actor_pool
 from .checkpoint import CheckpointV1, load_checkpoint, save_checkpoint
-from .config import V3Config
+from .config import V3Config, model_config_dict
 from .dynamic_exploration import prepare_dynamic_exploration
 from .evaluation import build_openings, write_opening_manifest
 from .evaluation_runtime import EvaluationModelSource
@@ -358,7 +358,7 @@ def _load_training_state(
             if source_sha256 != config.run.warm_start_checkpoint_sha256:
                 raise ValueError("warm-start checkpoint SHA-256 mismatch")
             parent = load_checkpoint(source, map_location=config.runtime.device)
-            if parent.extra_state.get("model_config") != asdict(config.model):
+            if parent.extra_state.get("model_config") != model_config_dict(config.model):
                 raise ValueError("warm-start checkpoint model config differs from child config")
             parent.restore(
                 model=model,
@@ -376,7 +376,7 @@ def _load_training_state(
                 _atomic_save_model_artifact(
                     accepted_path,
                     model=model,
-                    model_config=asdict(config.model),
+                    model_config=model_config_dict(config.model),
                     metadata={
                         "model_id": accepted_model_id,
                         "config_hash": expected_hash,
@@ -740,7 +740,7 @@ def _run_generation(
         _atomic_save_model_artifact(
             candidate_path,
             model=model,
-            model_config=asdict(config.model),
+            model_config=model_config_dict(config.model),
             metadata={
                 "candidate_model_id": candidate_model_id,
                 "parent_model_id": accepted_model_id,
@@ -887,7 +887,7 @@ def _run_generation(
         extra_state={
             "learner_state": learner.state_dict(),
             "token_bucket": bucket.state_dict(),
-            "model_config": asdict(config.model),
+            "model_config": model_config_dict(config.model),
             "train_positions_consumed": bucket.total_positions_consumed,
             "formal_loop_state": next_state.to_dict(),
             "audit_replays": audit_references,

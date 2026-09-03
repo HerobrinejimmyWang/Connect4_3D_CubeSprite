@@ -47,18 +47,71 @@ class ModelConfig:
     architecture: str = "gravity_resnet"
     channels: int = 16
     blocks: int = 1
+    encoder_channels: int = 0
+    branch_channels: int = 0
+    attention_heads: int = 0
+    transformer_mlp_ratio: float = 0.0
     global_input_schema: str = "role_rule_v1"
     output_schema: str = "policy_wdl_aux_v1"
     rule_feature_dim: int = 32
     moves_left_classes: int = 301
 
     def __post_init__(self) -> None:
-        if self.architecture != "gravity_resnet":
-            raise ValueError("model.architecture must be 'gravity_resnet'.")
+        architectures = {
+            "gravity_resnet",
+            "column_resnet",
+            "multiview_resnet",
+            "raw3d_resnet",
+            "plane3d_fusion_resnet",
+            "column3d_fusion_resnet",
+            "column_transformer",
+            "multiview_transformer",
+        }
+        if self.architecture not in architectures:
+            raise ValueError(
+                "model.architecture must be one of: " + ", ".join(sorted(architectures))
+            )
         if self.channels < 4:
             raise ValueError("model.channels must be at least 4.")
         if self.blocks < 1:
             raise ValueError("model.blocks must be at least 1.")
+        optional = (
+            self.encoder_channels,
+            self.branch_channels,
+            self.attention_heads,
+        )
+        if any(value < 0 for value in optional):
+            raise ValueError("model architecture channel/head overrides cannot be negative.")
+        if self.transformer_mlp_ratio < 0.0:
+            raise ValueError("model.transformer_mlp_ratio cannot be negative.")
+        if self.architecture == "gravity_resnet" and any(optional + (self.transformer_mlp_ratio,)):
+            raise ValueError("gravity_resnet does not accept Stage 2 architecture overrides.")
+        is_transformer = self.architecture.endswith("_transformer")
+        if is_transformer:
+            heads = self.attention_heads or _default_attention_heads(self.channels)
+            if self.channels % heads != 0:
+                raise ValueError("model.channels must be divisible by model.attention_heads.")
+            ratio = self.transformer_mlp_ratio or 2.0
+            if ratio < 1.0:
+                raise ValueError("transformer_mlp_ratio must be at least 1.0.")
+        elif self.attention_heads or self.transformer_mlp_ratio:
+            raise ValueError("attention settings are valid only for transformer architectures.")
+        uses_branches = self.architecture in {
+            "multiview_resnet",
+            "raw3d_resnet",
+            "plane3d_fusion_resnet",
+            "column3d_fusion_resnet",
+            "multiview_transformer",
+        }
+        if self.branch_channels and not uses_branches:
+            raise ValueError("branch_channels is not used by this architecture.")
+        uses_column_encoder = self.architecture in {
+            "column_resnet",
+            "column3d_fusion_resnet",
+            "column_transformer",
+        }
+        if self.encoder_channels and not uses_column_encoder:
+            raise ValueError("encoder_channels is not used by this architecture.")
         if self.global_input_schema != "role_rule_v1":
             raise ValueError("model.global_input_schema must be 'role_rule_v1'.")
         if self.output_schema != "policy_wdl_aux_v1":
@@ -67,6 +120,28 @@ class ModelConfig:
             raise ValueError("model.rule_feature_dim must be 32 for role_rule_v1.")
         if self.moves_left_classes != 301:
             raise ValueError("model.moves_left_classes must be 301 for policy_wdl_aux_v1.")
+
+
+def _default_attention_heads(channels: int) -> int:
+    for heads in (8, 4, 2):
+        if channels % heads == 0:
+            return heads
+    return 1
+
+
+def model_config_dict(config: ModelConfig) -> dict[str, Any]:
+    """Serialize a model contract while preserving pre-Stage-2 gravity lineages."""
+
+    raw = asdict(config)
+    for key in (
+        "encoder_channels",
+        "branch_channels",
+        "attention_heads",
+        "transformer_mlp_ratio",
+    ):
+        if not raw[key]:
+            raw.pop(key)
+    return raw
 
 
 @dataclass(frozen=True)
@@ -630,7 +705,9 @@ class V3Config:
         return cls(**decoded)
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        raw = asdict(self)
+        raw["model"] = model_config_dict(self.model)
+        return raw
 
     def to_json(self, *, indent: int = 2) -> str:
         return json.dumps(self.to_dict(), ensure_ascii=False, indent=indent, sort_keys=True) + "\n"
@@ -775,7 +852,7 @@ def config_hash(config: V3Config) -> str:
         selfplay_semantics.pop("opening_temperature_mixture")
     semantic = {
         "run": run_semantics,
-        "model": asdict(config.model),
+        "model": model_config_dict(config.model),
         "selfplay": selfplay_semantics,
         "replay": replay_semantics,
         "learner": asdict(config.learner),

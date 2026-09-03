@@ -1,0 +1,17 @@
+{
+  "schema": "connect4-v3-stage2-elo-protocol-v1",
+  "registry_path": "training/v3/configs/anchored_elo_historical_v3.json",
+  "registry_hash": "806753498c10ce585a9b7586276eaa9037637be2b050072d0b684b9461773b79",
+  "pressure_registry_path": "training/v3/configs/anchored_pressure_256v512_historical_v3.json",
+  "pressure_registry_hash": "46d336eeee44542b8fa153053c25e69ef9b67e9c6eb1a416910d39638ea63529",
+  "profiles": {
+    "primary_256": {
+      "scale_path": "training/runs/anchored_elo_v3_calibration_6anchors/anchor_scale_primary_256_p050.json",
+      "scale_sha256": "bdc267dfbe97283cdb25789416d07e9deff5b30b1163cd254852cec8818d4afe"
+    },
+    "final_512": {
+      "scale_path": "training/runs/anchored_elo_v3_calibration_6anchors/anchor_scale_final_512_p050.json",
+      "scale_sha256": "2988951cb21f47049b497cbd1700d000b31f46b84c638b9695b425f965326874"
+    }
+  }
+}

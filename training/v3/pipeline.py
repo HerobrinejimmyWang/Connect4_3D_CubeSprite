@@ -27,7 +27,7 @@ from training.runtime_resources import available_cpu_count
 from . import __version__
 from .actor_runtime import run_self_play_actor_pool
 from .checkpoint import CheckpointV1, load_checkpoint, save_checkpoint
-from .config import V3Config, config_hash
+from .config import V3Config, config_hash, model_config_dict
 from .evaluation import build_openings, play_paired_openings, write_opening_manifest
 from .evaluation_runtime import (
     EvaluationModelSource,
@@ -190,7 +190,7 @@ def _load_model_artifact(path: Path, config: V3Config) -> torch.nn.Module:
     payload = torch.load(path, map_location="cpu", weights_only=False)
     if payload.get("format") != "connect4-v3-model" or payload.get("format_version") != 1:
         raise ValueError(f"Unsupported V3 model artifact: {path}")
-    if payload.get("model_config") != asdict(config.model):
+    if payload.get("model_config") != model_config_dict(config.model):
         raise ValueError(f"Accepted model config does not match this run: {path}")
     model = build_model(config.model)
     model.load_state_dict(payload["model_state"], strict=True)
@@ -1561,7 +1561,7 @@ def run_smoke(config: V3Config) -> dict[str, Any]:
         _atomic_save_model_artifact(
             candidate_path,
             model=model,
-            model_config=asdict(config.model),
+            model_config=model_config_dict(config.model),
             metadata={
                 "candidate_model_id": candidate_model_id,
                 "parent_model_id": accepted_model_id,
@@ -1712,7 +1712,7 @@ def run_smoke(config: V3Config) -> dict[str, Any]:
             extra_state={
                 "learner_state": learner.state_dict(),
                 "token_bucket": bucket.state_dict(),
-                "model_config": asdict(config.model),
+                "model_config": model_config_dict(config.model),
                 "train_positions_consumed": bucket.total_positions_consumed,
                 "formal_loop_state": formal_state.to_dict(),
                 "audit_replays": audit_references,

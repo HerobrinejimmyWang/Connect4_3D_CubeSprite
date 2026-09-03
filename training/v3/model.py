@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from typing import Any, Iterator, Mapping
 
 import numpy as np
@@ -10,7 +10,7 @@ import torch.nn.functional as F
 
 from connect4_core import BOARD_SIZE, MAX_LAYERS
 
-from .config import ModelConfig
+from .config import ModelConfig, model_config_dict
 
 
 COLUMN_COUNT = BOARD_SIZE * BOARD_SIZE
@@ -83,6 +83,13 @@ def _group_count(channels: int) -> int:
     return 1
 
 
+def _default_attention_heads(channels: int) -> int:
+    for heads in (8, 4, 2):
+        if channels % heads == 0:
+            return heads
+    return 1
+
+
 def canonical_board_to_planes(board: torch.Tensor) -> torch.Tensor:
     """Encode canonical [N,6,5,5] boards as 14 gravity-aware 2D planes."""
     if board.ndim == 3:
@@ -99,6 +106,20 @@ def canonical_board_to_planes(board: torch.Tensor) -> torch.Tensor:
     normalized_height = occupancy / float(MAX_LAYERS)
     legal_column = (occupancy < float(MAX_LAYERS)).to(dtype=board.dtype)
     return torch.cat((current, opponent, normalized_height, legal_column), dim=1)
+
+
+def canonical_board_to_voxels(board: torch.Tensor) -> torch.Tensor:
+    """Encode canonical boards as current/opponent voxel channels [N,2,6,5,5]."""
+
+    planes = canonical_board_to_planes(board)
+    return torch.stack((planes[:, :MAX_LAYERS], planes[:, MAX_LAYERS : 2 * MAX_LAYERS]), dim=1)
+
+
+def canonical_board_to_column_features(board: torch.Tensor) -> torch.Tensor:
+    """Return the 14 gravity-ordered features for every board column."""
+
+    planes = canonical_board_to_planes(board)
+    return planes.permute(0, 2, 3, 1).contiguous()
 
 
 def _validate_global_inputs(
@@ -160,6 +181,110 @@ class _PreActBlock(nn.Module):
         x = self.conv1(F.silu(self.norm1(x)))
         x = self.conv2(F.silu(self.norm2(x)))
         return residual + x
+
+
+class _PreAct3DBlock(nn.Module):
+    def __init__(self, channels: int) -> None:
+        super().__init__()
+        groups = _group_count(channels)
+        self.norm1 = nn.GroupNorm(groups, channels)
+        self.conv1 = nn.Conv3d(channels, channels, kernel_size=3, padding=1, bias=False)
+        self.norm2 = nn.GroupNorm(groups, channels)
+        self.conv2 = nn.Conv3d(channels, channels, kernel_size=3, padding=1, bias=False)
+        nn.init.zeros_(self.conv2.weight)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        residual = x
+        x = self.conv1(F.silu(self.norm1(x)))
+        x = self.conv2(F.silu(self.norm2(x)))
+        return residual + x
+
+
+class _ColumnEncoder(nn.Module):
+    def __init__(self, output_channels: int, hidden_channels: int) -> None:
+        super().__init__()
+        self.network = nn.Sequential(
+            nn.Linear(2 * MAX_LAYERS + 2, hidden_channels),
+            nn.SiLU(),
+            nn.Linear(hidden_channels, output_channels),
+        )
+
+    def forward(self, board: torch.Tensor) -> torch.Tensor:
+        features = self.network(canonical_board_to_column_features(board))
+        return features.permute(0, 3, 1, 2).contiguous()
+
+
+class _Raw3DEncoder(nn.Module):
+    def __init__(self, output_channels: int, branch_channels: int, blocks: int) -> None:
+        super().__init__()
+        self.stem = nn.Conv3d(2, branch_channels, kernel_size=3, padding=1, bias=False)
+        self.blocks = nn.ModuleList(_PreAct3DBlock(branch_channels) for _ in range(blocks))
+        self.final_norm = nn.GroupNorm(_group_count(branch_channels), branch_channels)
+        self.height_projection = nn.Conv3d(
+            branch_channels,
+            output_channels,
+            kernel_size=(MAX_LAYERS, 1, 1),
+            bias=False,
+        )
+
+    def forward(self, board: torch.Tensor) -> torch.Tensor:
+        x = self.stem(canonical_board_to_voxels(board))
+        for block in self.blocks:
+            x = block(x)
+        x = F.silu(self.final_norm(x))
+        return self.height_projection(x).squeeze(2)
+
+
+class _MultiViewEncoder(nn.Module):
+    """Encode XY layers and the two families of vertical sections."""
+
+    def __init__(self, output_channels: int, branch_channels: int) -> None:
+        super().__init__()
+        self.xy = nn.Conv2d(2 * MAX_LAYERS + 2, branch_channels, kernel_size=3, padding=1, bias=False)
+        self.xz = nn.Conv2d(2, branch_channels, kernel_size=3, padding=1, bias=False)
+        self.yz = nn.Conv2d(2, branch_channels, kernel_size=3, padding=1, bias=False)
+        self.fusion = nn.Conv2d(3 * branch_channels, output_channels, kernel_size=1, bias=False)
+
+    def forward(self, board: torch.Tensor) -> torch.Tensor:
+        planes = canonical_board_to_planes(board)
+        voxels = canonical_board_to_voxels(board)
+        batch = voxels.shape[0]
+        xy = self.xy(planes)
+
+        # One XZ section for every y coordinate; collapse learned section features over z.
+        xz_in = voxels.permute(0, 4, 1, 2, 3).reshape(
+            batch * BOARD_SIZE, 2, MAX_LAYERS, BOARD_SIZE
+        )
+        xz = self.xz(xz_in).mean(dim=2)
+        xz = xz.reshape(batch, BOARD_SIZE, -1, BOARD_SIZE).permute(0, 2, 3, 1)
+
+        # One YZ section for every x coordinate, reconstructed into the same XY grid.
+        yz_in = voxels.permute(0, 3, 1, 2, 4).reshape(
+            batch * BOARD_SIZE, 2, MAX_LAYERS, BOARD_SIZE
+        )
+        yz = self.yz(yz_in).mean(dim=2)
+        yz = yz.reshape(batch, BOARD_SIZE, -1, BOARD_SIZE).permute(0, 2, 1, 3)
+        return self.fusion(torch.cat((xy, xz, yz), dim=1))
+
+
+class _TransformerBlock(nn.Module):
+    def __init__(self, channels: int, heads: int, mlp_ratio: float) -> None:
+        super().__init__()
+        hidden = max(channels, int(round(channels * mlp_ratio)))
+        self.norm1 = nn.LayerNorm(channels)
+        self.attention = nn.MultiheadAttention(channels, heads, batch_first=True)
+        self.norm2 = nn.LayerNorm(channels)
+        self.mlp = nn.Sequential(
+            nn.Linear(channels, hidden),
+            nn.SiLU(),
+            nn.Linear(hidden, channels),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        normalized = self.norm1(x)
+        attended, _weights = self.attention(normalized, normalized, normalized, need_weights=False)
+        x = x + attended
+        return x + self.mlp(self.norm2(x))
 
 
 class GravityPolicyValueNetV3(nn.Module):
@@ -268,7 +393,182 @@ class GravityPolicyValueNetV3(nn.Module):
         )
 
     def export_config(self) -> dict[str, Any]:
-        return asdict(self.model_config)
+        return model_config_dict(self.model_config)
+
+
+class ArchitecturePolicyValueNetV3(nn.Module):
+    """Stage 2 architecture family with the frozen V3 input/output contract."""
+
+    def __init__(self, model_config: ModelConfig) -> None:
+        super().__init__()
+        if model_config.architecture == "gravity_resnet":
+            raise ValueError("Use GravityPolicyValueNetV3 for gravity_resnet.")
+        self.model_config = model_config
+        channels = model_config.channels
+        encoder_channels = model_config.encoder_channels or channels
+        branch_channels = model_config.branch_channels or max(4, channels // 2)
+        architecture = model_config.architecture
+        self.architecture = architecture
+
+        self.column_encoder: nn.Module | None = None
+        self.multiview_encoder: nn.Module | None = None
+        self.raw3d_encoder: nn.Module | None = None
+        self.plane_encoder: nn.Module | None = None
+        self.fusion: nn.Module | None = None
+
+        if architecture in {"column_resnet", "column_transformer"}:
+            self.column_encoder = _ColumnEncoder(channels, encoder_channels)
+        elif architecture in {"multiview_resnet", "multiview_transformer"}:
+            self.multiview_encoder = _MultiViewEncoder(channels, branch_channels)
+        elif architecture == "raw3d_resnet":
+            self.raw3d_encoder = _Raw3DEncoder(channels, branch_channels, model_config.blocks)
+        elif architecture == "plane3d_fusion_resnet":
+            self.plane_encoder = nn.Conv2d(
+                2 * MAX_LAYERS + 2, branch_channels, kernel_size=3, padding=1, bias=False
+            )
+            self.raw3d_encoder = _Raw3DEncoder(
+                branch_channels, branch_channels, max(1, model_config.blocks // 2)
+            )
+            self.fusion = nn.Conv2d(2 * branch_channels, channels, kernel_size=1, bias=False)
+        elif architecture == "column3d_fusion_resnet":
+            self.column_encoder = _ColumnEncoder(branch_channels, encoder_channels)
+            self.raw3d_encoder = _Raw3DEncoder(
+                branch_channels, branch_channels, max(1, model_config.blocks // 2)
+            )
+            self.fusion = nn.Conv2d(2 * branch_channels, channels, kernel_size=1, bias=False)
+        else:  # ModelConfig performs the exhaustive name validation.
+            raise ValueError(f"Unsupported Stage 2 architecture: {architecture}")
+
+        global_hidden = max(16, channels)
+        self.global_encoder = nn.Sequential(
+            nn.Linear(ROLE_FEATURE_COUNT + RULE_FEATURE_COUNT, global_hidden),
+            nn.SiLU(),
+            nn.Linear(global_hidden, 2 * channels),
+        )
+        nn.init.zeros_(self.global_encoder[-1].weight)
+        nn.init.zeros_(self.global_encoder[-1].bias)
+
+        self.transformer_blocks: nn.ModuleList | None = None
+        self.position_embedding: nn.Parameter | None = None
+        if architecture.endswith("_transformer"):
+            heads = model_config.attention_heads or _default_attention_heads(channels)
+            ratio = model_config.transformer_mlp_ratio or 2.0
+            self.position_embedding = nn.Parameter(torch.zeros(1, COLUMN_COUNT, channels))
+            nn.init.trunc_normal_(self.position_embedding, std=0.02)
+            self.transformer_blocks = nn.ModuleList(
+                _TransformerBlock(channels, heads, ratio) for _ in range(model_config.blocks)
+            )
+            self.blocks = nn.ModuleList()
+        elif architecture == "raw3d_resnet":
+            self.blocks = nn.ModuleList()
+        else:
+            self.blocks = nn.ModuleList(_PreActBlock(channels) for _ in range(model_config.blocks))
+
+        self.final_norm = nn.GroupNorm(_group_count(channels), channels)
+        self.policy_head = nn.Conv2d(channels, 1, kernel_size=1)
+        value_hidden = max(16, channels)
+        self.wdl_head = nn.Sequential(
+            nn.Linear(channels * 2, value_hidden),
+            nn.SiLU(),
+            nn.Linear(value_hidden, 3),
+        )
+        self.opponent_reply_head = nn.Conv2d(channels, 1, kernel_size=1)
+        self.future_occupancy_head = nn.Conv2d(channels, 3 * MAX_LAYERS, kernel_size=1)
+        self.moves_left_head = nn.Sequential(
+            nn.Linear(channels * 2, value_hidden),
+            nn.SiLU(),
+            nn.Linear(value_hidden, MOVES_LEFT_CLASSES),
+        )
+
+    def _encode(self, board: torch.Tensor) -> torch.Tensor:
+        if self.architecture.startswith("column") and self.architecture != "column3d_fusion_resnet":
+            assert self.column_encoder is not None
+            return self.column_encoder(board)
+        if self.architecture.startswith("multiview"):
+            assert self.multiview_encoder is not None
+            return self.multiview_encoder(board)
+        if self.architecture == "raw3d_resnet":
+            assert self.raw3d_encoder is not None
+            return self.raw3d_encoder(board)
+        if self.architecture == "plane3d_fusion_resnet":
+            assert self.plane_encoder is not None and self.raw3d_encoder is not None
+            assert self.fusion is not None
+            return self.fusion(
+                torch.cat(
+                    (self.plane_encoder(canonical_board_to_planes(board)), self.raw3d_encoder(board)),
+                    dim=1,
+                )
+            )
+        assert self.architecture == "column3d_fusion_resnet"
+        assert self.column_encoder is not None and self.raw3d_encoder is not None
+        assert self.fusion is not None
+        return self.fusion(torch.cat((self.column_encoder(board), self.raw3d_encoder(board)), dim=1))
+
+    def _trunk_and_pooled(
+        self,
+        canonical_board: torch.Tensor,
+        *,
+        role_to_play: torch.Tensor,
+        rule_features: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        x = self._encode(canonical_board)
+        role, rules = _validate_global_inputs(
+            role_to_play,
+            rule_features,
+            batch_size=x.shape[0],
+            dtype=x.dtype,
+            device=x.device,
+        )
+        scale, bias = self.global_encoder(torch.cat((role, rules), dim=1)).chunk(2, dim=1)
+        x = x * (1.0 + torch.tanh(scale).unsqueeze(-1).unsqueeze(-1))
+        x = x + bias.unsqueeze(-1).unsqueeze(-1)
+        if self.transformer_blocks is not None:
+            tokens = x.flatten(2).transpose(1, 2) + self.position_embedding
+            for block in self.transformer_blocks:
+                tokens = block(tokens)
+            x = tokens.transpose(1, 2).reshape(-1, self.model_config.channels, BOARD_SIZE, BOARD_SIZE)
+        else:
+            for block in self.blocks:
+                x = block(x)
+        x = F.silu(self.final_norm(x))
+        pooled = torch.cat((x.mean(dim=(2, 3)), x.amax(dim=(2, 3))), dim=1)
+        return x, pooled
+
+    def forward_search(
+        self,
+        canonical_board: torch.Tensor,
+        *,
+        role_to_play: torch.Tensor,
+        rule_features: torch.Tensor,
+    ) -> SearchOutput:
+        x, pooled = self._trunk_and_pooled(
+            canonical_board, role_to_play=role_to_play, rule_features=rule_features
+        )
+        return SearchOutput(self.policy_head(x).flatten(1), self.wdl_head(pooled))
+
+    def forward(
+        self,
+        canonical_board: torch.Tensor,
+        *,
+        role_to_play: torch.Tensor,
+        rule_features: torch.Tensor,
+    ) -> ModelOutput:
+        x, pooled = self._trunk_and_pooled(
+            canonical_board, role_to_play=role_to_play, rule_features=rule_features
+        )
+        batch_size = x.shape[0]
+        return ModelOutput(
+            policy_logits=self.policy_head(x).flatten(1),
+            wdl_logits=self.wdl_head(pooled),
+            opponent_reply_logits=self.opponent_reply_head(x).flatten(1),
+            future_occupancy_logits=self.future_occupancy_head(x).reshape(
+                batch_size, 3, MAX_LAYERS, BOARD_SIZE, BOARD_SIZE
+            ),
+            moves_left_logits=self.moves_left_head(pooled),
+        )
+
+    def export_config(self) -> dict[str, Any]:
+        return model_config_dict(self.model_config)
 
 
 def _model_config_from_mapping(raw: Mapping[str, Any]) -> ModelConfig:
@@ -276,6 +576,10 @@ def _model_config_from_mapping(raw: Mapping[str, Any]) -> ModelConfig:
         "architecture",
         "channels",
         "blocks",
+        "encoder_channels",
+        "branch_channels",
+        "attention_heads",
+        "transformer_mlp_ratio",
         "global_input_schema",
         "output_schema",
         "rule_feature_dim",
@@ -287,12 +591,16 @@ def _model_config_from_mapping(raw: Mapping[str, Any]) -> ModelConfig:
     return ModelConfig(**dict(raw))
 
 
-def build_model(model_config: ModelConfig | Mapping[str, Any]) -> GravityPolicyValueNetV3:
+def build_model(
+    model_config: ModelConfig | Mapping[str, Any],
+) -> GravityPolicyValueNetV3 | ArchitecturePolicyValueNetV3:
     if isinstance(model_config, Mapping):
         model_config = _model_config_from_mapping(model_config)
     if not isinstance(model_config, ModelConfig):
         raise TypeError("build_model requires an explicit ModelConfig or model config mapping.")
-    return GravityPolicyValueNetV3(model_config)
+    if model_config.architecture == "gravity_resnet":
+        return GravityPolicyValueNetV3(model_config)
+    return ArchitecturePolicyValueNetV3(model_config)
 
 
 def wdl_expected_value(probabilities: np.ndarray | torch.Tensor) -> np.ndarray | torch.Tensor:
@@ -401,7 +709,7 @@ def legacy_policy_to_columns(legacy_policy: np.ndarray, board: np.ndarray | None
 class TorchPredictor:
     """Search inference adapter with mandatory absolute-role and rule context."""
 
-    def __init__(self, model: GravityPolicyValueNetV3, device: str | torch.device = "cpu") -> None:
+    def __init__(self, model: nn.Module, device: str | torch.device = "cpu") -> None:
         self.model = model
         self.device = torch.device(device)
         self.model.to(self.device)
@@ -500,10 +808,13 @@ __all__ = [
     "WDL_LOSS",
     "WDL_WIN",
     "GravityPolicyValueNetV3",
+    "ArchitecturePolicyValueNetV3",
     "LegacyPolicyValueAdapter",
     "TorchPredictor",
     "build_model",
     "canonical_board_to_planes",
+    "canonical_board_to_column_features",
+    "canonical_board_to_voxels",
     "classic_rule_features",
     "column_policy_to_legacy",
     "column_to_legacy_action",

@@ -21,7 +21,13 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from training.v3.actor_runtime import run_self_play_actor_pool
-from training.v3.config import ExplorationPhaseConfig, SearchStageConfig, config_hash, load_config
+from training.v3.config import (
+    ExplorationPhaseConfig,
+    SearchStageConfig,
+    config_hash,
+    load_config,
+    model_config_dict,
+)
 from training.v3.pipeline import _selfplay_health
 
 
@@ -91,7 +97,7 @@ def main() -> None:
     snapshot = torch.load(args.snapshot, map_location="cpu", weights_only=False)
     if not isinstance(snapshot, dict) or snapshot.get("format") != "connect4-v3-model":
         raise ValueError("snapshot is not a V3 evaluation artifact")
-    if dict(snapshot.get("model_config", {})) != asdict(config.model):
+    if dict(snapshot.get("model_config", {})) != model_config_dict(config.model):
         raise ValueError("snapshot model_config differs from the diagnostic config")
     model_state = snapshot.get("model_state")
     if not isinstance(model_state, dict):

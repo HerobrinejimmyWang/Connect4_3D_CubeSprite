@@ -1,0 +1,9 @@
+{
+  "schema": "connect4-v3-stage2-finalists-v1",
+  "finalists": [
+    "gravity_resnet",
+    "column_resnet",
+    "column_transformer"
+  ],
+  "note": "Example only. Replace the two candidates with the frozen Stage 2A decision."
+}
