@@ -509,7 +509,7 @@ def load_v3_artifact_predictor(
     checkpoint_path: str | Path, *, device: str = "cpu"
 ) -> tuple[TorchPredictor, dict[str, Any]]:
     path = Path(checkpoint_path)
-    payload = torch.load(path, map_location="cpu", weights_only=False)
+    payload = torch.load(path, map_location="cpu", weights_only=True)
     if not isinstance(payload, dict) or payload.get("format") != "connect4-v3-model":
         raise ValueError(f"unsupported V3 model artifact: {path}")
     if payload.get("format_version") != 1:
