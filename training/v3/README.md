@@ -355,6 +355,13 @@ python tools\run_v3_anchored_eval.py --config training\v3\configs\anchored_elo_h
 python tools\run_v3_anchored_eval.py --config training\v3\configs\anchored_pressure_256v512_historical_v3.json verify
 ```
 
+For a Stage 2 checkpoint, run fresh paired batches against every registered
+anchor with `--model-a v3:<checkpoint>` and `--model-b anchor:<id>`. Rate the
+`primary_256` or `final_512` batches with the matching frozen v3 scale; never
+use a v1/v2 scale. For `pressure_256v512`, use `pressure-report` on fresh
+target-at-256 versus anchor-at-512 batches. Pressure results are directional
+stress evidence and must not be merged into the symmetric Elo scale.
+
 ## Hardware plan
 
 The reference MCTS batches the virtual-loss lanes of one game through
