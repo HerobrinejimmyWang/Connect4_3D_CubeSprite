@@ -40,6 +40,11 @@ def _inspect_run(run_dir: Path, *, recipe_id: str, required_positions: int) -> d
         receipt = json.loads(path.read_text(encoding="utf-8"))
         for row in receipt.get("entries", ()):
             relative = str(row["path"])
+            # Receipts also contain evolving drafts, metrics, and pointers whose
+            # paths legitimately recur with newer checksums.  Stage 2 needs only
+            # the immutable Replay entries named by committed replay_shards.
+            if relative not in expected:
+                continue
             checksum = str(row["checksum_sha256"])
             previous = receipt_entries.setdefault(relative, checksum)
             if previous != checksum:
