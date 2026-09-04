@@ -54,6 +54,14 @@ def _safe_torch_load(path: str | Path, *, map_location: str | torch.device) -> A
         return torch.load(path, map_location=map_location, weights_only=True)
 
 
+def _restore_cuda_rng_state_all(states: Any) -> None:
+    """Normalize checkpoint RNG tensors to the CPU ByteTensor contract CUDA expects."""
+
+    torch.cuda.set_rng_state_all(
+        [torch.as_tensor(state, dtype=torch.uint8).detach().cpu() for state in states]
+    )
+
+
 def _aggregate_learner_metrics(
     segments: list[LearnerMetrics], *, elapsed: float
 ) -> LearnerMetrics:
@@ -243,7 +251,7 @@ def train_offline(config_path: str | Path) -> dict[str, Any]:
         learner.scaler.load_state_dict(saved["scaler_state"])
         torch.set_rng_state(saved["torch_rng_state"].cpu())
         if saved.get("cuda_rng_state_all") is not None and torch.cuda.is_available():
-            torch.cuda.set_rng_state_all(saved["cuda_rng_state_all"])
+            _restore_cuda_rng_state_all(saved["cuda_rng_state_all"])
         np.random.set_state(saved["numpy_rng_state"])
 
     target_positions = int(raw["target_positions"])

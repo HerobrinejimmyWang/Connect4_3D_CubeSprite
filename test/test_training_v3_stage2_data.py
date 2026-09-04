@@ -4,6 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import torch
@@ -11,7 +12,7 @@ import torch
 from training.v3.replay import ReplayShard, load_replay_shard, write_replay_shard
 from training.v3.anchored_elo import load_v3_artifact_predictor
 from training.v3.stage2.data import audit_trajectory, freeze_regime_datasets
-from training.v3.stage2.offline import train_offline
+from training.v3.stage2.offline import _restore_cuda_rng_state_all, train_offline
 
 
 def make_shard(generation: int, count: int = 100) -> ReplayShard:
@@ -38,6 +39,15 @@ def make_shard(generation: int, count: int = 100) -> ReplayShard:
 
 
 class Stage2DataTests(unittest.TestCase):
+    def test_cuda_rng_restore_normalizes_states_to_cpu_byte_tensors(self) -> None:
+        states = [torch.tensor([1, 2, 3], dtype=torch.int64)]
+        with patch.object(torch.cuda, "set_rng_state_all") as restore:
+            _restore_cuda_rng_state_all(states)
+        normalized = restore.call_args.args[0]
+        self.assertEqual(len(normalized), 1)
+        self.assertEqual(normalized[0].dtype, torch.uint8)
+        self.assertEqual(normalized[0].device.type, "cpu")
+
     def _fixture(self, root: Path) -> tuple[Path, Path, Path, Path]:
         source = root / "replay"
         metrics = root / "metrics.jsonl"
