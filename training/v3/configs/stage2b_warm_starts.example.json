@@ -1,0 +1,20 @@
+{
+  "schema": "connect4-v3-stage2b-warm-starts-v1",
+  "warm_starts": [
+    {
+      "architecture": "gravity_resnet",
+      "checkpoint": "training/runs/stage2/round2/gravity_resnet/standard_late/seed271828/model.pt",
+      "checkpoint_sha256": "replace-with-lowercase-sha256"
+    },
+    {
+      "architecture": "replace-with-finalist-1",
+      "checkpoint": "training/runs/stage2/round2/replace-with-finalist-1/standard_late/seed271828/model.pt",
+      "checkpoint_sha256": "replace-with-lowercase-sha256"
+    },
+    {
+      "architecture": "replace-with-finalist-2",
+      "checkpoint": "training/runs/stage2/round2/replace-with-finalist-2/standard_late/seed271828/model.pt",
+      "checkpoint_sha256": "replace-with-lowercase-sha256"
+    }
+  ]
+}

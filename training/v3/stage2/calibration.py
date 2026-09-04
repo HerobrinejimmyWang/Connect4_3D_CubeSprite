@@ -22,6 +22,8 @@ ARCHITECTURES = (
     "column3d_fusion_resnet",
     "column_transformer",
     "multiview_transformer",
+    "multiview_winning_resnet",
+    "multiview_winning_transformer",
 )
 
 

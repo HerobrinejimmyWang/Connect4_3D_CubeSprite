@@ -92,6 +92,7 @@ def _parser() -> argparse.ArgumentParser:
     stage2b.add_argument("--architecture-matrix", required=True, type=Path)
     stage2b.add_argument("--finalists", required=True, type=Path)
     stage2b.add_argument("--output-dir", required=True, type=Path)
+    stage2b.add_argument("--warm-starts", type=Path)
     stage2b.add_argument("--seeds", nargs=2, type=int, default=(271828, 314159))
     return parser
 
@@ -160,6 +161,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             architecture_matrix_path=args.architecture_matrix,
             finalists_path=args.finalists,
             output_dir=args.output_dir,
+            warm_starts_path=args.warm_starts,
             seeds=args.seeds,
         )
     print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))

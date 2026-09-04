@@ -122,6 +122,62 @@ def canonical_board_to_column_features(board: torch.Tensor) -> torch.Tensor:
     return planes.permute(0, 2, 3, 1).contiguous()
 
 
+def winning_diagonal_paths() -> tuple[tuple[tuple[int, int], ...], ...]:
+    """Return the six XY diagonals whose vertical sections can contain Connect-4.
+
+    Coordinates are ``(y, x)``.  The two length-five diagonals and their four
+    length-four neighbours are the only diagonal XY traces long enough to host
+    a winning line; shorter corner traces are intentionally excluded.
+    """
+
+    paths: list[tuple[tuple[int, int], ...]] = []
+    for difference in (-1, 0, 1):
+        path = tuple(
+            (y, x)
+            for y in range(BOARD_SIZE)
+            for x in range(BOARD_SIZE)
+            if x - y == difference
+        )
+        paths.append(path)
+    for total_offset in (-1, 0, 1):
+        total = BOARD_SIZE - 1 + total_offset
+        path = tuple(
+            (y, x)
+            for y in range(BOARD_SIZE)
+            for x in range(BOARD_SIZE)
+            if x + y == total
+        )
+        paths.append(path)
+    return tuple(paths)
+
+
+WINNING_DIAGONAL_PATHS = winning_diagonal_paths()
+
+
+def canonical_board_to_winning_diagonal_sections(
+    board: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Encode the six useful vertical diagonal sections.
+
+    Returns padded sections ``[N,6,2,6,5]`` and a ``[6,5]`` validity mask.
+    Width positions beyond a length-four path are zero and masked out.
+    """
+
+    voxels = canonical_board_to_voxels(board)
+    batch = voxels.shape[0]
+    sections = voxels.new_zeros((batch, len(WINNING_DIAGONAL_PATHS), 2, MAX_LAYERS, BOARD_SIZE))
+    valid = torch.zeros(
+        (len(WINNING_DIAGONAL_PATHS), BOARD_SIZE),
+        dtype=torch.bool,
+        device=voxels.device,
+    )
+    for path_index, path in enumerate(WINNING_DIAGONAL_PATHS):
+        for position, (y, x) in enumerate(path):
+            sections[:, path_index, :, :, position] = voxels[:, :, :, y, x]
+            valid[path_index, position] = True
+    return sections, valid
+
+
 def _validate_global_inputs(
     role_to_play: torch.Tensor,
     rule_features: torch.Tensor,
@@ -238,12 +294,46 @@ class _Raw3DEncoder(nn.Module):
 class _MultiViewEncoder(nn.Module):
     """Encode XY layers and the two families of vertical sections."""
 
-    def __init__(self, output_channels: int, branch_channels: int) -> None:
+    def __init__(
+        self,
+        output_channels: int,
+        branch_channels: int,
+        *,
+        include_winning_diagonals: bool = False,
+    ) -> None:
         super().__init__()
+        self.include_winning_diagonals = include_winning_diagonals
         self.xy = nn.Conv2d(2 * MAX_LAYERS + 2, branch_channels, kernel_size=3, padding=1, bias=False)
         self.xz = nn.Conv2d(2, branch_channels, kernel_size=3, padding=1, bias=False)
         self.yz = nn.Conv2d(2, branch_channels, kernel_size=3, padding=1, bias=False)
-        self.fusion = nn.Conv2d(3 * branch_channels, output_channels, kernel_size=1, bias=False)
+        if include_winning_diagonals:
+            self.winning_diagonal = nn.Conv2d(
+                2, branch_channels, kernel_size=3, padding=1, bias=False
+            )
+        else:
+            self.winning_diagonal = None
+        branch_count = 4 if include_winning_diagonals else 3
+        self.fusion = nn.Conv2d(
+            branch_count * branch_channels, output_channels, kernel_size=1, bias=False
+        )
+
+    def _encode_winning_diagonals(self, board: torch.Tensor) -> torch.Tensor:
+        assert self.winning_diagonal is not None
+        sections, valid = canonical_board_to_winning_diagonal_sections(board)
+        batch, path_count = sections.shape[:2]
+        encoded = self.winning_diagonal(
+            sections.reshape(batch * path_count, 2, MAX_LAYERS, BOARD_SIZE)
+        ).mean(dim=2)
+        encoded = encoded.reshape(batch, path_count, -1, BOARD_SIZE)
+        encoded = encoded * valid.to(dtype=encoded.dtype).view(1, path_count, 1, BOARD_SIZE)
+
+        diagonal_map = encoded.new_zeros((batch, encoded.shape[2], BOARD_SIZE, BOARD_SIZE))
+        counts = encoded.new_zeros((1, 1, BOARD_SIZE, BOARD_SIZE))
+        for path_index, path in enumerate(WINNING_DIAGONAL_PATHS):
+            for position, (y, x) in enumerate(path):
+                diagonal_map[:, :, y, x] += encoded[:, path_index, :, position]
+                counts[:, :, y, x] += 1.0
+        return diagonal_map / counts.clamp_min(1.0)
 
     def forward(self, board: torch.Tensor) -> torch.Tensor:
         planes = canonical_board_to_planes(board)
@@ -264,7 +354,10 @@ class _MultiViewEncoder(nn.Module):
         )
         yz = self.yz(yz_in).mean(dim=2)
         yz = yz.reshape(batch, BOARD_SIZE, -1, BOARD_SIZE).permute(0, 2, 1, 3)
-        return self.fusion(torch.cat((xy, xz, yz), dim=1))
+        views = [xy, xz, yz]
+        if self.include_winning_diagonals:
+            views.append(self._encode_winning_diagonals(board))
+        return self.fusion(torch.cat(views, dim=1))
 
 
 class _TransformerBlock(nn.Module):
@@ -418,8 +511,17 @@ class ArchitecturePolicyValueNetV3(nn.Module):
 
         if architecture in {"column_resnet", "column_transformer"}:
             self.column_encoder = _ColumnEncoder(channels, encoder_channels)
-        elif architecture in {"multiview_resnet", "multiview_transformer"}:
-            self.multiview_encoder = _MultiViewEncoder(channels, branch_channels)
+        elif architecture in {
+            "multiview_resnet",
+            "multiview_transformer",
+            "multiview_winning_resnet",
+            "multiview_winning_transformer",
+        }:
+            self.multiview_encoder = _MultiViewEncoder(
+                channels,
+                branch_channels,
+                include_winning_diagonals=architecture.startswith("multiview_winning_"),
+            )
         elif architecture == "raw3d_resnet":
             self.raw3d_encoder = _Raw3DEncoder(channels, branch_channels, model_config.blocks)
         elif architecture == "plane3d_fusion_resnet":
@@ -815,6 +917,7 @@ __all__ = [
     "canonical_board_to_planes",
     "canonical_board_to_column_features",
     "canonical_board_to_voxels",
+    "canonical_board_to_winning_diagonal_sections",
     "classic_rule_features",
     "column_policy_to_legacy",
     "column_to_legacy_action",
@@ -823,4 +926,5 @@ __all__ = [
     "legal_column_mask",
     "wdl_expected_value",
     "wdl_logits_expected_value",
+    "winning_diagonal_paths",
 ]

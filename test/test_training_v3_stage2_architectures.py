@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+import hashlib
 import json
 import tempfile
 from pathlib import Path
@@ -14,7 +15,9 @@ from training.v3.model import (
     build_model,
     canonical_board_to_column_features,
     canonical_board_to_voxels,
+    canonical_board_to_winning_diagonal_sections,
     classic_rule_features,
+    winning_diagonal_paths,
 )
 from training.v3.stage2.calibration import calibrate_architecture_matrix
 from training.v3.stage2.selfplay import generate_stage2b_configs
@@ -29,6 +32,8 @@ ARCHITECTURES = (
     "column3d_fusion_resnet",
     "column_transformer",
     "multiview_transformer",
+    "multiview_winning_resnet",
+    "multiview_winning_transformer",
 )
 
 
@@ -76,6 +81,43 @@ class Stage2ArchitectureTests(unittest.TestCase):
         self.assertEqual(tuple(voxels.shape), (1, 2, 6, 5, 5))
         self.assertEqual(float(voxels[0, 0, 2, 1, 3]), 1.0)
         self.assertEqual(float(voxels[0, 1, 0, 4, 2]), 1.0)
+
+    def test_winning_diagonal_sections_include_exactly_six_useful_paths(self) -> None:
+        paths = winning_diagonal_paths()
+        self.assertEqual(len(paths), 6)
+        self.assertEqual(sorted(len(path) for path in paths), [4, 4, 4, 4, 5, 5])
+        self.assertTrue(all(len(path) >= 4 for path in paths))
+
+        board = torch.zeros((1, 6, 5, 5))
+        for path_index, path in enumerate(paths):
+            y, x = path[0]
+            board[0, path_index, y, x] = 1.0
+        sections, valid = canonical_board_to_winning_diagonal_sections(board)
+        self.assertEqual(tuple(sections.shape), (1, 6, 2, 6, 5))
+        self.assertEqual(tuple(valid.sum(dim=1).tolist()), (4, 5, 4, 4, 5, 4))
+        for path_index, path in enumerate(paths):
+            y, x = path[0]
+            self.assertEqual(float(sections[0, path_index, 0, path_index, 0]), 1.0)
+            self.assertEqual(float(board[0, path_index, y, x]), 1.0)
+
+    def test_winning_diagonal_path_set_is_d4_closed(self) -> None:
+        expected = {frozenset(path) for path in winning_diagonal_paths()}
+        transforms = (
+            lambda y, x: (y, x),
+            lambda y, x: (x, 4 - y),
+            lambda y, x: (4 - y, 4 - x),
+            lambda y, x: (4 - x, y),
+            lambda y, x: (y, 4 - x),
+            lambda y, x: (4 - y, x),
+            lambda y, x: (x, y),
+            lambda y, x: (4 - x, 4 - y),
+        )
+        for transform in transforms:
+            transformed = {
+                frozenset(transform(y, x) for y, x in path)
+                for path in winning_diagonal_paths()
+            }
+            self.assertEqual(transformed, expected)
 
     def test_strict_architecture_parameters(self) -> None:
         with self.assertRaisesRegex(ValueError, "one of"):
@@ -137,6 +179,75 @@ class Stage2ArchitectureTests(unittest.TestCase):
                 config = V3Config.from_dict(json.loads(Path(row["config"]).read_text(encoding="utf-8")))
                 self.assertFalse(config.run.resume)
                 self.assertEqual(config.run.warm_start_mode, "")
+
+    def test_stage2b_generator_pairs_cold_and_standard_late_model_only_warm_starts(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="stage2b-warm-configs-") as temporary:
+            root = Path(temporary)
+            matrix = calibrate_architecture_matrix(anchor_channels=8, anchor_blocks=1)
+            matrix_path = root / "matrix.json"
+            matrix_path.write_text(json.dumps(matrix), encoding="utf-8")
+            finalists = ["gravity_resnet", "column_resnet", "column_transformer"]
+            finalists_path = root / "finalists.json"
+            finalists_path.write_text(json.dumps({"finalists": finalists}), encoding="utf-8")
+            models = {row["architecture"]: row["model"] for row in matrix["architectures"]}
+            warm_rows = []
+            for architecture in finalists:
+                path = root / f"{architecture}.pt"
+                model = build_model(ModelConfig(**models[architecture]))
+                torch.save(
+                    {
+                        "format": "connect4-v3-model",
+                        "format_version": 1,
+                        "model_config": models[architecture],
+                        "model_state": model.state_dict(),
+                        "metadata": {
+                            "lineage": "v3_stage2_offline",
+                            "train_regime": "standard_late",
+                            "train_positions": 1_000_000,
+                        },
+                    },
+                    path,
+                )
+                digest = hashlib.sha256(path.read_bytes()).hexdigest()
+                warm_rows.append(
+                    {
+                        "architecture": architecture,
+                        "checkpoint": str(path),
+                        "checkpoint_sha256": digest,
+                    }
+                )
+            warm_path = root / "warm.json"
+            warm_path.write_text(
+                json.dumps(
+                    {
+                        "schema": "connect4-v3-stage2b-warm-starts-v1",
+                        "warm_starts": warm_rows,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            base = Path(__file__).resolve().parents[1] / "training/v3/configs/smoke_cpu.json"
+            manifest = generate_stage2b_configs(
+                base_config_path=base,
+                architecture_matrix_path=matrix_path,
+                finalists_path=finalists_path,
+                output_dir=root / "generated",
+                warm_starts_path=warm_path,
+            )
+            self.assertEqual(len(manifest["runs"]), 12)
+            self.assertEqual(
+                {row["initialization"] for row in manifest["runs"]}, {"cold", "warm"}
+            )
+            for row in manifest["runs"]:
+                config = V3Config.from_dict(json.loads(Path(row["config"]).read_text()))
+                if row["initialization"] == "warm":
+                    self.assertEqual(
+                        config.run.warm_start_mode,
+                        "model_only_fresh_optimizer_replay_v1",
+                    )
+                    self.assertTrue(config.run.warm_start_checkpoint_sha256)
+                else:
+                    self.assertEqual(config.run.warm_start_mode, "")
 
 
 if __name__ == "__main__":

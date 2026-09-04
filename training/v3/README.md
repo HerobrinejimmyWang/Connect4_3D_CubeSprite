@@ -659,9 +659,13 @@ artifacts and verified local archives rather than Git.
 
 ## Stage 2 architecture experiments
 
-Stage 2 is isolated under `training/v3/stage2/`. It adds seven experimental
+Stage 2 is isolated under `training/v3/stage2/`. It adds nine experimental
 architectures alongside the unchanged `gravity_resnet` control, while preserving
 the V3 role/rule inputs, 25-column policy, WDL output, and auxiliary heads. The
+two `multiview_winning_*` variants augment XY/XZ/YZ with the six length-four-or-five
+XY diagonals crossed with the vertical axis; shorter diagonal sections cannot
+contain Connect-4 and are excluded.
+The
 offline workflow validates and freezes B10 Replay V2 pools before any model is
 trained:
 
@@ -674,7 +678,7 @@ python -m training.v3.stage2 calibrate-models --output training/runs/stage2/arch
 python -m training.v3.stage2 design-matrix --output training/runs/stage2/experiment_design.json
 python -m training.v3.stage2 verify-elo --protocol training/v3/configs/stage2_elo_protocol_v1.json
 python -m training.v3.stage2 train --config training/v3/configs/stage2_offline_run.example.json
-python -m training.v3.stage2 generate-stage2b --base-config <formal.json> --architecture-matrix <matrix.json> --finalists <finalists.json> --output-dir <stage2b-configs>
+python -m training.v3.stage2 generate-stage2b --base-config <formal.json> --architecture-matrix <matrix.json> --finalists <finalists.json> --warm-starts <standard-late-warm-starts.json> --output-dir <stage2b-configs>
 ```
 
 `audit-data` freezes three continuous standard-line pools plus a separately
@@ -688,6 +692,12 @@ augmentation stream, and sample cursor.
 See `stage2_mixed_promotion.example.json` for that contract. Raw pools,
 checkpoints, and reports belong under ignored run directories. The detailed research protocol is in
 `tmp_models_plan/PLAN_Stage2_Architecture_Experiments_V1.md`.
+
+Stage 2B emits paired cold and warm-start lineages for the baseline and two
+finalists. Warm starts accept only a same-architecture `standard_late` Stage 2
+offline model artifact and start with fresh optimizer, scheduler, replay, cursor,
+and game IDs. Compare every line at 1M and 5M train positions; extend matched
+cold/warm pairs to 10M only while strength is still rising or uncertainty remains.
 
 ## Smoke artifacts
 

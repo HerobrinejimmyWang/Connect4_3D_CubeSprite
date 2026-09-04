@@ -106,6 +106,23 @@ def build_experiment_design(*, tolerance: float = 0.05) -> dict[str, Any]:
                 "consumed_positions": 3_000_000,
                 "seeds": [271828, 314159],
             },
+            {
+                "phase": "B",
+                "purpose": "paired cold/warm closed-loop self-play confirmation",
+                "architecture_selector": "baseline plus two finalists",
+                "initializations": [
+                    "cold_random",
+                    "same_architecture_standard_late_model_only",
+                ],
+                "warm_start_reset": "optimizer scheduler replay cursor and game IDs are fresh",
+                "consumed_position_checkpoints": [1_000_000, 5_000_000],
+                "conditional_confirmation_positions": 10_000_000,
+                "conditional_rule": (
+                    "extend paired cold/warm lines only when the 5M trend is still rising or "
+                    "confidence intervals do not separate the conclusion"
+                ),
+                "seeds": [271828, 314159],
+            },
         ],
         "report_metrics": {
             "identity": [

@@ -33,7 +33,10 @@ class RunConfig:
         )
         if any(warm_values) and not all(warm_values):
             raise ValueError("run warm-start fields must be supplied together.")
-        if self.warm_start_mode and self.warm_start_mode != "optimizer_fresh_replay_v1":
+        if self.warm_start_mode and self.warm_start_mode not in {
+            "optimizer_fresh_replay_v1",
+            "model_only_fresh_optimizer_replay_v1",
+        }:
             raise ValueError("run.warm_start_mode is unsupported.")
         if self.warm_start_checkpoint_sha256 and (
             len(self.warm_start_checkpoint_sha256) != 64
@@ -66,6 +69,8 @@ class ModelConfig:
             "column3d_fusion_resnet",
             "column_transformer",
             "multiview_transformer",
+            "multiview_winning_resnet",
+            "multiview_winning_transformer",
         }
         if self.architecture not in architectures:
             raise ValueError(
@@ -102,6 +107,8 @@ class ModelConfig:
             "plane3d_fusion_resnet",
             "column3d_fusion_resnet",
             "multiview_transformer",
+            "multiview_winning_resnet",
+            "multiview_winning_transformer",
         }
         if self.branch_channels and not uses_branches:
             raise ValueError("branch_channels is not used by this architecture.")

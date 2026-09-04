@@ -357,6 +357,65 @@ def _load_training_state(
             source_sha256 = _sha256_file(source)
             if source_sha256 != config.run.warm_start_checkpoint_sha256:
                 raise ValueError("warm-start checkpoint SHA-256 mismatch")
+            if config.run.warm_start_mode == "model_only_fresh_optimizer_replay_v1":
+                payload = torch.load(source, map_location="cpu", weights_only=True)
+                if (
+                    payload.get("format") != "connect4-v3-model"
+                    or payload.get("format_version") != 1
+                ):
+                    raise ValueError("model-only warm start requires a V3 model artifact")
+                if payload.get("model_config") != model_config_dict(config.model):
+                    raise ValueError("warm-start model config differs from child config")
+                metadata = payload.get("metadata", {})
+                if metadata.get("lineage") != "v3_stage2_offline":
+                    raise ValueError("model-only warm start must come from Stage 2 offline training")
+                if metadata.get("train_regime") != "standard_late":
+                    raise ValueError("model-only warm start must come from standard_late")
+                model.load_state_dict(payload["model_state"], strict=True)
+                accepted_model_id = f"warmstart-offline-{source_sha256[:16]}"
+                accepted_path = layout.accepted / f"{accepted_model_id}.pt"
+                if not accepted_path.exists():
+                    _atomic_save_model_artifact(
+                        accepted_path,
+                        model=model,
+                        model_config=model_config_dict(config.model),
+                        metadata={
+                            "model_id": accepted_model_id,
+                            "config_hash": expected_hash,
+                            "lineage_root": True,
+                            "warm_start_mode": config.run.warm_start_mode,
+                            "source_checkpoint": str(source),
+                            "source_checkpoint_sha256": source_sha256,
+                            "source_train_regime": metadata.get("train_regime"),
+                            "source_train_positions_consumed": metadata.get("train_positions"),
+                        },
+                    )
+                else:
+                    _load_model_artifact(accepted_path, config)
+                formal_state = FormalLoopState(
+                    next_generation=0,
+                    next_game_id=0,
+                    replay_positions=0,
+                    train_positions_consumed=0,
+                    last_candidate_train_positions=0,
+                    accepted_model_id=accepted_model_id,
+                )
+                return (
+                    model,
+                    learner,
+                    optimizer,
+                    TrainTokenBucket(config.replay.train_tokens_per_raw_position),
+                    formal_state,
+                    None,
+                    [],
+                    0,
+                    [],
+                    [],
+                    {
+                        "accepted_model_id": accepted_model_id,
+                        "accepted_model_path": _run_relative(layout, accepted_path),
+                    },
+                )
             parent = load_checkpoint(source, map_location=config.runtime.device)
             if parent.extra_state.get("model_config") != model_config_dict(config.model):
                 raise ValueError("warm-start checkpoint model config differs from child config")

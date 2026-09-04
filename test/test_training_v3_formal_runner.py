@@ -7,10 +7,13 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 
-from training.v3.config import OpeningTemperatureMixtureConfig, load_config
+import torch
+
+from training.v3.config import OpeningTemperatureMixtureConfig, load_config, model_config_dict
 from training.v3.formal_runner import _resolve_exhausted_pending_gate, run_formal
 from training.v3.formal_state import FormalLoopState, PendingCandidateState
 from training.v3.layout import RunLayout
+from training.v3.model import build_model
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -304,6 +307,51 @@ class FormalRunnerTests(unittest.TestCase):
                 (root / "child" / "run_manifest.json").read_text(encoding="utf-8")
             )
             self.assertEqual(manifest["warm_start"]["replay_policy"], "fresh")
+
+    def test_stage2_model_only_warm_start_resets_optimizer_and_replay(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            base = self._config(root / "child")
+            source = root / "standard_late_model.pt"
+            model = build_model(base.model)
+            torch.save(
+                {
+                    "format": "connect4-v3-model",
+                    "format_version": 1,
+                    "model_config": model_config_dict(base.model),
+                    "model_state": model.state_dict(),
+                    "metadata": {
+                        "lineage": "v3_stage2_offline",
+                        "train_regime": "standard_late",
+                        "train_positions": 1_000_000,
+                    },
+                },
+                source,
+            )
+            source_sha256 = hashlib.sha256(source.read_bytes()).hexdigest()
+            child = replace(
+                base,
+                run=replace(
+                    base.run,
+                    run_id="formal_runner_stage2_warm_child",
+                    warm_start_checkpoint=str(source),
+                    warm_start_checkpoint_sha256=source_sha256,
+                    warm_start_mode="model_only_fresh_optimizer_replay_v1",
+                ),
+            )
+            result = run_formal(child, max_train_positions=5, max_generations=1)
+            self.assertEqual(result["generations_completed"], 1)
+            self.assertTrue(
+                result["results"][0]["producer_model_id"].startswith("warmstart-offline-")
+            )
+            self.assertEqual(result["formal_loop_state"]["train_positions_consumed"], 5)
+            manifest = json.loads(
+                (root / "child" / "run_manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                manifest["warm_start"]["mode"],
+                "model_only_fresh_optimizer_replay_v1",
+            )
 
 
 if __name__ == "__main__":
