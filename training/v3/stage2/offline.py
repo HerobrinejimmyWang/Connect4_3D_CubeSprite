@@ -10,6 +10,7 @@ from typing import Any, Mapping
 
 import numpy as np
 import torch
+from numpy.core.multiarray import _reconstruct
 
 from ..config import ModelConfig, load_config, model_config_dict
 from ..learner import OnlineD4Dataset, V3Learner, build_adamw
@@ -36,6 +37,20 @@ def _atomic_torch_save(path: Path, payload: Mapping[str, Any]) -> None:
         os.replace(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def _safe_torch_load(path: str | Path, *, map_location: str | torch.device) -> Any:
+    numpy_safe_globals = [
+        _reconstruct,
+        np.ndarray,
+        np.dtype,
+        type(np.dtype(np.uint32)),
+        type(np.dtype(np.float32)),
+        type(np.dtype(np.float64)),
+        type(np.dtype(np.int64)),
+    ]
+    with torch.serialization.safe_globals(numpy_safe_globals):
+        return torch.load(path, map_location=map_location, weights_only=True)
 
 
 def _model_config(raw: Mapping[str, Any]) -> ModelConfig:
@@ -108,7 +123,7 @@ def train_offline(config_path: str | Path) -> dict[str, Any]:
     warm_start_path = str(raw.get("warm_start_checkpoint", ""))
     warm_start_sha256 = sha256_file(warm_start_path) if warm_start_path else ""
     if warm_start_path and not bool(raw.get("resume", False)):
-        parent = torch.load(warm_start_path, map_location="cpu", weights_only=False)
+        parent = _safe_torch_load(warm_start_path, map_location="cpu")
         if parent.get("format") not in {
             "connect4-v3-stage2-offline-v1",
             "connect4-v3-model",
@@ -149,7 +164,7 @@ def train_offline(config_path: str | Path) -> dict[str, Any]:
         future_occupancy_class_weights=base.learner.future_occupancy_class_weights,
     )
     if bool(raw.get("resume", False)):
-        saved = torch.load(checkpoint_path, map_location=device, weights_only=False)
+        saved = _safe_torch_load(checkpoint_path, map_location=device)
         if saved.get("format") != "connect4-v3-stage2-offline-v1":
             raise ValueError("unsupported Stage 2 offline checkpoint")
         if saved["model_config"] != model_config_dict(model_config):
@@ -277,7 +292,7 @@ def evaluate_checkpoint(
     model_config = _model_config(raw["model"])
     device = str(raw.get("device", base.runtime.device))
     if model is None:
-        saved = torch.load(checkpoint_path, map_location=device, weights_only=False)
+        saved = _safe_torch_load(checkpoint_path, map_location=device)
         if saved["model_config"] != model_config_dict(model_config):
             raise ValueError("checkpoint architecture differs from evaluation config")
         model = build_model(model_config)
