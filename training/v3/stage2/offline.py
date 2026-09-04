@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from dataclasses import asdict, fields, replace
 from pathlib import Path
 from typing import Any, Mapping
@@ -13,7 +14,7 @@ import torch
 from numpy.core.multiarray import _reconstruct
 
 from ..config import ModelConfig, load_config, model_config_dict
-from ..learner import OnlineD4Dataset, V3Learner, build_adamw
+from ..learner import LearnerMetrics, OnlineD4Dataset, V3Learner, build_adamw
 from ..model import build_model
 from ..pipeline import _evaluate_validation
 from ..replay import load_replay_shard, sha256_file
@@ -51,6 +52,69 @@ def _safe_torch_load(path: str | Path, *, map_location: str | torch.device) -> A
     ]
     with torch.serialization.safe_globals(numpy_safe_globals):
         return torch.load(path, map_location=map_location, weights_only=True)
+
+
+def _aggregate_learner_metrics(
+    segments: list[LearnerMetrics], *, elapsed: float
+) -> LearnerMetrics:
+    if not segments:
+        raise ValueError("at least one learner metric segment is required")
+
+    def total(field: str) -> int:
+        return sum(int(getattr(segment, field)) for segment in segments)
+
+    def weighted(field: str, denominator: str) -> float:
+        count = total(denominator)
+        if count == 0:
+            return 0.0
+        return sum(
+            float(getattr(segment, field)) * int(getattr(segment, denominator))
+            for segment in segments
+        ) / count
+
+    positions = total("positions")
+    sampling_groups: dict[str, int] = {}
+    for segment in segments:
+        for name, count in segment.sampling_group_positions.items():
+            sampling_groups[name] = sampling_groups.get(name, 0) + int(count)
+    last_success = next(
+        (segment for segment in reversed(segments) if segment.positions > 0),
+        segments[-1],
+    )
+    return LearnerMetrics(
+        steps=total("steps"),
+        positions=positions,
+        policy_positions=total("policy_positions"),
+        value_positions=total("value_positions"),
+        opponent_reply_positions=total("opponent_reply_positions"),
+        future_occupancy_cells=total("future_occupancy_cells"),
+        moves_left_positions=total("moves_left_positions"),
+        policy_loss=weighted("policy_loss", "policy_positions"),
+        wdl_loss=weighted("wdl_loss", "value_positions"),
+        opponent_reply_loss=weighted(
+            "opponent_reply_loss", "opponent_reply_positions"
+        ),
+        future_occupancy_loss=weighted(
+            "future_occupancy_loss", "future_occupancy_cells"
+        ),
+        moves_left_loss=weighted("moves_left_loss", "moves_left_positions"),
+        total_loss=weighted("total_loss", "positions"),
+        opponent_reply_accuracy=weighted(
+            "opponent_reply_accuracy", "opponent_reply_positions"
+        ),
+        future_occupancy_accuracy=weighted(
+            "future_occupancy_accuracy", "future_occupancy_cells"
+        ),
+        moves_left_accuracy=weighted("moves_left_accuracy", "moves_left_positions"),
+        brier_score=weighted("brier_score", "positions"),
+        calibration_error=weighted("calibration_error", "positions"),
+        grad_norm=last_success.grad_norm,
+        average_sample_age=weighted("average_sample_age", "positions"),
+        train_data_ratio=last_success.train_data_ratio,
+        positions_per_second=positions / max(elapsed, 1e-12),
+        learning_rate=last_success.learning_rate,
+        sampling_group_positions=sampling_groups,
+    )
 
 
 def _model_config(raw: Mapping[str, Any]) -> ModelConfig:
@@ -186,11 +250,34 @@ def train_offline(config_path: str | Path) -> dict[str, Any]:
     remaining = target_positions - learner.sample_cursor
     if remaining < 0:
         raise ValueError("target_positions precedes the resumed sample cursor")
-    metrics = learner.train_steps(
-        dataset,
-        steps=(remaining + learner.batch_size - 1) // learner.batch_size,
-        position_limit=remaining,
+    metric_segments: list[LearnerMetrics] = []
+    consecutive_no_progress = 0
+    training_started = time.perf_counter()
+    while remaining > 0:
+        segment = learner.train_steps(
+            dataset,
+            steps=(remaining + learner.batch_size - 1) // learner.batch_size,
+            position_limit=remaining,
+        )
+        metric_segments.append(segment)
+        if segment.positions == 0:
+            consecutive_no_progress += 1
+            if consecutive_no_progress > 32:
+                raise RuntimeError(
+                    "Stage 2 learner made no progress after 32 AMP overflow retries"
+                )
+        else:
+            consecutive_no_progress = 0
+        remaining = target_positions - learner.sample_cursor
+    metrics = _aggregate_learner_metrics(
+        metric_segments,
+        elapsed=time.perf_counter() - training_started,
     )
+    training_execution = {
+        "learner_calls": len(metric_segments),
+        "amp_retry_calls": sum(segment.positions == 0 for segment in metric_segments),
+        "target_positions_reached": learner.sample_cursor == target_positions,
+    }
     learner_state = learner.state_dict()
     # Keep the final batch IDs as a compact resume/sampling audit.  V3Learner
     # accumulates IDs per train_steps call, whose boundary is operational.
@@ -212,6 +299,7 @@ def train_offline(config_path: str | Path) -> dict[str, Any]:
         "warm_start_sha256": warm_start_sha256,
         "target_positions": target_positions,
         "train_metrics": asdict(metrics),
+        "training_execution": training_execution,
     }
     _atomic_torch_save(checkpoint_path, payload)
     _atomic_torch_save(
@@ -238,6 +326,7 @@ def train_offline(config_path: str | Path) -> dict[str, Any]:
     )
     report = evaluate_checkpoint(config_path, checkpoint_path=checkpoint_path, model=model)
     report["train_metrics"] = asdict(metrics)
+    report["training_execution"] = training_execution
     report["model_artifact"] = {
         "path": str(artifact_path),
         "sha256": sha256_file(artifact_path),
