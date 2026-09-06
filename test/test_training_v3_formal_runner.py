@@ -10,7 +10,11 @@ from pathlib import Path
 import torch
 
 from training.v3.config import OpeningTemperatureMixtureConfig, load_config, model_config_dict
-from training.v3.formal_runner import _resolve_exhausted_pending_gate, run_formal
+from training.v3.formal_runner import (
+    _resolve_exhausted_pending_gate,
+    _stability_pause_acknowledged,
+    run_formal,
+)
 from training.v3.formal_state import FormalLoopState, PendingCandidateState
 from training.v3.layout import RunLayout
 from training.v3.model import build_model
@@ -91,6 +95,20 @@ class FormalRunnerTests(unittest.TestCase):
             )
             self.assertTrue(candidate_path.is_file())
             self.assertEqual(_resolve_exhausted_pending_gate(layout, state), resolved)
+
+    def test_stability_pause_acknowledgement_is_inclusive_and_explicit(self) -> None:
+        self.assertFalse(_stability_pause_acknowledged(10, None))
+        self.assertTrue(_stability_pause_acknowledged(10, 10))
+        self.assertFalse(_stability_pause_acknowledged(11, 10))
+
+    def test_stability_pause_acknowledgement_requires_resume(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(ValueError, "allowed only on resume"):
+                run_formal(
+                    self._config(Path(directory) / "run"),
+                    max_train_positions=10,
+                    ack_stability_pause_through_train_positions=10,
+                )
 
     def test_one_generation_commits_and_exact_position_bound_resumes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

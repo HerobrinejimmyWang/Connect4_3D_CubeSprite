@@ -56,6 +56,15 @@ def _parser() -> argparse.ArgumentParser:
                 default=None,
                 help="optional per-invocation generation bound for canaries and maintenance",
             )
+            command.add_argument(
+                "--ack-stability-pause-through-train-positions",
+                type=int,
+                default=None,
+                help=(
+                    "explicitly acknowledge behavioral stability pauses through this inclusive "
+                    "consumed-position bound while resuming; operational only and recorded"
+                ),
+            )
         if name == "validate-local":
             command.add_argument(
                 "--replay-dir",
@@ -149,6 +158,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 config,
                 max_train_positions=args.max_train_positions,
                 max_generations=args.max_generations,
+                ack_stability_pause_through_train_positions=(
+                    args.ack_stability_pause_through_train_positions
+                ),
             )
         else:
             result = formal_run_status(config)

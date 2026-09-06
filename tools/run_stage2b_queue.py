@@ -231,7 +231,8 @@ def main() -> int:
                 poll_seconds=args.poll_seconds,
             )
         else:
-            if run_dir.exists():
+            resume_existing = run_dir.exists() and args.phase != "canary"
+            if run_dir.exists() and not resume_existing:
                 raise RuntimeError(
                     f"refusing to overwrite or implicitly resume incomplete run directory: {run_dir}"
                 )
@@ -245,10 +246,23 @@ def main() -> int:
                 "run",
                 "--config",
                 str(config_path),
-                "--execute",
-                "--max-train-positions",
-                str(bound),
             ]
+            if resume_existing:
+                command.append("--resume")
+            command.extend(
+                [
+                    "--execute",
+                    "--max-train-positions",
+                    str(bound),
+                ]
+            )
+            if resume_existing and row["initialization"] == "cold":
+                command.extend(
+                    [
+                        "--ack-stability-pause-through-train-positions",
+                        str(bound),
+                    ]
+                )
             print(f"[{_utc_now()}] launching: {run_id}", flush=True)
             with log_path.open("w", encoding="utf-8") as log_handle:
                 completed = subprocess.run(

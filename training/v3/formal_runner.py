@@ -1032,11 +1032,21 @@ def _run_generation(
     )
 
 
+def _stability_pause_acknowledged(
+    train_positions_consumed: int,
+    acknowledged_through: int | None,
+) -> bool:
+    return acknowledged_through is not None and int(train_positions_consumed) <= int(
+        acknowledged_through
+    )
+
+
 def run_formal(
     config: V3Config,
     *,
     max_train_positions: int,
     max_generations: int | None = None,
+    ack_stability_pause_through_train_positions: int | None = None,
 ) -> dict[str, Any]:
     """Execute a bounded formal run or resume it to the requested bound."""
 
@@ -1048,6 +1058,20 @@ def run_formal(
         isinstance(max_generations, bool) or int(max_generations) < 1
     ):
         raise ValueError("max_generations must be a positive integer")
+    if ack_stability_pause_through_train_positions is not None:
+        if (
+            isinstance(ack_stability_pause_through_train_positions, bool)
+            or int(ack_stability_pause_through_train_positions) < 1
+        ):
+            raise ValueError(
+                "ack_stability_pause_through_train_positions must be a positive integer"
+            )
+        if not config.run.resume:
+            raise ValueError("stability-pause acknowledgement is allowed only on resume")
+        if int(ack_stability_pause_through_train_positions) > int(max_train_positions):
+            raise ValueError(
+                "stability-pause acknowledgement cannot exceed max_train_positions"
+            )
     if _provisional_auxiliary(config):
         raise RuntimeError(
             "formal execution refuses the provisional P6 auxiliary weights; "
@@ -1074,6 +1098,16 @@ def run_formal(
         if run_manifest.get("config_hash") != expected_hash:
             raise ValueError("run manifest config hash differs from the requested formal config")
         run_created_at = str(run_manifest["created_at"])
+        current_positions = int(
+            run_manifest.get("formal_loop_state", {}).get("train_positions_consumed", 0)
+        )
+        if (
+            ack_stability_pause_through_train_positions is not None
+            and int(ack_stability_pause_through_train_positions) < current_positions
+        ):
+            raise ValueError(
+                "stability-pause acknowledgement is below current consumed positions"
+            )
     else:
         run_created_at = _utc_now()
         run_manifest = {
@@ -1133,6 +1167,10 @@ def run_formal(
                 latest_commit,
             ) = _load_training_state(config, layout, expected_hash)
             results: list[dict[str, Any]] = []
+            if ack_stability_pause_through_train_positions is not None:
+                run_manifest["stability_pause_acknowledged_through_train_positions"] = int(
+                    ack_stability_pause_through_train_positions
+                )
             stop_reason = "max_train_positions"
             while formal_state.train_positions_consumed < int(max_train_positions):
                 if max_generations is not None and len(results) >= int(max_generations):
@@ -1175,8 +1213,13 @@ def run_formal(
                 )
                 results.append(result)
                 if result["stability"]["action"] == "pause":
-                    stop_reason = "stability_pause"
-                    break
+                    acknowledged = _stability_pause_acknowledged(
+                        formal_state.train_positions_consumed,
+                        ack_stability_pause_through_train_positions,
+                    )
+                    if not acknowledged:
+                        stop_reason = "stability_pause"
+                        break
                 if formal_state.pending_candidate is not None:
                     stop_reason = "gate_inconclusive_at_max_pairs"
                     break
