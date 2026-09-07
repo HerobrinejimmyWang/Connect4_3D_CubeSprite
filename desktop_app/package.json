@@ -1,7 +1,7 @@
 {
   "name": "connect4-3d-cubesprite",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -36,5 +36,5 @@
     "vite": "^7.1.5",
     "vitest": "^3.2.4"
   },
-  "packageManager": "pnpm@11.7.0"
+  "packageManager": "pnpm@11.9.0"
 }

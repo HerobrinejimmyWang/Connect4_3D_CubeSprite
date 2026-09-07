@@ -26,6 +26,8 @@ if str(TRAINING_DIR) not in sys.path:
     sys.path.insert(0, str(TRAINING_DIR))
 
 from model_compat import load_compatible_model  # noqa: E402
+from training.v3.config import ModelConfig  # noqa: E402
+from training.v3.model import build_model  # noqa: E402
 
 
 EXPORTS = {
@@ -63,7 +65,45 @@ EXPORTS = {
         "channels": 1,
         "actions": 200,
     },
+    "v3_b6c128": {
+        "source": REPO_ROOT / ".tmp" / "anchored-models-v2" / "b6_dynamic_g150.pt",
+        "source_sha256": "d30e98568163d70b97173be201a093c4502bdba5a6b61be5445ee5430a55658d",
+        "output": "v3_b6c128.onnx", "architecture": "v3-stage1-adapted", "layers": 6, "channels": 2, "actions": 150,
+    },
+    "v3_b8c192": {
+        "source": REPO_ROOT / ".tmp" / "anchored-models-v3" / "b8_role30_g268.pt",
+        "source_sha256": "3a3f33e36799e14a31b80a3cbf5541ac46ca229eeb06ea0c34002f6b7e3fbbbc",
+        "output": "v3_b8c192.onnx", "architecture": "v3-stage1-adapted", "layers": 6, "channels": 2, "actions": 150,
+    },
+    "v3_b10c256": {
+        "source": REPO_ROOT / ".tmp" / "anchored-models-v3" / "b10_mixed_final_g258.pt",
+        "source_sha256": "c630c10222eadac5789a57cded191a159f35586d22ff9c1e81f77882a7055ba2",
+        "output": "v3_b10c256.onnx", "architecture": "v3-stage1-adapted", "layers": 6, "channels": 2, "actions": 150,
+    },
 }
+
+
+class V3DesktopAdapter(torch.nn.Module):
+    """Freeze V3's role/rule context into the product's one-input ONNX contract."""
+
+    def __init__(self, model: torch.nn.Module) -> None:
+        super().__init__()
+        self.model = model
+
+    def forward(self, board: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        canonical = board[:, 0] - board[:, 1]
+        batch = canonical.shape[0]
+        role = canonical.new_zeros((batch, 2))
+        role[:, 0] = 1.0
+        rules = canonical.new_zeros((batch, 32))
+        rules[:, (0, 3, 5)] = 1.0
+        policy_columns, wdl_logits = self.model.forward_search(
+            canonical, role_to_play=role, rule_features=rules
+        )
+        policy = policy_columns.view(batch, 1, 25).expand(-1, 6, -1).reshape(batch, 150)
+        wdl = torch.softmax(wdl_logits, dim=1)
+        value = (wdl[:, 0] - wdl[:, 2]).unsqueeze(1)
+        return policy, value
 
 
 def export_one(checkpoint: Path, output: Path, expected: dict, opset: int = 17) -> dict:
@@ -71,17 +111,22 @@ def export_one(checkpoint: Path, output: Path, expected: dict, opset: int = 17) 
     if expected.get("source_sha256"):
         verify_source_sha256(checkpoint, expected["source_sha256"])
     output = output.resolve()
-    model, config, _metadata = load_compatible_model(str(checkpoint), device="cpu")
-    actual = {
-        "architecture": config["architecture"],
-        "layers": int(config["board_layers"]),
-        "channels": int(config["input_channels"]),
-        "actions": int(
-            config.get("action_dim", int(config["board_layers"]) * int(config["board_size"]) ** 2)
-        ),
-    }
+    if expected["architecture"] == "v3-stage1-adapted":
+        payload = torch.load(checkpoint, map_location="cpu", weights_only=True)
+        config = dict(payload["model_config"])
+        model = build_model(ModelConfig(**config))
+        model.load_state_dict(payload["model_state"], strict=True)
+        model = V3DesktopAdapter(model)
+        actual = {"architecture": expected["architecture"], "layers": 6, "channels": 2, "actions": 150}
+    else:
+        model, config, _metadata = load_compatible_model(str(checkpoint), device="cpu")
+        actual = {
+            "architecture": config["architecture"], "layers": int(config["board_layers"]),
+            "channels": int(config["input_channels"]),
+            "actions": int(config.get("action_dim", int(config["board_layers"]) * int(config["board_size"]) ** 2)),
+        }
     wanted = {key: expected[key] for key in actual}
-    if actual != wanted or int(config["board_size"]) != 5:
+    if actual != wanted or (expected["architecture"] != "v3-stage1-adapted" and int(config["board_size"]) != 5):
         raise ValueError(f"Checkpoint {checkpoint.name} has {actual}, expected {wanted} on a 5x5 board.")
 
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -213,7 +258,8 @@ def main(argv=None) -> int:
     args = parse_args(argv)
     selected = EXPORTS if args.models == "all" else {args.models: EXPORTS[args.models]}
     for model_id, expected in selected.items():
-        result = export_one(args.source_dir / expected["source"], args.output_dir / expected["output"], expected, args.opset)
+        source = expected["source"] if isinstance(expected["source"], Path) and expected["source"].is_absolute() else args.source_dir / expected["source"]
+        result = export_one(source, args.output_dir / expected["output"], expected, args.opset)
         print(
             f"{model_id}: {result['output']} ({result['bytes']} bytes, sha256={result['sha256']})",
             flush=True,

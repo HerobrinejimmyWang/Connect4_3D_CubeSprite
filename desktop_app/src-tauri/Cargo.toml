@@ -1,6 +1,6 @@
 [package]
 name = "cubesprite"
-version = "0.1.0"
+version = "0.1.1"
 description = "CubeSprite 3D Connect Four desktop client"
 authors = ["CubeSprite contributors"]
 edition = "2021"

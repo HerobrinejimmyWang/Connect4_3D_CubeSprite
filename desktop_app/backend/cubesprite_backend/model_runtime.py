@@ -73,7 +73,7 @@ class ModelSpec:
             raise ModelRegistryError(f"Model {spec.id} source_iteration must be a positive integer or null.")
         if spec.board_size != PRODUCT_BOARD_SIZE:
             raise ModelRegistryError(f"Model {spec.id} has unsupported board_size={spec.board_size}.")
-        if spec.architecture in {"modern-v22", "gravity_resnet_v1"}:
+        if spec.architecture in {"modern-v22", "gravity_resnet_v1", "v3-stage1-adapted"}:
             expected = (6, 2, 150)
         elif spec.architecture == "legacy-v21-adapted-6-layer":
             expected = (8, 1, 200)

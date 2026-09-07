@@ -183,7 +183,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--cyan); outl
 .role-number { font-size: 15px; color: var(--cyan); border: 1px solid rgba(80,215,220,.26); border-radius: 6px; padding: 6px; }
 .ai-role header h2 { font-size: 20px; margin: 0 0 4px; }
 .ai-role header p { color: var(--muted); font-size: 13px; line-height: 1.35; margin: 0; }
-.model-list { border: 0; margin: 0; padding: 16px 18px 9px; }
+.model-list { max-height: 330px; overflow-y: auto; border: 0; margin: 0; padding: 16px 18px 9px; scrollbar-gutter: stable; }
 .model-list legend, .parameter-block > label { color: #7790a7; font-size: 12px; text-transform: uppercase; font-weight: 800; letter-spacing: .14em; }
 .model-option { position: relative; min-height: 60px; display: flex; align-items: center; gap: 10px; padding: 10px 8px; margin: 4px 0; border: 1px solid transparent; border-radius: 9px; cursor: pointer; }
 .model-option:has(input:checked) { border-color: rgba(80, 215, 220, .35); background: rgba(80, 215, 220, .06); }

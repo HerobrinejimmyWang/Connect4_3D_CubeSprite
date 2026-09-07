@@ -52,7 +52,7 @@ class FakeModels:
         self.requested = []
 
     def get(self, model_id):
-        if model_id in {"cubesprite_v3", "cubesprite_v3_mini", "v2.2_balance", "v2.1_high"}:
+        if model_id in {"cubesprite_v3", "cubesprite_v3_mini", "v2.2_balance", "v3_b6c128", "v3_b8c192", "v3_b10c256"}:
             return SimpleNamespace(id=model_id, display_name=model_id, placeholder=False)
         raise ModelUnavailableError(f"Unknown model id: {model_id}")
 
@@ -87,17 +87,17 @@ class ExportSourceTests(unittest.TestCase):
 
 
 class ManifestAndAdapterTests(unittest.TestCase):
-    def test_authoritative_manifest_has_four_clean_bilingual_entries(self):
+    def test_authoritative_manifest_has_stage1_models_and_bilingual_entries(self):
         models = ModelRegistry(RESOURCE_DIR).list_models()
         self.assertEqual([item["id"] for item in models], [
-            "cubesprite_v3", "cubesprite_v3_mini", "v2.2_balance", "v2.1_high"
+            "cubesprite_v3", "cubesprite_v3_mini", "v2.2_balance", "v3_b6c128", "v3_b8c192", "v3_b10c256"
         ])
         self.assertTrue(models[0]["available"])
         self.assertTrue(models[1]["available"])
         self.assertEqual(models[0]["architecture"], "gravity_resnet_v1")
         self.assertEqual(models[1]["architecture"], "gravity_resnet_v1")
-        self.assertEqual(models[3]["architecture"], "legacy-v21-adapted-6-layer")
-        self.assertEqual((models[3]["board_layers"], models[3]["action_dim"]), (8, 200))
+        self.assertTrue(all(item["architecture"] == "v3-stage1-adapted" for item in models[3:]))
+        self.assertTrue(all((item["board_layers"], item["action_dim"]) == (6, 150) for item in models[3:]))
         expected_identities = {
             "cubesprite_v3": (
                 "61f4619d4b46daba149667697fcc9ffbf28171cef9b03d1b659a07395403814e",
@@ -111,10 +111,9 @@ class ManifestAndAdapterTests(unittest.TestCase):
                 "bb8cc0c6042276dfa3954e67b71f1fd43f603f9d6d9a0492412726cc41d30712",
                 None,
             ),
-            "v2.1_high": (
-                "d2b761e40bdccc40e8745589605dc46951cfb240ff357439a98c11035892bfa1",
-                None,
-            ),
+            "v3_b6c128": ("9e99064b015eec4a2bc7a0bc8fd67d3c7008a4bb50e4638ec64708aa06da32d7", 150),
+            "v3_b8c192": ("e8d6ebbe45ceb7251eef09b58183092ee52c02b2f1589c1450ed8364e8bf91f1", 268),
+            "v3_b10c256": ("ecd327287d25662e6e0c4ffcb9916177d68e4ad61cf2ccf658da00aa6c7126a8", 258),
         }
         for item in models:
             expected_hash, expected_iteration = expected_identities[item["id"]]
@@ -137,8 +136,8 @@ class ManifestAndAdapterTests(unittest.TestCase):
         self.assertEqual(encoded[0, 0, 0, 1, 2], 1)
         self.assertEqual(encoded[0, 1, 0, 3, 4], 1)
 
-    def test_v21_pads_two_empty_layers_and_crops_policy(self):
-        spec = ModelRegistry(RESOURCE_DIR).get("v2.1_high")
+    def test_v3_adapter_uses_two_channel_product_encoding(self):
+        spec = ModelRegistry(RESOURCE_DIR).get("v3_b10c256")
         predictor = OnnxPredictor.__new__(OnnxPredictor)
         predictor.spec = spec
         predictor.input_name = "board"
@@ -151,16 +150,15 @@ class ManifestAndAdapterTests(unittest.TestCase):
 
             def run(self, names, feeds):
                 self.last_input = feeds["board"]
-                logits = np.concatenate((np.zeros(150), np.full(50, 100.0))).reshape(1, 200)
+                logits = np.zeros((1, 150))
                 return logits, np.array([[0.25]], dtype=np.float32)
 
         predictor.session = Session()
         board = np.zeros((6, 5, 5), dtype=np.int8)
         board[5, 4, 3] = -1
         policy, value = predictor.predict(board)
-        self.assertEqual(predictor.session.last_input.shape, (1, 1, 8, 5, 5))
-        np.testing.assert_array_equal(predictor.session.last_input[0, 0, 6:], 0)
-        self.assertEqual(predictor.session.last_input[0, 0, 5, 4, 3], -1)
+        self.assertEqual(predictor.session.last_input.shape, (1, 2, 6, 5, 5))
+        self.assertEqual(predictor.session.last_input[0, 1, 5, 4, 3], 1)
         self.assertEqual(policy.shape, (150,))
         np.testing.assert_allclose(policy, np.full(150, 1.0 / 150.0))
         self.assertAlmostEqual(float(policy.sum()), 1.0)
@@ -211,16 +209,14 @@ class ManifestAndAdapterTests(unittest.TestCase):
     def test_real_onnx_models_when_exported(self):
         models_dir = RESOURCE_DIR / "models"
         filenames = (
-            "cubesprite_v3.onnx",
-            "cubesprite_v3_mini.onnx",
-            "v2.2_balance.onnx",
-            "v2.1_high.onnx",
+            "cubesprite_v3.onnx", "cubesprite_v3_mini.onnx", "v2.2_balance.onnx",
+            "v3_b6c128.onnx", "v3_b8c192.onnx", "v3_b10c256.onnx",
         )
         if not all((models_dir / name).is_file() for name in filenames):
             self.skipTest("Run export_models.py to create ONNX resources.")
         registry = ModelRegistry(RESOURCE_DIR)
         board = np.zeros((6, 5, 5), dtype=np.int8)
-        for model_id in ("cubesprite_v3", "cubesprite_v3_mini", "v2.2_balance", "v2.1_high"):
+        for model_id in ("cubesprite_v3", "cubesprite_v3_mini", "v2.2_balance", "v3_b6c128", "v3_b8c192", "v3_b10c256"):
             policy, value = registry.predictor(model_id).predict(board)
             self.assertEqual(policy.shape, (150,))
             self.assertAlmostEqual(float(policy.sum()), 1.0, places=6)
@@ -355,16 +351,16 @@ class ServiceStateTests(unittest.TestCase):
         state = self.service.snapshot()
         result = self.service.handle("settings.update", {
             **token(state), "preload_hint": True,
-            "roles": {"combat": {"model_id": "v2.1_high", "mcts_sims": 32, "temperature": 0.2}},
+            "roles": {"combat": {"model_id": "v3_b6c128", "mcts_sims": 32, "temperature": 0.2}},
         })
         settings = result["settings"]
         self.assertTrue(settings["preload_hint"])
-        self.assertEqual(settings["roles"]["combat"]["model_id"], "v2.1_high")
+        self.assertEqual(settings["roles"]["combat"]["model_id"], "v3_b6c128")
         self.assertEqual(settings["roles"]["hint"]["model_id"], "v2.2_balance")
         result = self.service.handle("settings.set_preload_hint", {**token(result["state"]), "enabled": False})
         self.assertFalse(result["settings"]["preload_hint"])
         state = self.service.handle("game.new", {"mode": "pvp"})
-        self.assertEqual(self.service.handle("settings.get", {})["roles"]["combat"]["model_id"], "v2.1_high")
+        self.assertEqual(self.service.handle("settings.get", {})["roles"]["combat"]["model_id"], "v3_b6c128")
         updated = self.service.handle(
             "settings.update",
             {**token(state), "roles": {"combat": {"model_id": "cubesprite_v3"}}},
@@ -375,14 +371,14 @@ class ServiceStateTests(unittest.TestCase):
         state = self.service.snapshot()
         updated = self.service.handle("settings.update", {
             **token(state), "roles": {
-                "hint": {"model_id": "v2.1_high", "mcts_sims": 32, "temperature": 0},
+                "hint": {"model_id": "v3_b6c128", "mcts_sims": 32, "temperature": 0},
                 "win_rate": {"model_id": "v2.2_balance", "mcts_sims": 32, "temperature": 0},
             },
         })
         state = updated["state"]
         hint = self.service.handle("analysis.hint", token(state))
         rate = self.service.handle("analysis.win_rate", token(state))
-        self.assertEqual(self.service.models.requested[-2:], ["v2.1_high", "v2.2_balance"])
+        self.assertEqual(self.service.models.requested[-2:], ["v3_b6c128", "v2.2_balance"])
         self.assertEqual(hint["for_revision"], state["revision"])
         self.assertAlmostEqual(rate["red"] + rate["blue"], 1.0)
 

@@ -94,7 +94,7 @@ class CubeSpriteService:
         if not isinstance(params, dict):
             raise ServiceError("INVALID_PARAMS", "Request params must be a JSON object.")
         handlers = {
-            "system.ping": lambda _: {"pong": True, "version": "0.1.0"},
+            "system.ping": lambda _: {"pong": True, "version": "0.1.1"},
             "models.list": lambda _: {"models": self.models.list_models()},
             "settings.get": lambda _: self._settings_snapshot(),
             "settings.update": self._cmd_settings_update,
@@ -129,7 +129,7 @@ class CubeSpriteService:
 
     def initialize(self) -> dict[str, Any]:
         return {
-            "backend_version": "0.1.0",
+            "backend_version": "0.1.1",
             "protocol_version": 1,
             "board": {"layers": 6, "size": 5, "connect_n": 4},
             "mcts_options": sorted(MCTS_OPTIONS),

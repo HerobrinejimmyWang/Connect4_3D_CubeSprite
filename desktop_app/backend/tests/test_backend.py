@@ -45,12 +45,11 @@ class ModelRuntimeIntegrationTests(unittest.TestCase):
                 "bb8cc0c6042276dfa3954e67b71f1fd43f603f9d6d9a0492412726cc41d30712",
                 None,
             ),
-            "v2.1_high": (
-                "d2b761e40bdccc40e8745589605dc46951cfb240ff357439a98c11035892bfa1",
-                None,
-            ),
+            "v3_b6c128": ("9e99064b015eec4a2bc7a0bc8fd67d3c7008a4bb50e4638ec64708aa06da32d7", 150),
+            "v3_b8c192": ("e8d6ebbe45ceb7251eef09b58183092ee52c02b2f1589c1450ed8364e8bf91f1", 268),
+            "v3_b10c256": ("ecd327287d25662e6e0c4ffcb9916177d68e4ad61cf2ccf658da00aa6c7126a8", 258),
         }
-        for model_id in ("cubesprite_v3", "cubesprite_v3_mini", "v2.2_balance", "v2.1_high"):
+        for model_id in ("cubesprite_v3", "cubesprite_v3_mini", "v2.2_balance", "v3_b6c128", "v3_b8c192", "v3_b10c256"):
             self.assertTrue(models[model_id]["available"], models[model_id]["unavailable_reason"])
             expected_hash, expected_iteration = expected_identities[model_id]
             self.assertEqual(models[model_id]["artifact_sha256"], expected_hash)
@@ -59,7 +58,7 @@ class ModelRuntimeIntegrationTests(unittest.TestCase):
             self.assertEqual(hashlib.sha256(artifact.read_bytes()).hexdigest(), expected_hash)
 
         board = self.game.get_init_board()
-        for model_id in ("cubesprite_v3", "cubesprite_v3_mini", "v2.2_balance", "v2.1_high"):
+        for model_id in ("cubesprite_v3", "cubesprite_v3_mini", "v2.2_balance", "v3_b6c128", "v3_b8c192", "v3_b10c256"):
             with self.subTest(model_id=model_id):
                 policy, value = self.registry.predictor(model_id).predict(board)
                 self.assertEqual(policy.shape, (150,))
@@ -67,15 +66,15 @@ class ModelRuntimeIntegrationTests(unittest.TestCase):
                 self.assertAlmostEqual(float(policy.sum()), 1.0, places=6)
                 self.assertTrue(-1.0 <= value <= 1.0)
 
-    def test_v21_adapter_pads_layers_and_crops_policy(self) -> None:
-        predictor = self.registry.predictor("v2.1_high")
+    def test_v3_adapters_use_product_two_channel_encoding(self) -> None:
+        predictor = self.registry.predictor("v3_b10c256")
         board = self.game.get_init_board()
         board[0, 0, 0] = 1
         board[5, 4, 4] = -1
         encoded = predictor._encode(board)
-        self.assertEqual(encoded.shape, (1, 1, 8, 5, 5))
-        np.testing.assert_array_equal(encoded[0, 0, :6], board.astype(np.float32))
-        np.testing.assert_array_equal(encoded[0, 0, 6:], np.zeros((2, 5, 5), dtype=np.float32))
+        self.assertEqual(encoded.shape, (1, 2, 6, 5, 5))
+        self.assertEqual(encoded[0, 0, 0, 0, 0], 1.0)
+        self.assertEqual(encoded[0, 1, 5, 4, 4], 1.0)
         policy, _ = predictor.predict(board)
         self.assertEqual(policy.shape, (150,))
         self.assertAlmostEqual(float(policy.sum()), 1.0, places=6)
@@ -83,7 +82,7 @@ class ModelRuntimeIntegrationTests(unittest.TestCase):
     def test_real_models_produce_legal_action_with_32_mcts(self) -> None:
         board = self.game.get_init_board()
         valid = self.game.get_valid_moves(board)
-        for model_id in ("cubesprite_v3", "cubesprite_v3_mini", "v2.2_balance", "v2.1_high"):
+        for model_id in ("cubesprite_v3", "cubesprite_v3_mini", "v2.2_balance", "v3_b6c128", "v3_b8c192", "v3_b10c256"):
             with self.subTest(model_id=model_id):
                 result = NumpyMCTS(
                     self.game,

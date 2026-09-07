@@ -1,6 +1,6 @@
 {
     "manifest_version":  1,
-    "product_version":  "0.1.0",
+    "product_version":  "0.1.1",
     "models":  [
                    {
                        "id":  "cubesprite_v3",
@@ -66,23 +66,59 @@
                        "placeholder":  false
                    },
                    {
-                       "id":  "v2.1_high",
-                       "display_name":  "v2.1 High",
-                       "model_path":  "models/v2.1_high.onnx",
-                       "architecture":  "legacy-v21-adapted-6-layer",
-                       "board_layers":  8,
+                       "id":  "v3_b6c128",
+                       "display_name":  "V3 B6C128",
+                       "model_path":  "models/v3_b6c128.onnx",
+                       "architecture":  "v3-stage1-adapted",
+                       "board_layers":  6,
                        "board_size":  5,
-                       "input_channels":  1,
-                       "action_dim":  200,
-                       "artifact_sha256":  "d2b761e40bdccc40e8745589605dc46951cfb240ff357439a98c11035892bfa1",
-                       "source_iteration":  null,
+                       "input_channels":  2,
+                       "action_dim":  150,
+                       "artifact_sha256":  "9e99064b015eec4a2bc7a0bc8fd67d3c7008a4bb50e4638ec64708aa06da32d7",
+                       "source_iteration":  150,
                        "defaults":  {
                                         "mcts_sims":  256,
                                         "temperature":  0.4
                                     },
                        "description":  {
-                                           "zh":  "旧版高强度模型适配到固定六层规则：输入补零到 8 层，200 维策略裁剪为前 150 维并重新归一化。",
-                                           "en":  "Legacy high-strength model adapted to six-layer play: inputs are zero-padded to 8 layers and its 200-action policy is cropped to 150 actions and renormalized."
+                                           "zh":  "Stage 1 动态探索锚点模型，6 个残差块、128 通道，G150。",
+                                           "en":  "Stage 1 dynamic-exploration anchor with 6 residual blocks, 128 channels, G150."
+                                       },
+                       "placeholder":  false
+                   },
+                   {
+                       "id":  "v3_b8c192",
+                       "display_name":  "V3 B8C192",
+                       "model_path":  "models/v3_b8c192.onnx",
+                       "architecture":  "v3-stage1-adapted",
+                       "board_layers":  6,
+                       "board_size":  5,
+                       "input_channels":  2,
+                       "action_dim":  150,
+                       "artifact_sha256":  "e8d6ebbe45ceb7251eef09b58183092ee52c02b2f1589c1450ed8364e8bf91f1",
+                       "source_iteration":  268,
+                       "defaults":  { "mcts_sims":  256, "temperature":  0.4 },
+                       "description":  {
+                                           "zh":  "Stage 1 已接受锚点模型，8 个残差块、192 通道，G268。",
+                                           "en":  "Stage 1 accepted anchor with 8 residual blocks, 192 channels, G268."
+                                       },
+                       "placeholder":  false
+                   },
+                   {
+                       "id":  "v3_b10c256",
+                       "display_name":  "V3 B10C256",
+                       "model_path":  "models/v3_b10c256.onnx",
+                       "architecture":  "v3-stage1-adapted",
+                       "board_layers":  6,
+                       "board_size":  5,
+                       "input_channels":  2,
+                       "action_dim":  150,
+                       "artifact_sha256":  "ecd327287d25662e6e0c4ffcb9916177d68e4ad61cf2ccf658da00aa6c7126a8",
+                       "source_iteration":  258,
+                       "defaults":  { "mcts_sims":  256, "temperature":  0.4 },
+                       "description":  {
+                                           "zh":  "Stage 1 混合温度最终接受锚点模型，10 个残差块、256 通道，G258。",
+                                           "en":  "Stage 1 mixed-temperature final accepted anchor with 10 residual blocks, 256 channels, G258."
                                        },
                        "placeholder":  false
                    }

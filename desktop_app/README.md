@@ -1,6 +1,6 @@
 # Connect4 3D CubeSprite
 
-CubeSprite `0.1.0` 是固定 `6 × 5 × 5、连四` 规则的离线 Windows 桌面游戏。发布包包含 Tauri 2 应用、React 界面、冻结的 Python sidecar、ONNX Runtime 和可用模型；最终用户无需安装 Python、Conda、Node.js 或 Rust。
+CubeSprite `0.1.1` 是固定 `6 × 5 × 5、连四` 规则的离线 Windows 桌面游戏。发布包包含 Tauri 2 应用、React 界面、冻结的 Python sidecar、ONNX Runtime 和可用模型；最终用户无需安装 Python、Conda、Node.js 或 Rust。
 
 ## 架构边界
 
@@ -17,7 +17,9 @@ CubeSprite `0.1.0` 是固定 `6 × 5 × 5、连四` 规则的离线 Windows 桌�
 | CubeSprite V3 | 旗舰版 | `iter_0240` 重力感知残差网络，原生 `2 × 6 × 5 × 5` 输入、150 动作 |
 | CubeSprite V3 mini | mini 版 | `iter_0260` 轻量重力感知残差网络，原生 `2 × 6 × 5 × 5` 输入、150 动作 |
 | v2.2 Balance | 可用 | 原生 `2 × 6 × 5 × 5` 输入、150 动作 |
-| v2.1 High | 可用 | 六层棋盘补零为旧版八层单通道输入，200 动作裁为前 150 动作后重新归一化 |
+| V3 B6C128 | 可用 | Stage 1 G150 锚点，6 个残差块、128 通道；适配到产品单输入 ONNX 契约 |
+| V3 B8C192 | 可用 | Stage 1 G268 已接受锚点，8 个残差块、192 通道；适配到产品单输入 ONNX 契约 |
+| V3 B10C256 | 可用 | Stage 1 G258 最终已接受锚点，10 个残差块、256 通道；适配到产品单输入 ONNX 契约 |
 
 ONNX 发布资源使用 Git LFS。首次检出后运行 `git lfs pull`。注册表记录每个
 模型资源的 SHA-256，sidecar 在首次加载前再次核验。如需从本机参考

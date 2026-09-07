@@ -219,7 +219,7 @@ export interface Copy {
 export const translations: Record<Language, Copy> = {
   zh: {
     appName: "Connect4 3D CubeSprite",
-    version: "版本 0.1.0",
+    version: "版本 0.1.1",
     loading: "正在唤醒 CubeSprite",
     loadingDetail: "正在启动本地规则与 AI 引擎…",
     retry: "重试",
@@ -437,7 +437,7 @@ export const translations: Record<Language, Copy> = {
   },
   en: {
     appName: "Connect4 3D CubeSprite",
-    version: "Version 0.1.0",
+    version: "Version 0.1.1",
     loading: "Waking CubeSprite",
     loadingDetail: "Starting the local rules and AI engine…",
     retry: "Retry",

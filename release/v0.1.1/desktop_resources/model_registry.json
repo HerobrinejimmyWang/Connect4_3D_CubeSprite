@@ -1,0 +1,126 @@
+{
+    "manifest_version":  1,
+    "product_version":  "0.1.1",
+    "models":  [
+                   {
+                       "id":  "cubesprite_v3",
+                       "display_name":  "CubeSprite V3",
+                       "model_path":  "models/cubesprite_v3.onnx",
+                       "architecture":  "gravity_resnet_v1",
+                       "board_layers":  6,
+                       "board_size":  5,
+                       "input_channels":  2,
+                       "action_dim":  150,
+                       "artifact_sha256":  "61f4619d4b46daba149667697fcc9ffbf28171cef9b03d1b659a07395403814e",
+                       "source_iteration":  240,
+                       "defaults":  {
+                                        "mcts_sims":  256,
+                                        "temperature":  0.4
+                                    },
+                       "description":  {
+                                           "zh":  "CubeSprite V3 旗舰版，checkpoint iteration 240。",
+                                           "en":  "CubeSprite V3 flagship, checkpoint iteration 240."
+                                       },
+                       "placeholder":  false
+                   },
+                   {
+                       "id":  "cubesprite_v3_mini",
+                       "display_name":  "CubeSprite V3 mini",
+                       "model_path":  "models/cubesprite_v3_mini.onnx",
+                       "architecture":  "gravity_resnet_v1",
+                       "board_layers":  6,
+                       "board_size":  5,
+                       "input_channels":  2,
+                       "action_dim":  150,
+                       "artifact_sha256":  "31143a556257708b2363b3e280988c1bf00fb15df49b7bc842de015fd6a6b8a9",
+                       "source_iteration":  260,
+                       "defaults":  {
+                                        "mcts_sims":  256,
+                                        "temperature":  0.4
+                                    },
+                       "description":  {
+                                           "zh":  "CubeSprite V3 mini，checkpoint iteration 260。",
+                                           "en":  "CubeSprite V3 mini, checkpoint iteration 260."
+                                       },
+                       "placeholder":  false
+                   },
+                   {
+                       "id":  "v2.2_balance",
+                       "display_name":  "v2.2 Balance",
+                       "model_path":  "models/v2.2_balance.onnx",
+                       "architecture":  "modern-v22",
+                       "board_layers":  6,
+                       "board_size":  5,
+                       "input_channels":  2,
+                       "action_dim":  150,
+                       "artifact_sha256":  "bb8cc0c6042276dfa3954e67b71f1fd43f603f9d6d9a0492412726cc41d30712",
+                       "source_iteration":  null,
+                       "defaults":  {
+                                        "mcts_sims":  256,
+                                        "temperature":  0.4
+                                    },
+                       "description":  {
+                                           "zh":  "当前 6×5×5 平衡模型，原生输出 150 个合法动作平面。",
+                                           "en":  "Current balanced 6×5×5 model with a native 150-action policy."
+                                       },
+                       "placeholder":  false
+                   },
+                   {
+                       "id":  "v3_b6c128",
+                       "display_name":  "V3 B6C128",
+                       "model_path":  "models/v3_b6c128.onnx",
+                       "architecture":  "v3-stage1-adapted",
+                       "board_layers":  6,
+                       "board_size":  5,
+                       "input_channels":  2,
+                       "action_dim":  150,
+                       "artifact_sha256":  "9e99064b015eec4a2bc7a0bc8fd67d3c7008a4bb50e4638ec64708aa06da32d7",
+                       "source_iteration":  150,
+                       "defaults":  {
+                                        "mcts_sims":  256,
+                                        "temperature":  0.4
+                                    },
+                       "description":  {
+                                           "zh":  "Stage 1 动态探索锚点模型，6 个残差块、128 通道，G150。",
+                                           "en":  "Stage 1 dynamic-exploration anchor with 6 residual blocks, 128 channels, G150."
+                                       },
+                       "placeholder":  false
+                   },
+                   {
+                       "id":  "v3_b8c192",
+                       "display_name":  "V3 B8C192",
+                       "model_path":  "models/v3_b8c192.onnx",
+                       "architecture":  "v3-stage1-adapted",
+                       "board_layers":  6,
+                       "board_size":  5,
+                       "input_channels":  2,
+                       "action_dim":  150,
+                       "artifact_sha256":  "e8d6ebbe45ceb7251eef09b58183092ee52c02b2f1589c1450ed8364e8bf91f1",
+                       "source_iteration":  268,
+                       "defaults":  { "mcts_sims":  256, "temperature":  0.4 },
+                       "description":  {
+                                           "zh":  "Stage 1 已接受锚点模型，8 个残差块、192 通道，G268。",
+                                           "en":  "Stage 1 accepted anchor with 8 residual blocks, 192 channels, G268."
+                                       },
+                       "placeholder":  false
+                   },
+                   {
+                       "id":  "v3_b10c256",
+                       "display_name":  "V3 B10C256",
+                       "model_path":  "models/v3_b10c256.onnx",
+                       "architecture":  "v3-stage1-adapted",
+                       "board_layers":  6,
+                       "board_size":  5,
+                       "input_channels":  2,
+                       "action_dim":  150,
+                       "artifact_sha256":  "ecd327287d25662e6e0c4ffcb9916177d68e4ad61cf2ccf658da00aa6c7126a8",
+                       "source_iteration":  258,
+                       "defaults":  { "mcts_sims":  256, "temperature":  0.4 },
+                       "description":  {
+                                           "zh":  "Stage 1 混合温度最终接受锚点模型，10 个残差块、256 通道，G258。",
+                                           "en":  "Stage 1 mixed-temperature final accepted anchor with 10 residual blocks, 256 channels, G258."
+                                       },
+                       "placeholder":  false
+                   }
+               ]
+}
