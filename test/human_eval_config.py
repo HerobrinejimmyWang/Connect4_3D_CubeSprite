@@ -45,7 +45,8 @@ EVAL_CONFIG = HumanEvalConfig(
         WORKSPACE_ROOT
         / "training"
         / "runs"
-        / "local_archive_validation"
+        / "stage1"
+        / "archive"
         / "materialized"
         / "accepted"
         / "candidate-g000057-s00007713-d00415640.pt"

@@ -38,7 +38,7 @@ def remote_copy(host: str, source: str, destination: Path) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--local-root", type=Path, default=Path("training/runs/local_archive_validation"))
+    parser.add_argument("--local-root", type=Path, default=Path("training/runs/stage1/archive"))
     parser.add_argument("--remote-inventory", type=Path, default=None)
     parser.add_argument("--catalog", type=Path, default=None)
     parser.add_argument("--remote", default="connect4_gpu_2608")

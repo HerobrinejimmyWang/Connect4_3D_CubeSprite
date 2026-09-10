@@ -218,7 +218,7 @@ def reconstruct(local_root: Path, catalog_path: Path, report_dir: Path) -> dict[
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--local-root", type=Path, default=Path("training/runs/local_archive_validation"))
+    parser.add_argument("--local-root", type=Path, default=Path("training/runs/stage1/archive"))
     parser.add_argument("--catalog", type=Path, default=None)
     parser.add_argument("--report-dir", type=Path, default=None)
     args = parser.parse_args()

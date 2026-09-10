@@ -639,7 +639,7 @@ def make_cleanup_report(records: list[dict[str, Any]], local: dict[str, Any], re
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("scan", nargs="?", default="scan")
-    parser.add_argument("--local-root", type=Path, default=Path("training/runs/local_archive_validation"))
+    parser.add_argument("--local-root", type=Path, default=Path("training/runs/stage1/archive"))
     parser.add_argument("--output", type=Path, default=None)
     parser.add_argument("--historical-clues", type=Path, default=Path("tools/stage1_historical_bundle_clues.json"))
     parser.add_argument("--remote", default="connect4_gpu_2608")
