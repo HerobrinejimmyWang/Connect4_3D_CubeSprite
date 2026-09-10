@@ -659,8 +659,8 @@ artifacts and verified local archives rather than Git.
 
 ## Stage 2 architecture experiments
 
-Stage 2 is isolated under `training/v3/stage2/`. It adds nine experimental
-architectures alongside the unchanged `gravity_resnet` control, while preserving
+Stage 2 is isolated under `training/v3/stage2/`. The initial matrix adds nine
+experimental architectures alongside the unchanged `gravity_resnet` control, while preserving
 the V3 role/rule inputs, 25-column policy, WDL output, and auxiliary heads. The
 two `multiview_winning_*` variants augment XY/XZ/YZ with the six length-four-or-five
 XY diagonals crossed with the vertical axis; shorter diagonal sections cannot
@@ -692,6 +692,27 @@ augmentation stream, and sample cursor.
 See `stage2_mixed_promotion.example.json` for that contract. Raw pools,
 checkpoints, and reports belong under ignored run directories. The detailed research protocol is in
 `tmp_models_plan/PLAN_Stage2_Architecture_Experiments_V1.md`.
+
+Stage 2A-R3 is an additive deployment-tier and scaling plan. Its Balance tier is
+3D-first: dense and factorized voxel branches, explicit learned/mean height
+collapse, and plane/column/multiview/winning-section late fusion all return the
+same `[N,C,5,5]` trunk contract. The existing Stage 2A/2B design and queue remain
+unchanged. R3 design and model calibration may be prepared now, but R3 training
+must wait for a hash-bound `R2_PRIMARY_SEED_COMPLETE` receipt:
+
+```powershell
+python -m training.v3.stage2 design-round3 --output training/runs/stage2/round3/design.json
+python -m training.v3.stage2 calibrate-model-grid --variant-id balance_column3d_fusion_v2 --architecture column3d_fusion_v2 --anchor-channels 128 --anchor-blocks 6 --output training/runs/stage2/round3/calibration/column3d_b6.json
+python -m training.v3.stage2 evaluate-geometry --config <offline-run.json> --artifact <model.pt> --suite <geometry-suite.json> --output training/runs/stage2/round3/geometry/report.json
+python -m training.v3.stage2 check-r3-ready --evidence <r2-primary-evidence.json> --repo-root . --output training/runs/stage2/round3/readiness.json
+python tools/benchmark_stage2_cpu_latency.py --model-dir <offline-model-handoff> --output-dir training/runs/stage2/round3/cpu_latency --sims 256 --repeats 3
+```
+
+The readiness checker only proves that the named primary-seed cold/warm lines,
+anchored Elo reports, queue state, and archive receipts are complete and
+untampered. It does not bypass bounded execution, hardware/storage preflight,
+or per-architecture smoke tests. The detailed successor plan is
+`tmp_models_plan/PLAN_Stage2_R3_Deployment_Architecture_Scaling_V1.md`.
 
 Stage 2B emits paired cold and warm-start lineages for the baseline and two
 finalists. Warm starts accept only a same-architecture `standard_late` Stage 2
