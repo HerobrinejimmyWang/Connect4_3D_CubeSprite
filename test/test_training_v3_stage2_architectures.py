@@ -19,7 +19,11 @@ from training.v3.model import (
     classic_rule_features,
     winning_diagonal_paths,
 )
-from training.v3.stage2.calibration import calibrate_architecture_matrix
+from training.v3.stage2.calibration import (
+    calibrate_architecture_matrix,
+    calibrate_model_grid,
+    component_parameter_breakdown,
+)
 from training.v3.stage2.selfplay import generate_stage2b_configs
 
 
@@ -34,6 +38,12 @@ ARCHITECTURES = (
     "multiview_transformer",
     "multiview_winning_resnet",
     "multiview_winning_transformer",
+    "raw3d_to2d_resnet",
+    "factorized3d_resnet",
+    "plane3d_fusion_v2",
+    "column3d_fusion_v2",
+    "multiview3d_fusion_resnet",
+    "winning3d_fusion_resnet",
 )
 
 
@@ -130,6 +140,89 @@ class Stage2ArchitectureTests(unittest.TestCase):
             ModelConfig(architecture="raw3d_resnet", encoder_channels=16)
         with self.assertRaisesRegex(ValueError, "does not accept"):
             ModelConfig(architecture="gravity_resnet", branch_channels=8)
+        with self.assertRaisesRegex(ValueError, "volume_blocks"):
+            ModelConfig(architecture="column_resnet", volume_blocks=1)
+        with self.assertRaisesRegex(ValueError, "collapse_mode"):
+            ModelConfig(architecture="raw3d_to2d_resnet", collapse_mode="flat")
+        with self.assertRaisesRegex(ValueError, "fusion_mode"):
+            ModelConfig(architecture="raw3d_to2d_resnet", fusion_mode="concat")
+
+    def test_balance_v2_3d_controls_are_explicit_and_serialized(self) -> None:
+        dense = build_model(
+            ModelConfig(
+                architecture="raw3d_to2d_resnet",
+                channels=8,
+                blocks=1,
+                branch_channels=4,
+                volume_blocks=2,
+                collapse_mode="mean",
+            )
+        )
+        factorized = build_model(
+            ModelConfig(
+                architecture="factorized3d_resnet",
+                channels=8,
+                blocks=1,
+                branch_channels=4,
+                volume_blocks=2,
+                collapse_mode="learned",
+            )
+        )
+        self.assertTrue(any("conv1.weight" in name for name in dense.state_dict()))
+        self.assertTrue(any("spatial1.weight" in name for name in factorized.state_dict()))
+        exported = factorized.export_config()
+        self.assertEqual(exported["volume_blocks"], 2)
+        self.assertEqual(exported["collapse_mode"], "learned")
+
+    def test_balance_v2_fusion_modes_preserve_spatial_contract(self) -> None:
+        for fusion_mode in ("concat", "gated"):
+            with self.subTest(fusion_mode=fusion_mode):
+                model = build_model(
+                    ModelConfig(
+                        architecture="winning3d_fusion_resnet",
+                        channels=8,
+                        blocks=1,
+                        branch_channels=4,
+                        volume_blocks=1,
+                        fusion_mode=fusion_mode,
+                    )
+                )
+                output = model.forward_search(
+                    self.board,
+                    role_to_play=self.roles,
+                    rule_features=self.rules,
+                )
+                self.assertEqual(tuple(output.policy_logits.shape), (2, 25))
+                self.assertEqual(tuple(output.wdl_logits.shape), (2, 3))
+
+    def test_balance_grid_calibration_records_3d_allocation(self) -> None:
+        row = calibrate_model_grid(
+            variant_id="balance.column3d.concat",
+            architecture="column3d_fusion_v2",
+            anchor_channels=8,
+            anchor_blocks=1,
+            minimum_channels=8,
+            maximum_channels=16,
+            branch_fractions=(0.5,),
+            volume_blocks=(1,),
+        )
+        self.assertEqual(row["variant_id"], "balance.column3d.concat")
+        self.assertGreater(row["component_parameters"]["volume_3d"], 0)
+        self.assertGreater(row["component_parameters"]["fusion"], 0)
+        self.assertEqual(
+            row["component_parameters"]["total"],
+            sum(
+                value
+                for key, value in row["component_parameters"].items()
+                if key != "total"
+            ),
+        )
+
+        gravity = build_model(ModelConfig(channels=8, blocks=1))
+        self.assertEqual(
+            component_parameter_breakdown(gravity)["total"],
+            sum(parameter.numel() for parameter in gravity.parameters()),
+        )
 
     def test_legacy_serialization_and_hash_remain_unchanged(self) -> None:
         expected = {
@@ -146,11 +239,64 @@ class Stage2ArchitectureTests(unittest.TestCase):
         explicit = V3Config.from_dict({"model": dict(expected), "learner": {"batch_size": 4}})
         self.assertEqual(config_hash(old), config_hash(explicit))
 
+        concat = V3Config.from_dict(
+            {
+                "model": model_config_dict(
+                    ModelConfig(
+                        architecture="plane3d_fusion_v2",
+                        channels=8,
+                        blocks=1,
+                        branch_channels=4,
+                        volume_blocks=1,
+                        fusion_mode="concat",
+                    )
+                )
+            }
+        )
+        gated = V3Config.from_dict(
+            {
+                "model": model_config_dict(
+                    ModelConfig(
+                        architecture="plane3d_fusion_v2",
+                        channels=8,
+                        blocks=1,
+                        branch_channels=4,
+                        volume_blocks=1,
+                        fusion_mode="gated",
+                    )
+                )
+            }
+        )
+        self.assertNotEqual(config_hash(concat), config_hash(gated))
+
     def test_cross_architecture_state_is_strictly_incompatible(self) -> None:
         column = build_model(ModelConfig(architecture="column_resnet", channels=8, blocks=1))
         multiview = build_model(ModelConfig(architecture="multiview_resnet", channels=8, blocks=1))
         with self.assertRaises(RuntimeError):
             multiview.load_state_dict(column.state_dict(), strict=True)
+
+    def test_balance_v2_checkpoint_round_trip_is_exact(self) -> None:
+        config = ModelConfig(
+            architecture="plane3d_fusion_v2",
+            channels=8,
+            blocks=1,
+            branch_channels=4,
+            volume_blocks=1,
+            collapse_mode="mean",
+            fusion_mode="gated",
+        )
+        original = build_model(config).eval()
+        restored = build_model(config).eval()
+        restored.load_state_dict(original.state_dict(), strict=True)
+        with torch.inference_mode():
+            expected = original.forward_search(
+                self.board, role_to_play=self.roles, rule_features=self.rules
+            )
+            actual = restored.forward_search(
+                self.board, role_to_play=self.roles, rule_features=self.rules
+            )
+        torch.testing.assert_close(actual.policy_logits, expected.policy_logits, rtol=0, atol=0)
+        torch.testing.assert_close(actual.wdl_logits, expected.wdl_logits, rtol=0, atol=0)
 
     def test_stage2b_generator_creates_six_cold_start_configs(self) -> None:
         with tempfile.TemporaryDirectory(prefix="stage2b-configs-") as temporary:

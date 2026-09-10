@@ -54,6 +54,9 @@ class ModelConfig:
     branch_channels: int = 0
     attention_heads: int = 0
     transformer_mlp_ratio: float = 0.0
+    volume_blocks: int = 0
+    collapse_mode: str = ""
+    fusion_mode: str = ""
     global_input_schema: str = "role_rule_v1"
     output_schema: str = "policy_wdl_aux_v1"
     rule_feature_dim: int = 32
@@ -71,6 +74,12 @@ class ModelConfig:
             "multiview_transformer",
             "multiview_winning_resnet",
             "multiview_winning_transformer",
+            "raw3d_to2d_resnet",
+            "factorized3d_resnet",
+            "plane3d_fusion_v2",
+            "column3d_fusion_v2",
+            "multiview3d_fusion_resnet",
+            "winning3d_fusion_resnet",
         }
         if self.architecture not in architectures:
             raise ValueError(
@@ -89,7 +98,13 @@ class ModelConfig:
             raise ValueError("model architecture channel/head overrides cannot be negative.")
         if self.transformer_mlp_ratio < 0.0:
             raise ValueError("model.transformer_mlp_ratio cannot be negative.")
-        if self.architecture == "gravity_resnet" and any(optional + (self.transformer_mlp_ratio,)):
+        if self.volume_blocks < 0:
+            raise ValueError("model.volume_blocks cannot be negative.")
+        if self.architecture == "gravity_resnet" and any(
+            optional + (self.transformer_mlp_ratio, self.volume_blocks)
+        ):
+            raise ValueError("gravity_resnet does not accept Stage 2 architecture overrides.")
+        if self.architecture == "gravity_resnet" and (self.collapse_mode or self.fusion_mode):
             raise ValueError("gravity_resnet does not accept Stage 2 architecture overrides.")
         is_transformer = self.architecture.endswith("_transformer")
         if is_transformer:
@@ -109,6 +124,12 @@ class ModelConfig:
             "multiview_transformer",
             "multiview_winning_resnet",
             "multiview_winning_transformer",
+            "raw3d_to2d_resnet",
+            "factorized3d_resnet",
+            "plane3d_fusion_v2",
+            "column3d_fusion_v2",
+            "multiview3d_fusion_resnet",
+            "winning3d_fusion_resnet",
         }
         if self.branch_channels and not uses_branches:
             raise ValueError("branch_channels is not used by this architecture.")
@@ -116,9 +137,36 @@ class ModelConfig:
             "column_resnet",
             "column3d_fusion_resnet",
             "column_transformer",
+            "column3d_fusion_v2",
         }
         if self.encoder_channels and not uses_column_encoder:
             raise ValueError("encoder_channels is not used by this architecture.")
+        volume_v2 = {
+            "raw3d_to2d_resnet",
+            "factorized3d_resnet",
+            "plane3d_fusion_v2",
+            "column3d_fusion_v2",
+            "multiview3d_fusion_resnet",
+            "winning3d_fusion_resnet",
+        }
+        fusion_v2 = {
+            "plane3d_fusion_v2",
+            "column3d_fusion_v2",
+            "multiview3d_fusion_resnet",
+            "winning3d_fusion_resnet",
+        }
+        if self.volume_blocks and self.architecture not in volume_v2:
+            raise ValueError("volume_blocks is valid only for V2 3D architectures.")
+        if self.collapse_mode:
+            if self.architecture not in volume_v2:
+                raise ValueError("collapse_mode is valid only for V2 3D architectures.")
+            if self.collapse_mode not in {"learned", "mean"}:
+                raise ValueError("collapse_mode must be 'learned' or 'mean'.")
+        if self.fusion_mode:
+            if self.architecture not in fusion_v2:
+                raise ValueError("fusion_mode is valid only for V2 fusion architectures.")
+            if self.fusion_mode not in {"concat", "gated"}:
+                raise ValueError("fusion_mode must be 'concat' or 'gated'.")
         if self.global_input_schema != "role_rule_v1":
             raise ValueError("model.global_input_schema must be 'role_rule_v1'.")
         if self.output_schema != "policy_wdl_aux_v1":
@@ -140,11 +188,36 @@ def model_config_dict(config: ModelConfig) -> dict[str, Any]:
     """Serialize a model contract while preserving pre-Stage-2 gravity lineages."""
 
     raw = asdict(config)
+    volume_v2 = {
+        "raw3d_to2d_resnet",
+        "factorized3d_resnet",
+        "plane3d_fusion_v2",
+        "column3d_fusion_v2",
+        "multiview3d_fusion_resnet",
+        "winning3d_fusion_resnet",
+    }
+    fusion_v2 = {
+        "plane3d_fusion_v2",
+        "column3d_fusion_v2",
+        "multiview3d_fusion_resnet",
+        "winning3d_fusion_resnet",
+    }
+    if config.architecture in volume_v2:
+        raw["branch_channels"] = config.branch_channels or max(4, config.channels // 2)
+        raw["volume_blocks"] = config.volume_blocks or max(1, config.blocks // 2)
+        raw["collapse_mode"] = config.collapse_mode or "learned"
+        if config.architecture in fusion_v2:
+            raw["fusion_mode"] = config.fusion_mode or "concat"
+        if config.architecture == "column3d_fusion_v2":
+            raw["encoder_channels"] = config.encoder_channels or config.channels
     for key in (
         "encoder_channels",
         "branch_channels",
         "attention_heads",
         "transformer_mlp_ratio",
+        "volume_blocks",
+        "collapse_mode",
+        "fusion_mode",
     ):
         if not raw[key]:
             raw.pop(key)

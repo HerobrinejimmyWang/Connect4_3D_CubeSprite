@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from typing import Any, Iterator, Mapping
 
 import numpy as np
@@ -291,6 +291,119 @@ class _Raw3DEncoder(nn.Module):
         return self.height_projection(x).squeeze(2)
 
 
+class _FactorizedPreAct3DBlock(nn.Module):
+    """Pre-activation 3D residual block with separate spatial and height mixing."""
+
+    def __init__(self, channels: int) -> None:
+        super().__init__()
+        groups = _group_count(channels)
+        self.norm1 = nn.GroupNorm(groups, channels)
+        self.spatial1 = nn.Conv3d(
+            channels, channels, kernel_size=(1, 3, 3), padding=(0, 1, 1), bias=False
+        )
+        self.height1 = nn.Conv3d(
+            channels, channels, kernel_size=(3, 1, 1), padding=(1, 0, 0), bias=False
+        )
+        self.norm2 = nn.GroupNorm(groups, channels)
+        self.spatial2 = nn.Conv3d(
+            channels, channels, kernel_size=(1, 3, 3), padding=(0, 1, 1), bias=False
+        )
+        self.height2 = nn.Conv3d(
+            channels, channels, kernel_size=(3, 1, 1), padding=(1, 0, 0), bias=False
+        )
+        nn.init.zeros_(self.height2.weight)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        residual = x
+        x = self.height1(self.spatial1(F.silu(self.norm1(x))))
+        x = self.height2(self.spatial2(F.silu(self.norm2(x))))
+        return residual + x
+
+
+class _HeightCollapse(nn.Module):
+    def __init__(self, input_channels: int, output_channels: int, mode: str) -> None:
+        super().__init__()
+        self.mode = mode
+        if mode == "learned":
+            self.projection = nn.Conv3d(
+                input_channels,
+                output_channels,
+                kernel_size=(MAX_LAYERS, 1, 1),
+                bias=False,
+            )
+        elif mode == "mean":
+            self.projection = nn.Conv3d(input_channels, output_channels, kernel_size=1, bias=False)
+        else:
+            raise ValueError(f"unsupported height collapse mode: {mode!r}")
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.projection(x)
+        return x.squeeze(2) if self.mode == "learned" else x.mean(dim=2)
+
+
+class _VolumeEncoder3D(nn.Module):
+    """Reusable raw-voxel branch which preserves Z until an explicit collapse."""
+
+    def __init__(
+        self,
+        output_channels: int,
+        branch_channels: int,
+        blocks: int,
+        *,
+        factorized: bool,
+        collapse_mode: str,
+    ) -> None:
+        super().__init__()
+        self.stem = nn.Conv3d(2, branch_channels, kernel_size=3, padding=1, bias=False)
+        block_type = _FactorizedPreAct3DBlock if factorized else _PreAct3DBlock
+        self.blocks = nn.ModuleList(block_type(branch_channels) for _ in range(blocks))
+        self.final_norm = nn.GroupNorm(_group_count(branch_channels), branch_channels)
+        self.collapse = _HeightCollapse(branch_channels, output_channels, collapse_mode)
+
+    def forward(self, board: torch.Tensor) -> torch.Tensor:
+        x = self.stem(canonical_board_to_voxels(board))
+        for block in self.blocks:
+            x = block(x)
+        return self.collapse(F.silu(self.final_norm(x)))
+
+
+class _ConcatFusion(nn.Module):
+    def __init__(self, branch_channels: int, output_channels: int) -> None:
+        super().__init__()
+        self.projection = nn.Conv2d(
+            2 * branch_channels, output_channels, kernel_size=1, bias=False
+        )
+
+    def forward(self, left: torch.Tensor, right: torch.Tensor) -> torch.Tensor:
+        return self.projection(torch.cat((left, right), dim=1))
+
+
+class _GatedFusion(nn.Module):
+    def __init__(self, branch_channels: int, output_channels: int) -> None:
+        super().__init__()
+        self.left_projection = nn.Conv2d(
+            branch_channels, output_channels, kernel_size=1, bias=False
+        )
+        self.right_projection = nn.Conv2d(
+            branch_channels, output_channels, kernel_size=1, bias=False
+        )
+        self.gate = nn.Conv2d(2 * branch_channels, output_channels, kernel_size=1)
+        nn.init.zeros_(self.gate.weight)
+        nn.init.zeros_(self.gate.bias)
+
+    def forward(self, left: torch.Tensor, right: torch.Tensor) -> torch.Tensor:
+        weight = torch.sigmoid(self.gate(torch.cat((left, right), dim=1)))
+        return weight * self.left_projection(left) + (1.0 - weight) * self.right_projection(right)
+
+
+def _build_fusion(mode: str, branch_channels: int, output_channels: int) -> nn.Module:
+    if mode == "concat":
+        return _ConcatFusion(branch_channels, output_channels)
+    if mode == "gated":
+        return _GatedFusion(branch_channels, output_channels)
+    raise ValueError(f"unsupported fusion mode: {mode!r}")
+
+
 class _MultiViewEncoder(nn.Module):
     """Encode XY layers and the two families of vertical sections."""
 
@@ -506,6 +619,7 @@ class ArchitecturePolicyValueNetV3(nn.Module):
         self.column_encoder: nn.Module | None = None
         self.multiview_encoder: nn.Module | None = None
         self.raw3d_encoder: nn.Module | None = None
+        self.volume_encoder: nn.Module | None = None
         self.plane_encoder: nn.Module | None = None
         self.fusion: nn.Module | None = None
 
@@ -538,6 +652,46 @@ class ArchitecturePolicyValueNetV3(nn.Module):
                 branch_channels, branch_channels, max(1, model_config.blocks // 2)
             )
             self.fusion = nn.Conv2d(2 * branch_channels, channels, kernel_size=1, bias=False)
+        elif architecture in {"raw3d_to2d_resnet", "factorized3d_resnet"}:
+            self.volume_encoder = _VolumeEncoder3D(
+                channels,
+                branch_channels,
+                model_config.volume_blocks or max(1, model_config.blocks // 2),
+                factorized=architecture == "factorized3d_resnet",
+                collapse_mode=model_config.collapse_mode or "learned",
+            )
+        elif architecture in {
+            "plane3d_fusion_v2",
+            "column3d_fusion_v2",
+            "multiview3d_fusion_resnet",
+            "winning3d_fusion_resnet",
+        }:
+            if architecture == "plane3d_fusion_v2":
+                self.plane_encoder = nn.Conv2d(
+                    2 * MAX_LAYERS + 2,
+                    branch_channels,
+                    kernel_size=3,
+                    padding=1,
+                    bias=False,
+                )
+            elif architecture == "column3d_fusion_v2":
+                self.column_encoder = _ColumnEncoder(branch_channels, encoder_channels)
+            else:
+                self.multiview_encoder = _MultiViewEncoder(
+                    branch_channels,
+                    branch_channels,
+                    include_winning_diagonals=architecture == "winning3d_fusion_resnet",
+                )
+            self.volume_encoder = _VolumeEncoder3D(
+                branch_channels,
+                branch_channels,
+                model_config.volume_blocks or max(1, model_config.blocks // 2),
+                factorized=False,
+                collapse_mode=model_config.collapse_mode or "learned",
+            )
+            self.fusion = _build_fusion(
+                model_config.fusion_mode or "concat", branch_channels, channels
+            )
         else:  # ModelConfig performs the exhaustive name validation.
             raise ValueError(f"Unsupported Stage 2 architecture: {architecture}")
 
@@ -583,10 +737,15 @@ class ArchitecturePolicyValueNetV3(nn.Module):
         )
 
     def _encode(self, board: torch.Tensor) -> torch.Tensor:
-        if self.architecture.startswith("column") and self.architecture != "column3d_fusion_resnet":
+        if self.architecture in {"column_resnet", "column_transformer"}:
             assert self.column_encoder is not None
             return self.column_encoder(board)
-        if self.architecture.startswith("multiview"):
+        if self.architecture in {
+            "multiview_resnet",
+            "multiview_transformer",
+            "multiview_winning_resnet",
+            "multiview_winning_transformer",
+        }:
             assert self.multiview_encoder is not None
             return self.multiview_encoder(board)
         if self.architecture == "raw3d_resnet":
@@ -601,10 +760,34 @@ class ArchitecturePolicyValueNetV3(nn.Module):
                     dim=1,
                 )
             )
-        assert self.architecture == "column3d_fusion_resnet"
-        assert self.column_encoder is not None and self.raw3d_encoder is not None
-        assert self.fusion is not None
-        return self.fusion(torch.cat((self.column_encoder(board), self.raw3d_encoder(board)), dim=1))
+        if self.architecture == "column3d_fusion_resnet":
+            assert self.column_encoder is not None and self.raw3d_encoder is not None
+            assert self.fusion is not None
+            return self.fusion(
+                torch.cat((self.column_encoder(board), self.raw3d_encoder(board)), dim=1)
+            )
+        if self.architecture in {"raw3d_to2d_resnet", "factorized3d_resnet"}:
+            assert self.volume_encoder is not None
+            return self.volume_encoder(board)
+        if self.architecture in {
+            "plane3d_fusion_v2",
+            "column3d_fusion_v2",
+            "multiview3d_fusion_resnet",
+            "winning3d_fusion_resnet",
+        }:
+            assert self.volume_encoder is not None and self.fusion is not None
+            volume = self.volume_encoder(board)
+            if self.architecture == "plane3d_fusion_v2":
+                assert self.plane_encoder is not None
+                representation = self.plane_encoder(canonical_board_to_planes(board))
+            elif self.architecture == "column3d_fusion_v2":
+                assert self.column_encoder is not None
+                representation = self.column_encoder(board)
+            else:
+                assert self.multiview_encoder is not None
+                representation = self.multiview_encoder(board)
+            return self.fusion(representation, volume)
+        raise AssertionError(f"unhandled architecture encoder: {self.architecture}")
 
     def _trunk_and_pooled(
         self,
@@ -674,19 +857,7 @@ class ArchitecturePolicyValueNetV3(nn.Module):
 
 
 def _model_config_from_mapping(raw: Mapping[str, Any]) -> ModelConfig:
-    allowed = {
-        "architecture",
-        "channels",
-        "blocks",
-        "encoder_channels",
-        "branch_channels",
-        "attention_heads",
-        "transformer_mlp_ratio",
-        "global_input_schema",
-        "output_schema",
-        "rule_feature_dim",
-        "moves_left_classes",
-    }
+    allowed = {field.name for field in fields(ModelConfig)}
     unknown = sorted(set(raw) - allowed)
     if unknown:
         raise ValueError(f"Unknown model config field(s): {', '.join(unknown)}")
