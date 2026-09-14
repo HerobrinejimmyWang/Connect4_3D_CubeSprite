@@ -258,6 +258,22 @@ C248/B10 trunk，但 representation 的 Elo 点估计次序发生反转。两轮
 宽度同时迁移至 multiview 和 winning；若三条都接近 50%，则将原排名反转归入评估噪声，
 不继续扩张矩阵。
 
+在这三条同 representation 跨容量边之外，再建立“每种 representation 当前最佳模型”
+的 Top-3 triangle：
+
+- multiview：BAL-3 D64/B3，anchored Elo 338.32；
+- winning：BAL-3 D64/B3，anchored Elo 335.17；
+- column：BAL-4C D96/B7，anchored Elo 330.48。
+
+BAL-3 multiview–winning 已完成 200 opening pairs，可以在严格复核相同 profile/opening
+hash 后直接复用；只新增 multiview D64/B3–column D96/B7 与 winning
+D64/B3–column D96/B7 两条 200-pair、256-sim 边。该 triangle 用于比较三种
+representation 当前实际最佳实现，不替代前述跨容量归因实验。
+
+执行顺序固定为：完整结束 BAL-4D 的 1M/3M、组内直赛及所有条件触发的组合/迁移验证，
+再运行 BAL-4X 三条跨容量边和 Top-3 triangle。完成结果汇总后停止，不自动进入
+closed-loop self-play；self-play 候选、Cold/Warm 数量和资源预算等待用户确认。
+
 ### 长训、closed-loop 与 Stage 3 multi-rules 预期
 
 3M donor-data 训练足以筛除数值失败和稳定受支配的设计，但不作为渐近棋力证明。较深
