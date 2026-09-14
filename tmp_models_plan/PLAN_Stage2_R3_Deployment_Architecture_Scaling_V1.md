@@ -55,9 +55,9 @@ seed `314159` 仍是后续确认工作，不因优先完成 seed271828 而被删
 
 | 档位 | 主要环境 | 主要延迟口径 | 设计目标 |
 |---|---|---|---|
-| Flash | 普通 CPU | 256 sims 接近或低于 3 秒 | 即时响应、参数与算子效率、基本棋力 |
-| Balance | CPU 可用 | 256 sims 约 10 秒以内 | 更完整地使用 3D 信息，平衡棋力、样本效率和成本 |
-| Pro | GPU 推荐 | 256/512/1024 sims 与 batch scaling | 3D 信息保真、全局建模和棋力上限 |
+| Flash | 普通 CPU | 512 sims 接近或低于 3 秒 | 即时响应、参数与算子效率、基本棋力 |
+| Balance | CPU 可用 | 512 sims 约 10 秒以内 | 更完整地使用 3D 信息，平衡棋力、样本效率和成本 |
+| Pro | GPU 推荐 | 512/1024 sims 与 batch scaling | 3D 信息保真、全局建模和棋力上限 |
 
 三档是部署目标，不是强制的 trunk 类型。ResNet 仍可能进入 Flash，紧凑 Transformer
 也可能进入 Balance；只有实验支持的完整 3D-token 或深层 Transformer 才进入 Pro。
@@ -104,7 +104,7 @@ Flash 优先研究 CPU 友好的二维/柱级结构：
 | 阶段 | 参数锚点 | 数据量 | 目的 |
 |---|---:|---:|---|
 | F-1 | B8，约 5.63M | 1M | 完成标准离线评估并回传本地做正式 CPU benchmark |
-| F-2 | B10，约 12.33M | 1M | 检查 3 秒预算附近的棋力—延迟 Pareto |
+| F-2 | B10，约 12.33M | 1M | 作为 Flash→Balance 容量边界诊断；只有 512 sims 实测达标才可留在 Flash |
 | F-3 | 最佳两项 | 续训到 3M | 验证数据扩展收益和 learning slope |
 | F-4 | finalist | 第二 seed | 对差距落入既有 seed 方差的组合确认 |
 
@@ -155,10 +155,98 @@ B2–B7 应通过可复用组件实现，而不是复制整套模型：
 | BAL-3 | 最佳两个 3D 架构族+B0 | B10，约 12.33M | 3M，必要时5M | Balance 高容量确认 |
 | BAL-4 | 最佳 fusion 架构族 | B8 或 B10 固定总参数 | 1M/3M | 约25%/50% 3D 分支参数占比消融 |
 
+### BAL-4C：同架构 3D depth/width/fusion 数据量诊断
+
+在把优势组合扩展到其它架构并统一训练至 3M 前，先固定
+`multiview3d_fusion_resnet`、2D encoder 输出 64、trunk C248/B10、learned height
+collapse、FP32、seed 271828 和 `standard_late` 数据顺序，测试完整的：
+
+`volume_channels ∈ {96,128} × volume_blocks ∈ {5,7} × fusion ∈ {concat,attention}`。
+
+这形成 8 个配置。除原计划的 6 个点外，补入 `D96/B7 attention` 与
+`D128/B5 attention`，从而分别估计 width、3D depth 和 fusion 主效应，避免只在
+`D96/B5` 与 `D128/B7` 比 attention 时发生混杂。
+
+先补齐所有配置的 1M endpoint，并在 1M 与 3M 使用完全相同的 12 条 factorial
+对局边：4 条同 D/B 的 concat-attention 边、4 条同 width/fusion 的 B5-B7 边、
+4 条同 depth/fusion 的 D96-D128 边。每条边固定 50 opening pairs、交换先后手、
+256 simulations。这样可以直接观察各效应是否随训练量改变，而不需要承担 28 组完整
+round-robin 的成本。`D96/B3 gated` 作为先前能效对照，`D64/B3 concat` 继续作为
+跨轮全局对手；只在主矩阵出现冲突时追加必要对局。
+
+1M 与 3M 之间必须精确续训，保留 optimizer、scheduler 和 sample cursor。完成后按
+离线质量、factorial direct Elo、参数/MACs、吞吐和 1M→3M slope 冻结 top2–3；随后
+只有在当前 Round 3 的 1M transfer 证据支持跨架构有效性时，才把这些组合扩展到
+`column3d_fusion_v2` 与 `winning3d_fusion_resnet`。Elo 巡检按约每 4 组对局 3 小时
+估算，而不是机械使用 30 分钟频率。
+
+### BAL-4D：冻结 3D 主线后的 CNN 尾部与 2D encoder 消融
+
+BAL-4C 的 3M anchored Elo 冻结以下三项，不再重开 3D width/depth/fusion 的完整搜索：
+
+- **能效主线**：`column3d_fusion_v2`，2D 输出 E64、3D D96/B5、concat、trunk C248/B10；
+- **计算量备用**：同一 column 表示的 D96/B7 concat，只在剩余算力充足或 B5/B7
+  定向复核支持深度收益时继续；
+- **跨表示参照**：`winning3d_fusion_resnet` 的 E64、D96/B5 concat。
+
+后续不做 representation × tail × encoder-width 的全笛卡尔积。先在能效主线上分别估计
+两个小因子，再只组合各自胜出项。
+
+#### BAL-4D-T：CNN trunk 后处理
+
+固定 column E64、D96/B5 concat、C248/B10、FP32、seed 271828 和相同
+`standard_late` sample/augmentation 顺序，比较：
+
+| ID | `post_trunk_mode` | 数据流 | 作用 |
+|---|---|---|---|
+| T0 | 空/none | activated CNN trunk → heads | 复用当前 3M 基线 |
+| T1 | `serial_attention` | activated trunk → 2 个 25-token attention blocks → heads | 对齐 CubeSprite V3 的串行 global-context tail |
+| T2 | `parallel_attention` | local token-MLP 与 2-block global-attention 并行 → learned alignment → heads | 验证草图 C 的局部/全局双路组织 |
+
+attention 统一为 8 heads、MLP ratio 2.0，不使用 CLS token，也不加入 absolute position
+embedding。卷积主干已经生成位置对齐的 5×5 feature map；本轮不把 positional encoding
+或 D4 对称性变化混入 tail 因子。T2 的 alignment 是 `concat(local, global) → Linear(C)`，
+初始化为两路等权对齐。
+
+#### BAL-4D-E：2D representation encoder 输出宽度
+
+固定无 post-trunk tail、3D D96/B5 concat、C248/B10，并保持 column MLP hidden width
+为 248，只改变其送入 fusion 的输出宽度：
+
+| ID | 2D 输出宽度 | 说明 |
+|---|---:|---|
+| E64 | 64 | 复用当前 3M 基线 |
+| E96 | 96 | 与 3D D96 对称，检验 E64 是否为 representation bottleneck |
+| E128 | 128 | 检验继续增加 2D 表示容量是否仍有收益 |
+
+这里不同时改变 hidden width。column encoder 的 hidden 参数成本很小，而 fusion 前输出宽度
+才直接控制保留到 trunk 的 2D 表示容量；同时改变两者会使解释失焦。
+
+#### 执行与晋级
+
+新训练点只有 T1、T2、E96、E128 四个；T0/E64 是同一个已完成基线。四项先训练到
+1M，完成四池交叉验证和各子组 50 opening-pair、256-sim 直赛；随后四项均精确续训到
+3M，再重复同一组对局，避免 attention 或较宽 encoder 因 1M 学习较慢被提前淘汰。
+
+- Tail 子组：T0–T1、T0–T2、T1–T2；
+- Encoder 子组：E64–E96、E64–E128、E96–E128；
+- 不在这一阶段跑完整 anchor matrix；以组内棋力、macro loss、参数、MACs、训练吞吐组成
+  Pareto 判断，不能用单一 loss 或单一 Elo 排序替代能效判断；
+- 若 tail 与 encoder width 各自都有正收益，只新增一个“最佳 tail + 最佳 width”组合点；
+  若任一因子不优于基线，则不强行组合；
+- 组合确认后迁移到 D96/B5 concat winning 参照，检验收益是否跨 representation；
+- 最终 B10 候选回传本地执行正式 512-sim CPU latency，并只对 finalist 追加 anchored Elo。
+
+完成 BAL-4D 后，如 GPU 预算仍有余量，再固定胜出的 encoder/tail/representation，比较
+C248/B10 与 C248/B12。B12 先跑 1M；只有离线曲线和组内直赛未被 B10 稳定支配时才精确
+续训到 3M。不得在 tail 或 2D encoder 尚未冻结时同时改变 trunk depth。
+
 B8 的 3M 模型必须从对应 B8 1M checkpoint 精确续训。不得只运行 B6-1M 与 B8-3M
 两个对角点，否则无法区分参数收益、数据收益和二者交互。
 
-Balance 的 10 秒目标在 BAL-1/BAL-2 中仅记录，不作为早期硬淘汰条件。只有进入部署
+当前约 12.33M 参数的 BAL-3 模型在 512 sims 下预计均超过 Flash 的 3 秒门槛，故默认
+归入 Balance 候选；其已测 256-sim 延迟不能替代 512-sim 正式判据。Balance 的 10 秒
+目标在 BAL-1/BAL-2 中仅记录，不作为早期硬淘汰条件。只有进入部署
 finalist 后才把它作为产品门槛。对于 3D 架构，参数量相近而 CPU 延迟更高是预期现象，
 必须用实际 Elo、固定时间棋力和 geometry-stratified 收益一起判断。
 
@@ -369,8 +457,8 @@ checkpoint、硬件与 opening manifest hash。
 
 R3 最终不生成单一综合冠军，而输出三套部署结论：
 
-- Flash：anchored Elo / 固定时间棋力 vs CPU 256-sim latency；
-- Balance：anchored Elo、3D geometry 收益 vs CPU latency、GPU-hours；
+- Flash：anchored Elo / 固定时间棋力 vs CPU 512-sim latency；
+- Balance：anchored Elo、3D geometry 收益 vs CPU 512-sim latency、GPU-hours；
 - Pro：anchored Elo vs GPU search latency、吞吐、显存与 scaling slope。
 
 Balance 的正式决策原则固定为：**优先验证显式 3D 信息的有效性，再比较其实现成本；

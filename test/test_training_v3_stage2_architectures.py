@@ -4,6 +4,7 @@ import unittest
 import hashlib
 import json
 import tempfile
+from dataclasses import replace
 from pathlib import Path
 
 import torch
@@ -146,6 +147,27 @@ class Stage2ArchitectureTests(unittest.TestCase):
             ModelConfig(architecture="raw3d_to2d_resnet", collapse_mode="flat")
         with self.assertRaisesRegex(ValueError, "fusion_mode"):
             ModelConfig(architecture="raw3d_to2d_resnet", fusion_mode="concat")
+        with self.assertRaisesRegex(ValueError, "volume_channels"):
+            ModelConfig(architecture="raw3d_to2d_resnet", volume_channels=8)
+        with self.assertRaisesRegex(ValueError, "post_trunk_mode"):
+            ModelConfig(architecture="column_resnet", post_trunk_mode="serial_attention")
+        with self.assertRaisesRegex(ValueError, "must be 'serial_attention'"):
+            ModelConfig(
+                architecture="column3d_fusion_v2",
+                post_trunk_mode="unknown",
+            )
+        with self.assertRaisesRegex(ValueError, "require model.post_trunk_mode"):
+            ModelConfig(
+                architecture="column3d_fusion_v2",
+                post_attention_blocks=2,
+            )
+        with self.assertRaisesRegex(ValueError, "post_attention_heads"):
+            ModelConfig(
+                architecture="column3d_fusion_v2",
+                channels=10,
+                post_trunk_mode="serial_attention",
+                post_attention_heads=4,
+            )
 
     def test_balance_v2_3d_controls_are_explicit_and_serialized(self) -> None:
         dense = build_model(
@@ -175,7 +197,7 @@ class Stage2ArchitectureTests(unittest.TestCase):
         self.assertEqual(exported["collapse_mode"], "learned")
 
     def test_balance_v2_fusion_modes_preserve_spatial_contract(self) -> None:
-        for fusion_mode in ("concat", "gated"):
+        for fusion_mode in ("concat", "gated", "attention"):
             with self.subTest(fusion_mode=fusion_mode):
                 model = build_model(
                     ModelConfig(
@@ -194,6 +216,136 @@ class Stage2ArchitectureTests(unittest.TestCase):
                 )
                 self.assertEqual(tuple(output.policy_logits.shape), (2, 25))
                 self.assertEqual(tuple(output.wdl_logits.shape), (2, 3))
+
+    def test_attention_fusion_has_strict_head_contract(self) -> None:
+        with self.assertRaisesRegex(ValueError, "fusion_attention_heads"):
+            ModelConfig(
+                architecture="multiview3d_fusion_resnet",
+                channels=10,
+                blocks=1,
+                branch_channels=4,
+                volume_channels=4,
+                volume_blocks=1,
+                fusion_mode="attention",
+                fusion_attention_heads=4,
+            )
+        with self.assertRaisesRegex(ValueError, "only for attention"):
+            ModelConfig(
+                architecture="multiview3d_fusion_resnet",
+                channels=8,
+                blocks=1,
+                branch_channels=4,
+                volume_channels=4,
+                volume_blocks=1,
+                fusion_mode="concat",
+                fusion_attention_heads=2,
+            )
+        config = ModelConfig(
+            architecture="multiview3d_fusion_resnet",
+            channels=8,
+            blocks=1,
+            branch_channels=4,
+            volume_channels=6,
+            volume_blocks=1,
+            fusion_mode="attention",
+            fusion_attention_heads=2,
+        )
+        model = build_model(config)
+        output = model.forward_search(
+            self.board,
+            role_to_play=self.roles,
+            rule_features=self.rules,
+        )
+        self.assertEqual(tuple(output.policy_logits.shape), (2, 25))
+        self.assertEqual(model.export_config()["fusion_attention_heads"], 2)
+
+    def test_post_trunk_attention_modes_preserve_all_head_shapes(self) -> None:
+        for mode in ("serial_attention", "parallel_attention"):
+            with self.subTest(mode=mode):
+                config = ModelConfig(
+                    architecture="column3d_fusion_v2",
+                    channels=8,
+                    blocks=1,
+                    encoder_channels=8,
+                    branch_channels=4,
+                    volume_channels=6,
+                    volume_blocks=1,
+                    fusion_mode="concat",
+                    post_trunk_mode=mode,
+                    post_attention_blocks=2,
+                    post_attention_heads=2,
+                    post_attention_mlp_ratio=2.0,
+                )
+                model = build_model(config)
+                output = model(
+                    self.board,
+                    role_to_play=self.roles,
+                    rule_features=self.rules,
+                )
+                self.assertEqual(tuple(output.policy_logits.shape), (2, 25))
+                self.assertEqual(tuple(output.wdl_logits.shape), (2, 3))
+                self.assertEqual(tuple(output.opponent_reply_logits.shape), (2, 25))
+                self.assertEqual(tuple(output.future_occupancy_logits.shape), (2, 3, 6, 5, 5))
+                self.assertEqual(tuple(output.moves_left_logits.shape), (2, 301))
+                exported = model.export_config()
+                self.assertEqual(exported["post_trunk_mode"], mode)
+                self.assertEqual(exported["post_attention_blocks"], 2)
+                self.assertEqual(exported["post_attention_heads"], 2)
+
+    def test_post_trunk_changes_hash_and_rejects_baseline_state(self) -> None:
+        baseline = ModelConfig(
+            architecture="column3d_fusion_v2",
+            channels=8,
+            blocks=1,
+            encoder_channels=8,
+            branch_channels=4,
+            volume_channels=4,
+            volume_blocks=1,
+            fusion_mode="concat",
+        )
+        serial = replace(
+            baseline,
+            post_trunk_mode="serial_attention",
+            post_attention_blocks=2,
+            post_attention_heads=2,
+            post_attention_mlp_ratio=2.0,
+        )
+        self.assertNotIn("post_trunk_mode", model_config_dict(baseline))
+        self.assertNotEqual(
+            config_hash(V3Config(model=baseline)),
+            config_hash(V3Config(model=serial)),
+        )
+        with self.assertRaises(RuntimeError):
+            build_model(serial).load_state_dict(build_model(baseline).state_dict(), strict=True)
+
+    def test_v2_fusion_decouples_2d_and_3d_widths_without_changing_trunk(self) -> None:
+        narrow = build_model(
+            ModelConfig(
+                architecture="multiview3d_fusion_resnet",
+                channels=24,
+                blocks=2,
+                branch_channels=8,
+                volume_channels=4,
+                volume_blocks=1,
+                fusion_mode="concat",
+            )
+        )
+        wide = build_model(
+            ModelConfig(
+                architecture="multiview3d_fusion_resnet",
+                channels=24,
+                blocks=2,
+                branch_channels=8,
+                volume_channels=12,
+                volume_blocks=1,
+                fusion_mode="concat",
+            )
+        )
+        self.assertEqual(narrow.blocks[0].conv1.weight.shape, wide.blocks[0].conv1.weight.shape)
+        self.assertEqual(narrow.multiview_encoder.fusion.weight.shape, wide.multiview_encoder.fusion.weight.shape)
+        self.assertEqual(narrow.fusion.projection.in_channels, 12)
+        self.assertEqual(wide.fusion.projection.in_channels, 20)
+        self.assertEqual(narrow.export_config()["volume_channels"], 4)
 
     def test_balance_grid_calibration_records_3d_allocation(self) -> None:
         row = calibrate_model_grid(
@@ -268,6 +420,23 @@ class Stage2ArchitectureTests(unittest.TestCase):
             }
         )
         self.assertNotEqual(config_hash(concat), config_hash(gated))
+
+        legacy_fusion = ModelConfig(
+            architecture="multiview3d_fusion_resnet",
+            channels=8,
+            blocks=1,
+            branch_channels=4,
+            volume_blocks=1,
+            fusion_mode="concat",
+        )
+        self.assertNotIn("volume_channels", model_config_dict(legacy_fusion))
+        explicit_volume = replace(legacy_fusion, volume_channels=4)
+        legacy_shapes = {name: value.shape for name, value in build_model(legacy_fusion).state_dict().items()}
+        explicit_shapes = {
+            name: value.shape for name, value in build_model(explicit_volume).state_dict().items()
+        }
+        self.assertEqual(legacy_shapes, explicit_shapes)
+        self.assertNotEqual(config_hash(V3Config(model=legacy_fusion)), config_hash(V3Config(model=explicit_volume)))
 
     def test_cross_architecture_state_is_strictly_incompatible(self) -> None:
         column = build_model(ModelConfig(architecture="column_resnet", channels=8, blocks=1))

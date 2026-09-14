@@ -25,6 +25,14 @@ class Stage2Round3DesignTest(unittest.TestCase):
         second = build_round3_design()
         self.assertEqual(first, second)
         self.assertEqual(first["schema"], "connect4-v3-stage2-round3-design-v1")
+        followup = first["deployment_tiers"]["balance"]["frozen_3d_followup"]
+        self.assertEqual(followup["base_model"]["architecture"], "column3d_fusion_v2")
+        self.assertEqual(followup["encoder_width_screen"], [64, 96, 128])
+        self.assertEqual(followup["new_training_cells"], ["T1", "T2", "E96", "E128"])
+        self.assertEqual(
+            [row["post_trunk_mode"] for row in followup["post_trunk_screen"]],
+            ["none", "serial_attention", "parallel_attention"],
+        )
         self.assertEqual(first["mode"], "preparation_only")
         self.assertFalse(first["execution_authorized"])
         self.assertEqual(first["dependency"]["id"], ROUND3_DEPENDENCY_ID)

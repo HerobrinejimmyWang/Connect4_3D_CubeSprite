@@ -52,8 +52,14 @@ class ModelConfig:
     blocks: int = 1
     encoder_channels: int = 0
     branch_channels: int = 0
+    volume_channels: int = 0
     attention_heads: int = 0
+    fusion_attention_heads: int = 0
     transformer_mlp_ratio: float = 0.0
+    post_trunk_mode: str = ""
+    post_attention_blocks: int = 0
+    post_attention_heads: int = 0
+    post_attention_mlp_ratio: float = 0.0
     volume_blocks: int = 0
     collapse_mode: str = ""
     fusion_mode: str = ""
@@ -92,12 +98,18 @@ class ModelConfig:
         optional = (
             self.encoder_channels,
             self.branch_channels,
+            self.volume_channels,
             self.attention_heads,
+            self.fusion_attention_heads,
+            self.post_attention_blocks,
+            self.post_attention_heads,
         )
         if any(value < 0 for value in optional):
             raise ValueError("model architecture channel/head overrides cannot be negative.")
         if self.transformer_mlp_ratio < 0.0:
             raise ValueError("model.transformer_mlp_ratio cannot be negative.")
+        if self.post_attention_mlp_ratio < 0.0:
+            raise ValueError("model.post_attention_mlp_ratio cannot be negative.")
         if self.volume_blocks < 0:
             raise ValueError("model.volume_blocks cannot be negative.")
         if self.architecture == "gravity_resnet" and any(
@@ -155,6 +167,8 @@ class ModelConfig:
             "multiview3d_fusion_resnet",
             "winning3d_fusion_resnet",
         }
+        if self.volume_channels and self.architecture not in fusion_v2:
+            raise ValueError("volume_channels is valid only for V2 fusion architectures.")
         if self.volume_blocks and self.architecture not in volume_v2:
             raise ValueError("volume_blocks is valid only for V2 3D architectures.")
         if self.collapse_mode:
@@ -165,8 +179,48 @@ class ModelConfig:
         if self.fusion_mode:
             if self.architecture not in fusion_v2:
                 raise ValueError("fusion_mode is valid only for V2 fusion architectures.")
-            if self.fusion_mode not in {"concat", "gated"}:
-                raise ValueError("fusion_mode must be 'concat' or 'gated'.")
+            if self.fusion_mode not in {"concat", "gated", "attention"}:
+                raise ValueError("fusion_mode must be 'concat', 'gated', or 'attention'.")
+        if self.fusion_attention_heads:
+            if self.architecture not in fusion_v2 or self.fusion_mode != "attention":
+                raise ValueError(
+                    "fusion_attention_heads is valid only for attention V2 fusion architectures."
+                )
+            if self.channels % self.fusion_attention_heads:
+                raise ValueError(
+                    "model.channels must be divisible by model.fusion_attention_heads."
+                )
+        post_trunk_architectures = {
+            "plane3d_fusion_v2",
+            "column3d_fusion_v2",
+            "multiview3d_fusion_resnet",
+            "winning3d_fusion_resnet",
+        }
+        post_settings = (
+            self.post_attention_blocks,
+            self.post_attention_heads,
+            self.post_attention_mlp_ratio,
+        )
+        if self.post_trunk_mode:
+            if self.architecture not in post_trunk_architectures:
+                raise ValueError(
+                    "post_trunk_mode is valid only for Stage 2 V2 fusion ResNet architectures."
+                )
+            if self.post_trunk_mode not in {"serial_attention", "parallel_attention"}:
+                raise ValueError(
+                    "post_trunk_mode must be 'serial_attention' or 'parallel_attention'."
+                )
+            blocks = self.post_attention_blocks or 2
+            heads = self.post_attention_heads or _default_attention_heads(self.channels)
+            ratio = self.post_attention_mlp_ratio or 2.0
+            if blocks < 1:
+                raise ValueError("post_attention_blocks must be positive.")
+            if self.channels % heads:
+                raise ValueError("model.channels must be divisible by model.post_attention_heads.")
+            if ratio < 1.0:
+                raise ValueError("post_attention_mlp_ratio must be at least 1.0.")
+        elif any(post_settings):
+            raise ValueError("post-attention settings require model.post_trunk_mode.")
         if self.global_input_schema != "role_rule_v1":
             raise ValueError("model.global_input_schema must be 'role_rule_v1'.")
         if self.output_schema != "policy_wdl_aux_v1":
@@ -207,14 +261,28 @@ def model_config_dict(config: ModelConfig) -> dict[str, Any]:
         raw["volume_blocks"] = config.volume_blocks or max(1, config.blocks // 2)
         raw["collapse_mode"] = config.collapse_mode or "learned"
         if config.architecture in fusion_v2:
+            if config.volume_channels:
+                raw["volume_channels"] = config.volume_channels
             raw["fusion_mode"] = config.fusion_mode or "concat"
         if config.architecture == "column3d_fusion_v2":
             raw["encoder_channels"] = config.encoder_channels or config.channels
+    if config.post_trunk_mode:
+        raw["post_attention_blocks"] = config.post_attention_blocks or 2
+        raw["post_attention_heads"] = (
+            config.post_attention_heads or _default_attention_heads(config.channels)
+        )
+        raw["post_attention_mlp_ratio"] = config.post_attention_mlp_ratio or 2.0
     for key in (
         "encoder_channels",
         "branch_channels",
+        "volume_channels",
         "attention_heads",
+        "fusion_attention_heads",
         "transformer_mlp_ratio",
+        "post_trunk_mode",
+        "post_attention_blocks",
+        "post_attention_heads",
+        "post_attention_mlp_ratio",
         "volume_blocks",
         "collapse_mode",
         "fusion_mode",

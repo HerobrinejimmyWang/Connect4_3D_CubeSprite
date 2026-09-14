@@ -368,10 +368,10 @@ class _VolumeEncoder3D(nn.Module):
 
 
 class _ConcatFusion(nn.Module):
-    def __init__(self, branch_channels: int, output_channels: int) -> None:
+    def __init__(self, left_channels: int, right_channels: int, output_channels: int) -> None:
         super().__init__()
         self.projection = nn.Conv2d(
-            2 * branch_channels, output_channels, kernel_size=1, bias=False
+            left_channels + right_channels, output_channels, kernel_size=1, bias=False
         )
 
     def forward(self, left: torch.Tensor, right: torch.Tensor) -> torch.Tensor:
@@ -379,15 +379,15 @@ class _ConcatFusion(nn.Module):
 
 
 class _GatedFusion(nn.Module):
-    def __init__(self, branch_channels: int, output_channels: int) -> None:
+    def __init__(self, left_channels: int, right_channels: int, output_channels: int) -> None:
         super().__init__()
         self.left_projection = nn.Conv2d(
-            branch_channels, output_channels, kernel_size=1, bias=False
+            left_channels, output_channels, kernel_size=1, bias=False
         )
         self.right_projection = nn.Conv2d(
-            branch_channels, output_channels, kernel_size=1, bias=False
+            right_channels, output_channels, kernel_size=1, bias=False
         )
-        self.gate = nn.Conv2d(2 * branch_channels, output_channels, kernel_size=1)
+        self.gate = nn.Conv2d(left_channels + right_channels, output_channels, kernel_size=1)
         nn.init.zeros_(self.gate.weight)
         nn.init.zeros_(self.gate.bias)
 
@@ -396,11 +396,57 @@ class _GatedFusion(nn.Module):
         return weight * self.left_projection(left) + (1.0 - weight) * self.right_projection(right)
 
 
-def _build_fusion(mode: str, branch_channels: int, output_channels: int) -> nn.Module:
+class _AttentionFusion(nn.Module):
+    """Fuse 2D and 3D encoder outputs as two tokens at each board column."""
+
+    def __init__(
+        self,
+        left_channels: int,
+        right_channels: int,
+        output_channels: int,
+        heads: int,
+    ) -> None:
+        super().__init__()
+        self.left_projection = nn.Conv2d(
+            left_channels, output_channels, kernel_size=1, bias=False
+        )
+        self.right_projection = nn.Conv2d(
+            right_channels, output_channels, kernel_size=1, bias=False
+        )
+        self.branch_embedding = nn.Parameter(torch.zeros(1, 2, output_channels))
+        self.query = nn.Parameter(torch.zeros(1, 1, output_channels))
+        self.norm = nn.LayerNorm(output_channels)
+        self.attention = nn.MultiheadAttention(output_channels, heads, batch_first=True)
+        nn.init.trunc_normal_(self.branch_embedding, std=0.02)
+        nn.init.trunc_normal_(self.query, std=0.02)
+
+    def forward(self, left: torch.Tensor, right: torch.Tensor) -> torch.Tensor:
+        batch, _channels, height, width = left.shape
+        left_tokens = self.left_projection(left).flatten(2).transpose(1, 2)
+        right_tokens = self.right_projection(right).flatten(2).transpose(1, 2)
+        tokens = torch.stack((left_tokens, right_tokens), dim=2)
+        tokens = tokens.reshape(batch * height * width, 2, -1)
+        tokens = self.norm(tokens + self.branch_embedding)
+        query = self.query.expand(tokens.shape[0], -1, -1)
+        fused, _weights = self.attention(query, tokens, tokens, need_weights=False)
+        return fused.reshape(batch, height, width, -1).permute(0, 3, 1, 2).contiguous()
+
+
+def _build_fusion(
+    mode: str,
+    left_channels: int,
+    right_channels: int,
+    output_channels: int,
+    *,
+    attention_heads: int = 0,
+) -> nn.Module:
     if mode == "concat":
-        return _ConcatFusion(branch_channels, output_channels)
+        return _ConcatFusion(left_channels, right_channels, output_channels)
     if mode == "gated":
-        return _GatedFusion(branch_channels, output_channels)
+        return _GatedFusion(left_channels, right_channels, output_channels)
+    if mode == "attention":
+        heads = attention_heads or _default_attention_heads(output_channels)
+        return _AttentionFusion(left_channels, right_channels, output_channels, heads)
     raise ValueError(f"unsupported fusion mode: {mode!r}")
 
 
@@ -491,6 +537,83 @@ class _TransformerBlock(nn.Module):
         attended, _weights = self.attention(normalized, normalized, normalized, need_weights=False)
         x = x + attended
         return x + self.mlp(self.norm2(x))
+
+
+class _PostAttentionBlock(nn.Module):
+    """CubeSprite-style global column attention used after a CNN trunk."""
+
+    def __init__(self, channels: int, heads: int, mlp_ratio: float) -> None:
+        super().__init__()
+        hidden = max(channels, int(round(channels * mlp_ratio)))
+        self.norm1 = nn.LayerNorm(channels)
+        self.attention = nn.MultiheadAttention(channels, heads, batch_first=True)
+        self.norm2 = nn.LayerNorm(channels)
+        self.mlp = nn.Sequential(
+            nn.Linear(channels, hidden),
+            nn.SiLU(),
+            nn.Linear(hidden, channels),
+        )
+        nn.init.zeros_(self.mlp[-1].weight)
+        nn.init.zeros_(self.mlp[-1].bias)
+
+    def forward(self, tokens: torch.Tensor) -> torch.Tensor:
+        normalized = self.norm1(tokens)
+        attended, _weights = self.attention(
+            normalized, normalized, normalized, need_weights=False
+        )
+        tokens = tokens + attended
+        return tokens + self.mlp(self.norm2(tokens))
+
+
+class _SerialPostTrunkAttention(nn.Module):
+    def __init__(self, channels: int, blocks: int, heads: int, mlp_ratio: float) -> None:
+        super().__init__()
+        self.blocks = nn.ModuleList(
+            _PostAttentionBlock(channels, heads, mlp_ratio) for _ in range(blocks)
+        )
+
+    def forward(self, feature_map: torch.Tensor) -> torch.Tensor:
+        batch, channels, rows, columns = feature_map.shape
+        tokens = feature_map.flatten(2).transpose(1, 2)
+        for block in self.blocks:
+            tokens = block(tokens)
+        return tokens.transpose(1, 2).reshape(batch, channels, rows, columns)
+
+
+class _ParallelPostTrunkAttention(nn.Module):
+    """Align a local token-MLP path with a global attention path."""
+
+    def __init__(self, channels: int, blocks: int, heads: int, mlp_ratio: float) -> None:
+        super().__init__()
+        hidden = max(channels, int(round(channels * mlp_ratio)))
+        self.local_norm = nn.LayerNorm(channels)
+        self.local_mlp = nn.Sequential(
+            nn.Linear(channels, hidden),
+            nn.SiLU(),
+            nn.Linear(hidden, channels),
+        )
+        nn.init.zeros_(self.local_mlp[-1].weight)
+        nn.init.zeros_(self.local_mlp[-1].bias)
+        self.attention_blocks = nn.ModuleList(
+            _PostAttentionBlock(channels, heads, mlp_ratio) for _ in range(blocks)
+        )
+        self.align = nn.Linear(2 * channels, channels)
+        with torch.no_grad():
+            self.align.weight.zero_()
+            identity = torch.eye(channels)
+            self.align.weight[:, :channels].copy_(0.5 * identity)
+            self.align.weight[:, channels:].copy_(0.5 * identity)
+            self.align.bias.zero_()
+
+    def forward(self, feature_map: torch.Tensor) -> torch.Tensor:
+        batch, channels, rows, columns = feature_map.shape
+        base = feature_map.flatten(2).transpose(1, 2)
+        local = base + self.local_mlp(self.local_norm(base))
+        global_tokens = base
+        for block in self.attention_blocks:
+            global_tokens = block(global_tokens)
+        aligned = self.align(torch.cat((local, global_tokens), dim=-1))
+        return aligned.transpose(1, 2).reshape(batch, channels, rows, columns)
 
 
 class GravityPolicyValueNetV3(nn.Module):
@@ -613,6 +736,7 @@ class ArchitecturePolicyValueNetV3(nn.Module):
         channels = model_config.channels
         encoder_channels = model_config.encoder_channels or channels
         branch_channels = model_config.branch_channels or max(4, channels // 2)
+        volume_channels = model_config.volume_channels or branch_channels
         architecture = model_config.architecture
         self.architecture = architecture
 
@@ -683,14 +807,18 @@ class ArchitecturePolicyValueNetV3(nn.Module):
                     include_winning_diagonals=architecture == "winning3d_fusion_resnet",
                 )
             self.volume_encoder = _VolumeEncoder3D(
-                branch_channels,
-                branch_channels,
+                volume_channels,
+                volume_channels,
                 model_config.volume_blocks or max(1, model_config.blocks // 2),
                 factorized=False,
                 collapse_mode=model_config.collapse_mode or "learned",
             )
             self.fusion = _build_fusion(
-                model_config.fusion_mode or "concat", branch_channels, channels
+                model_config.fusion_mode or "concat",
+                branch_channels,
+                volume_channels,
+                channels,
+                attention_heads=model_config.fusion_attention_heads,
             )
         else:  # ModelConfig performs the exhaustive name validation.
             raise ValueError(f"Unsupported Stage 2 architecture: {architecture}")
@@ -706,6 +834,7 @@ class ArchitecturePolicyValueNetV3(nn.Module):
 
         self.transformer_blocks: nn.ModuleList | None = None
         self.position_embedding: nn.Parameter | None = None
+        self.post_trunk: nn.Module | None = None
         if architecture.endswith("_transformer"):
             heads = model_config.attention_heads or _default_attention_heads(channels)
             ratio = model_config.transformer_mlp_ratio or 2.0
@@ -719,6 +848,21 @@ class ArchitecturePolicyValueNetV3(nn.Module):
             self.blocks = nn.ModuleList()
         else:
             self.blocks = nn.ModuleList(_PreActBlock(channels) for _ in range(model_config.blocks))
+
+        if model_config.post_trunk_mode:
+            post_blocks = model_config.post_attention_blocks or 2
+            post_heads = model_config.post_attention_heads or _default_attention_heads(channels)
+            post_ratio = model_config.post_attention_mlp_ratio or 2.0
+            if model_config.post_trunk_mode == "serial_attention":
+                self.post_trunk = _SerialPostTrunkAttention(
+                    channels, post_blocks, post_heads, post_ratio
+                )
+            elif model_config.post_trunk_mode == "parallel_attention":
+                self.post_trunk = _ParallelPostTrunkAttention(
+                    channels, post_blocks, post_heads, post_ratio
+                )
+            else:  # ModelConfig validates this exhaustively.
+                raise AssertionError(f"unhandled post trunk mode: {model_config.post_trunk_mode}")
 
         self.final_norm = nn.GroupNorm(_group_count(channels), channels)
         self.policy_head = nn.Conv2d(channels, 1, kernel_size=1)
@@ -816,6 +960,8 @@ class ArchitecturePolicyValueNetV3(nn.Module):
             for block in self.blocks:
                 x = block(x)
         x = F.silu(self.final_norm(x))
+        if self.post_trunk is not None:
+            x = self.post_trunk(x)
         pooled = torch.cat((x.mean(dim=(2, 3)), x.amax(dim=(2, 3))), dim=1)
         return x, pooled
 

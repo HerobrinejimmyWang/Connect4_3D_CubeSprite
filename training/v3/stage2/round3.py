@@ -180,7 +180,7 @@ def build_round3_design() -> dict[str, Any]:
         },
         "deployment_tiers": {
             "flash": {
-                "target": "ordinary CPU, 256 simulations near or below 3 seconds",
+                "target": "ordinary CPU, 512 simulations near or below 3 seconds",
                 "candidates": flash_candidates,
                 "screen": {
                     "parameter_anchor": "b8",
@@ -195,7 +195,7 @@ def build_round3_design() -> dict[str, Any]:
                 },
             },
             "balance": {
-                "target": "CPU usable near a 10-second 256-simulation design point",
+                "target": "CPU usable near a 10-second 512-simulation design point",
                 "priority": "explicit 3D information and 3D/2D fusion",
                 "candidates": balance_candidates,
                 "diagnostic": {
@@ -218,6 +218,56 @@ def build_round3_design() -> dict[str, Any]:
                     "parameter_anchor": "b10",
                     "consumed_positions": [3_000_000, 5_000_000],
                     "five_million_rule": "run only while the 3M trend remains unresolved or rising",
+                },
+                "frozen_3d_followup": {
+                    "base_model": {
+                        "architecture": "column3d_fusion_v2",
+                        "channels": 248,
+                        "blocks": 10,
+                        "encoder_channels": 248,
+                        "branch_channels": 64,
+                        "volume_channels": 96,
+                        "volume_blocks": 5,
+                        "collapse_mode": "learned",
+                        "fusion_mode": "concat",
+                    },
+                    "depth_reserve": {
+                        "volume_blocks": 7,
+                        "rule": "run only with spare compute or focused B5/B7 confirmation",
+                    },
+                    "representation_control": {
+                        "architecture": "winning3d_fusion_resnet",
+                        "volume_channels": 96,
+                        "volume_blocks": 5,
+                        "fusion_mode": "concat",
+                    },
+                    "post_trunk_screen": [
+                        {"id": "T0", "post_trunk_mode": "none"},
+                        {
+                            "id": "T1",
+                            "post_trunk_mode": "serial_attention",
+                            "post_attention_blocks": 2,
+                            "post_attention_heads": 8,
+                            "post_attention_mlp_ratio": 2.0,
+                        },
+                        {
+                            "id": "T2",
+                            "post_trunk_mode": "parallel_attention",
+                            "post_attention_blocks": 2,
+                            "post_attention_heads": 8,
+                            "post_attention_mlp_ratio": 2.0,
+                        },
+                    ],
+                    "encoder_width_screen": [64, 96, 128],
+                    "new_training_cells": ["T1", "T2", "E96", "E128"],
+                    "positions": [1_000_000, 3_000_000],
+                    "combination_rule": (
+                        "combine only independently positive tail and encoder-width factors"
+                    ),
+                    "optional_trunk_depth": {
+                        "blocks": 12,
+                        "after": "post-trunk and encoder-width factors are frozen",
+                    },
                 },
             },
             "pro": {
