@@ -241,6 +241,47 @@ embedding。卷积主干已经生成位置对齐的 5×5 feature map；本轮不
 C248/B10 与 C248/B12。B12 先跑 1M；只有离线曲线和组内直赛未被 B10 稳定支配时才精确
 续训到 3M。不得在 tail 或 2D encoder 尚未冻结时同时改变 trunk depth。
 
+#### BAL-4X：D64/B3 与 D96/B5 的跨容量 representation 诊断
+
+BAL-3 FP32 与 BAL-4C 使用相同六 anchor scale、FP32、seed、3M `standard_late` 和
+C248/B10 trunk，但 representation 的 Elo 点估计次序发生反转。两轮单模型 95% CI
+高度重叠，不能把点估计排名当成已确认的架构反转。BAL-4D 完成后追加三条无需训练的
+同 representation 跨容量边：
+
+- D64/B3 multiview vs D96/B5 multiview；
+- D64/B3 winning vs D96/B5 winning；
+- D64/B3 column vs D96/B5 column。
+
+每条使用 200 个冻结 opening pairs、交换先后手、256 simulations。若 multiview/winning
+的 D64/B3 稳定胜过 D96/B5，而 column 基本持平，则把现象解释为
+`representation × 3D allocation` 交互，并在 D96/B5 上将 BAL-4D 胜出的 2D encoder
+宽度同时迁移至 multiview 和 winning；若三条都接近 50%，则将原排名反转归入评估噪声，
+不继续扩张矩阵。
+
+### 长训、closed-loop 与 Stage 3 multi-rules 预期
+
+3M donor-data 训练足以筛除数值失败和稳定受支配的设计，但不作为渐近棋力证明。较深
+3D encoder、较宽 representation 和 post-trunk attention 可能具有更慢的优化/样本效率，
+而固定 B10 donor replay 也无法展示某架构自己生成的新局面分布。因此最终架构结论必须
+保留 closed-loop self-play：
+
+- primary seed 先做 1M canary，再统一延伸到 5M；只有成对候选仍上升或无法区分时才一起
+  延伸到 10M，不能只延长当前领先者；
+- 同时保留 cold start 与同架构 late-offline checkpoint warm start。Cold 主要观察启动和
+  探索能力；Warm 更敏感地观察策略坍缩、短局率异常和高水平继续学习；
+- 在 1M/5M/10M 固定截面测同一 anchored Elo、候选互赛、accepted cadence、policy
+  entropy、局长分布、先后手差异与 replay diversity；同时报告 fixed positions 和
+  fixed wall-clock，避免较大模型以更慢的数据生产换取表面相同的 consumed positions；
+- 只有当 Elo slope 与数据生成质量共同改善时，才把“3M 尚未发挥”视为受支持解释。
+
+Stage 3 multi-rules 不直接继承 classic 单规则的唯一冠军，而保留至少两个 representation
+family 进入短 pilot。预期 column 对重力和柱内状态最具样本效率；multiview/winning 对
+经典获胜方向有较强先验，但可能出现规则相关的冗余或负迁移；post-trunk attention 在
+FiLM rule conditioning 之后工作，理论上更适合做依规则变化的全局信息路由，但必须由
+实验验证。Stage 3 应报告每条规则的 Elo、macro Elo、worst-rule Elo、单规则对照差值、
+calibration 与同棋盘不同 rule-feature 的反事实响应；joint champion gate 必须包含
+worst-rule floor，禁止由高频或简单规则掩盖某条规则的退化。
+
 B8 的 3M 模型必须从对应 B8 1M checkpoint 精确续训。不得只运行 B6-1M 与 B8-3M
 两个对角点，否则无法区分参数收益、数据收益和二者交互。
 
