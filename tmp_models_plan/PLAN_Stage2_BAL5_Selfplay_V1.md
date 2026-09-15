@@ -17,8 +17,15 @@ self-play。R1 只回答四个冻结模型在独立 cold/warm lineage 中的稳�
 - representation：`column` / `winning`；
 - tail：none / `serial_attention` ×2（8 heads，MLP ratio 2.0）。
 
-离线 donor 使用 FP32、seed 271828、3M `standard_late`。Closed-loop learner 统一使用
-正式 V3 的 AMP 配置；该精度变化对四个 lineage 一致，并在 manifest 中显式记录。
+离线 donor 使用 FP32、seed 271828、3M `standard_late`。2026-09-16 启动的第一条
+closed-loop AMP canary 出现连续 skipped optimizer step、GradScaler 降至
+`3.0517578125e-05`，并伴随多个 head 的 loss/grad norm 发散；该 lineage 完整保留为
+`failed_amp_canary_20260916`，不计作架构淘汰证据。R1 随后以新 run ID 从随机初始化重开，
+四个模型统一使用 FP32 learner。
+
+重开后的 cold 学习率在 0–1M 固定为 `1e-4`。Warm 使用新鲜 optimizer/replay，但不把
+成熟 3M donor 重置到原 B10 cold schedule 的 `5e-4`：0–2M 使用 `1e-4`，2M–5M 使用
+`5e-5`。这使精度和学习率调整在四个架构间保持一致，并由 config hash 区分旧 canary。
 
 ## 2. R1 执行矩阵
 
