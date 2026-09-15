@@ -35,18 +35,20 @@ game IDs 全部重新开始；不同架构或 tail 禁止交叉 warm-start。
 
 ### 2.1 Self-play 搜索与探索
 
-- 每代 400 games；ply 0–11 强制 256 simulations；ply 12 以后按 game 路由为
-  32/256 simulations，各 50%；
+- Cold 每代 400 games，Warm 每代 800 games；ply 0–11 强制 256 simulations；
+  ply 12 以后按 game 路由为 32/256 simulations，各 50%；
 - 基础温度为 ply 0–27 `T=1`、ply 28–49 `T=0.5`、ply 50+ greedy，并保留 Stage 1
   已冻结 Dirichlet 参数；
 - 每个 lineage 的前 1M consumed positions 不启用 opening-temperature mixture；
 - Warm 在第一个不早于 1M 的原子 generation 边界启用 50/50 mixture：一半 games 的
   ply 0–7 温度从 1.0 降为 0.5，另一半保持 1.0，同时 learner 按两路各 50% consumed
   positions 采样；
-- Warm 将 replay token ratio 从 4 提高到 8，并把每代 learner 上限从 Stage 1 B10 的
-  256 steps 提高到 512 steps，即数据供给与执行上限同时扩大 2 倍、最多 131,072
-  positions/generation。mixture 在累计 consumed positions 首次达到 1M 后的下一个
-  generation 边界启用；切换不发生在 generation 中间，实际边界和 game ID 写入状态；
+- Warm 将每代 self-play games 从 400 提高到 800，并把每代 learner 上限从 Stage 1
+  B10 的 256 steps 提高到 512 steps。`train_tokens_per_raw_position` 固定为 4，不增加
+  单个新局面的期望复用次数；新增局面供给与训练执行上限同时扩大 2 倍，最多 131,072
+  consumed positions/generation。mixture 在累计 consumed positions 首次达到 1M 后的
+  下一个 generation 边界启用；切换不发生在 generation 中间，实际边界和 game ID
+  写入状态；
 - Cold 保持 Stage 1 B10 的 256 steps/generation，且其总上限就是 1M，因此不启用
   mixture。
 
