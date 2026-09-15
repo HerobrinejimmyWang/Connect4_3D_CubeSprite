@@ -192,6 +192,53 @@ class FormalRunnerTests(unittest.TestCase):
                 {"baseline": 0.5, "lowered_opening_temperature": 0.5},
             )
 
+    def test_formal_mixture_starts_only_at_declared_generation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "delayed_mixed"
+            base = self._config(run_dir)
+            config = replace(
+                base,
+                selfplay=replace(
+                    base.selfplay,
+                    opening_temperature_mixture=OpeningTemperatureMixtureConfig(
+                        enabled=True,
+                        start_train_positions=8,
+                    ),
+                ),
+                replay=replace(
+                    base.replay,
+                    train_fraction=0.999999,
+                    window_c=1000,
+                ),
+            )
+            result = run_formal(
+                config,
+                max_train_positions=16,
+                max_generations=2,
+            )
+            self.assertEqual(result["generations_completed"], 2)
+            metrics = [
+                json.loads(line)
+                for line in (run_dir / "metrics" / "metrics.jsonl")
+                .read_text(encoding="utf-8")
+                .splitlines()
+            ]
+            selfplay_rows = [row for row in metrics if row["stage"] == "selfplay"]
+            self.assertNotIn(
+                "opening_temperature_mixture", selfplay_rows[0]["health"]
+            )
+            self.assertEqual(
+                selfplay_rows[1]["health"]["opening_temperature_mixture"]["variants"][
+                    "lowered_opening_temperature"
+                ]["games"],
+                2,
+            )
+            second_selection = json.loads(
+                (run_dir / "replay" / "shuffle" / "selection_g000001.json")
+                .read_text(encoding="utf-8")
+            )
+            self.assertIn("position_balanced_sampling", second_selection)
+
     def test_second_generation_uses_only_the_previous_committed_champion(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             run_dir = Path(directory) / "run"

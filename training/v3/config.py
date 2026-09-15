@@ -373,6 +373,7 @@ class OpeningTemperatureMixtureConfig:
     """
 
     enabled: bool = False
+    start_train_positions: int = 0
     lowered_temperature_plies: int = 8
     lowered_temperature_multiplier: float = 0.5
     lowered_game_fraction: float = 0.5
@@ -381,6 +382,11 @@ class OpeningTemperatureMixtureConfig:
     def __post_init__(self) -> None:
         if type(self.enabled) is not bool:
             raise TypeError("selfplay.opening_temperature_mixture.enabled must be a boolean.")
+        if type(self.start_train_positions) is not int or self.start_train_positions < 0:
+            raise ValueError(
+                "selfplay.opening_temperature_mixture.start_train_positions must be a "
+                "non-negative integer."
+            )
         if self.lowered_temperature_plies < 1:
             raise ValueError("opening temperature mixture needs a positive ply boundary.")
         if not 0.0 < self.lowered_temperature_multiplier < 1.0:
@@ -489,6 +495,16 @@ class SelfPlayConfig:
         if not self.opening_temperature_mixture.enabled:
             return "baseline"
         return "baseline" if int(game_id) % 2 == 0 else "lowered_opening_temperature"
+
+    def for_train_positions(self, train_positions: int) -> "SelfPlayConfig":
+        """Resolve position-gated self-play features at a generation boundary."""
+
+        if type(train_positions) is not int or train_positions < 0:
+            raise ValueError("train_positions must be a non-negative integer.")
+        mixture = self.opening_temperature_mixture
+        if mixture.enabled and train_positions < mixture.start_train_positions:
+            return replace(self, opening_temperature_mixture=replace(mixture, enabled=False))
+        return self
 
     def exploration_variant_index_for_game(self, game_id: int) -> int:
         return 0 if self.exploration_variant_for_game(game_id) == "baseline" else 1
@@ -998,6 +1014,9 @@ def config_hash(config: V3Config) -> str:
         selfplay_semantics.pop("dynamic_exploration")
     if not selfplay_semantics["opening_temperature_mixture"]["enabled"]:
         selfplay_semantics.pop("opening_temperature_mixture")
+    elif selfplay_semantics["opening_temperature_mixture"]["start_train_positions"] == 0:
+        # Preserve the hashes of the original always-on V1 mixture lineages.
+        selfplay_semantics["opening_temperature_mixture"].pop("start_train_positions")
     semantic = {
         "run": run_semantics,
         "model": model_config_dict(config.model),

@@ -163,6 +163,7 @@ def _build_global_active_datasets(
     *,
     retained_position_start: int,
     cumulative_positions: int,
+    opening_temperature_mixture_start_game_id: int | None = None,
 ) -> tuple[OnlineD4Dataset, OnlineD4Dataset | None, dict[str, Any]]:
     if retained_position_start < 0 or retained_position_start + len(replay) != cumulative_positions:
         raise ValueError("retained replay range does not end at the cumulative cursor")
@@ -196,9 +197,15 @@ def _build_global_active_datasets(
         raise RuntimeError("formal replay split leaked a game between train and validation")
     train_sampling_groups = None
     if config.selfplay.opening_temperature_mixture.enabled:
+        if opening_temperature_mixture_start_game_id is None:
+            raise ValueError("enabled delayed opening mixture needs its committed game boundary")
         train_sampling_groups = np.asarray(
             [
-                config.selfplay.exploration_variant_index_for_game(int(game_id))
+                (
+                    0
+                    if int(game_id) < opening_temperature_mixture_start_game_id
+                    else config.selfplay.exploration_variant_index_for_game(int(game_id))
+                )
                 for game_id in train_replay.game_id
             ],
             dtype=np.int64,
@@ -570,11 +577,24 @@ def _run_generation(
     FormalLoopState,
     dict[str, Any],
 ]:
+    generation = formal_state.next_generation
+    scheduled_selfplay = config.selfplay.for_train_positions(
+        formal_state.train_positions_consumed
+    )
+    if (
+        scheduled_selfplay.opening_temperature_mixture.enabled
+        and formal_state.opening_temperature_mixture_start_game_id is None
+    ):
+        start_game_id = (
+            0
+            if config.selfplay.opening_temperature_mixture.start_train_positions == 0
+            else formal_state.next_game_id
+        )
+        formal_state = formal_state.start_opening_temperature_mixture(start_game_id)
     effective_selfplay, formal_state, exploration_decision = prepare_dynamic_exploration(
-        config.selfplay, formal_state, exploration_history
+        scheduled_selfplay, formal_state, exploration_history
     )
     generation_config = replace(config, selfplay=effective_selfplay)
-    generation = formal_state.next_generation
     journal = GenerationJournal.begin(
         layout,
         run_id=config.run.run_id,
@@ -727,9 +747,12 @@ def _run_generation(
     cumulative_positions = formal_state.replay_positions + len(new_replay)
     dataset, validation_dataset, selection = _build_global_active_datasets(
         replay,
-        config,
+        generation_config,
         retained_position_start=retained_position_start,
         cumulative_positions=cumulative_positions,
+        opening_temperature_mixture_start_game_id=(
+            formal_state.opening_temperature_mixture_start_game_id
+        ),
     )
     selection.update({"config_hash": expected_hash, "input_shards": replay_entries})
     selection_path = layout.shuffle / f"selection_g{generation:06d}.json"

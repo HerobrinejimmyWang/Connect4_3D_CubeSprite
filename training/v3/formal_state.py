@@ -75,6 +75,7 @@ class FormalLoopState:
     pending_candidate: PendingCandidateState | None = None
     exploration_stage_index: int = 0
     exploration_stage_started_generation: int = 0
+    opening_temperature_mixture_start_game_id: int | None = None
 
     def __post_init__(self) -> None:
         counters = (
@@ -94,6 +95,16 @@ class FormalLoopState:
             raise ValueError("exploration stage cannot start after the next generation")
         if self.accepted_model_id is not None and not self.accepted_model_id:
             raise ValueError("accepted_model_id must be None or non-empty")
+        if (
+            self.opening_temperature_mixture_start_game_id is not None
+            and (
+                isinstance(self.opening_temperature_mixture_start_game_id, bool)
+                or not isinstance(self.opening_temperature_mixture_start_game_id, int)
+                or self.opening_temperature_mixture_start_game_id < 0
+                or self.opening_temperature_mixture_start_game_id > self.next_game_id
+            )
+        ):
+            raise ValueError("opening mixture game boundary is invalid")
         if (
             self.pending_candidate is not None
             and self.pending_candidate.incumbent_model_id != (self.accepted_model_id or "random")
@@ -115,11 +126,14 @@ class FormalLoopState:
             "exploration_stage_index",
             "exploration_stage_started_generation",
         }
-        if frozenset(raw) not in {frozenset(legacy), frozenset(current)}:
+        delayed_mixture = current | {"opening_temperature_mixture_start_game_id"}
+        keys = set(raw)
+        if not legacy.issubset(keys) or not keys.issubset(delayed_mixture):
             raise ValueError("formal loop state has an unsupported schema")
         values = dict(raw)
         values.setdefault("exploration_stage_index", 0)
         values.setdefault("exploration_stage_started_generation", 0)
+        values.setdefault("opening_temperature_mixture_start_game_id", None)
         pending = values["pending_candidate"]
         values["pending_candidate"] = (
             None if pending is None else PendingCandidateState.from_dict(pending)
@@ -170,6 +184,13 @@ class FormalLoopState:
             exploration_stage_index=self.exploration_stage_index + 1,
             exploration_stage_started_generation=self.next_generation,
         )
+
+    def start_opening_temperature_mixture(self, game_id: int) -> "FormalLoopState":
+        if self.opening_temperature_mixture_start_game_id is not None:
+            raise RuntimeError("opening temperature mixture already started")
+        if game_id < 0 or game_id > self.next_game_id:
+            raise ValueError("opening temperature mixture game boundary is invalid")
+        return replace(self, opening_temperature_mixture_start_game_id=int(game_id))
 
     def emit_candidate(self, pending: PendingCandidateState) -> "FormalLoopState":
         if self.pending_candidate is not None:

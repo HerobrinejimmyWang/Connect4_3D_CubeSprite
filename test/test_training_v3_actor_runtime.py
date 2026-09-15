@@ -82,6 +82,23 @@ class ActorPoolTests(unittest.TestCase):
             ],
         )
 
+    def test_opening_temperature_mixture_can_start_at_a_position_boundary(self) -> None:
+        config = _actor_config(games=4, actors=2)
+        selfplay = replace(
+            config.selfplay,
+            opening_temperature_mixture=OpeningTemperatureMixtureConfig(
+                enabled=True,
+                start_train_positions=1_000_000,
+            ),
+        )
+
+        self.assertFalse(
+            selfplay.for_train_positions(999_999).opening_temperature_mixture.enabled
+        )
+        self.assertTrue(
+            selfplay.for_train_positions(1_000_000).opening_temperature_mixture.enabled
+        )
+
     def test_random_actor_pool_matches_sequential_game_identity(self) -> None:
         config = _actor_config(games=4, actors=2)
         sequential = run_self_play_games(config, start_game_id=9, generation=0)

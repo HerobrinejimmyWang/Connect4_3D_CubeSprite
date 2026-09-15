@@ -1387,10 +1387,12 @@ def run_smoke(config: V3Config) -> dict[str, Any]:
 
     try:
         generation = 0
-        search_stage = config.selfplay.stage_for_generation(generation)
+        effective_selfplay = config.selfplay.for_train_positions(0)
+        effective_config = replace(config, selfplay=effective_selfplay)
+        search_stage = effective_selfplay.stage_for_generation(generation)
         accepted_predictor, accepted_model_id = _accepted_predictor(layout, config)
         actor_batch = run_self_play_actor_pool(
-            config,
+            effective_config,
             producer_model_id=accepted_model_id,
             start_game_id=0,
             generation=generation,
@@ -1431,13 +1433,13 @@ def run_smoke(config: V3Config) -> dict[str, Any]:
                     "search_config": {
                         "active_stage": asdict(search_stage),
                         "exploration_phases": [
-                            asdict(phase) for phase in config.selfplay.exploration_phases
+                            asdict(phase) for phase in effective_selfplay.exploration_phases
                         ],
                         "opening_temperature_mixture": asdict(
-                            config.selfplay.opening_temperature_mixture
+                            effective_selfplay.opening_temperature_mixture
                         ),
-                        "cpuct": config.selfplay.cpuct,
-                        "virtual_loss": config.selfplay.virtual_loss,
+                        "cpuct": effective_selfplay.cpuct,
+                        "virtual_loss": effective_selfplay.virtual_loss,
                         "mcts_lanes_per_actor": config.runtime.mcts_lanes_per_actor,
                     },
                     "rule_registry_hash": config.selfplay.rule_registry_hash,
@@ -1459,16 +1461,16 @@ def run_smoke(config: V3Config) -> dict[str, Any]:
                 "fast": search_stage.fast_search_sims,
             },
             exploration_phases=(
-                asdict(phase) for phase in config.selfplay.exploration_phases
+                asdict(phase) for phase in effective_selfplay.exploration_phases
             ),
         )
-        if config.selfplay.opening_temperature_mixture.enabled:
+        if effective_selfplay.opening_temperature_mixture.enabled:
             mixture_health: dict[str, Any] = {}
             for variant in ("baseline", "lowered_opening_temperature"):
                 variant_games = [
                     game for game in games if game.exploration_variant == variant
                 ]
-                variant_selfplay = config.selfplay.for_exploration_variant(variant)
+                variant_selfplay = effective_selfplay.for_exploration_variant(variant)
                 mixture_health[variant] = {
                     "games": len(variant_games),
                     "raw_positions": sum(len(game.samples) for game in variant_games),
@@ -1513,7 +1515,9 @@ def run_smoke(config: V3Config) -> dict[str, Any]:
             },
         )
 
-        dataset, validation_dataset, selection = _build_active_datasets(replay, config)
+        dataset, validation_dataset, selection = _build_active_datasets(
+            replay, effective_config
+        )
         selection.update(
             {
                 "config_hash": expected_hash,
