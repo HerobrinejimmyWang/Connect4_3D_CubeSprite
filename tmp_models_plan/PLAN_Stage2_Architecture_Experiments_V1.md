@@ -198,6 +198,12 @@ explicit maximum-position bound。主要评价 anchored Elo slope、accepted cad
 Stage 2B 后冻结架构族。Flash Lite 的 512-sim CPU 三秒目标、Balance 的 CPU
 Pareto 选择和 Flagship 的 GPU scaling 属于随后的尺寸实验。
 
+截至 2026-09-15，Balance closed-loop 的实际执行批次已由
+[`PLAN_Stage2_BAL5_Selfplay_V1.md`](PLAN_Stage2_BAL5_Selfplay_V1.md) 具体化。BAL-5
+以 `column/winning × none/serial-attention` 四个冻结模型、单 primary seed 运行 cold 1M
+与 warm 5M；它替代本节早期“基线加两个 finalist、两个 seed”的通用 Stage 2B 草案，
+但不改变随后用第二 seed 复验最终架构结论的要求。
+
 ## 7. 可执行入口与产物
 
 ```powershell
