@@ -241,6 +241,27 @@ embedding。卷积主干已经生成位置对齐的 5×5 feature map；本轮不
 C248/B10 与 C248/B12。B12 先跑 1M；只有离线曲线和组内直赛未被 B10 稳定支配时才精确
 续训到 3M。不得在 tail 或 2D encoder 尚未冻结时同时改变 trunk depth。
 
+#### BAL-4E：B12 + D96/B7 column 定向扩展
+
+BAL-4D/BAL-4X 完成后，追加两个从随机初始化训练到 3M 的 FP32、seed 271828、
+`standard_late` 模型，统一使用 column E64、D96/B7、concat、C248：
+
+- `B12 + no tail`；
+- `B12 + serial_attention ×2`（8 heads，MLP ratio 2.0）。
+
+与现有 `B10 + D96/B5 + no tail/serial_attention ×2` 组成 2×2 四边形。四条边均使用
+`primary_256`、200 个冻结 opening pairs 并交换先后手：
+
+1. B10/D96/B5 内部的 none–serial tail 边；
+2. B12/D96/B7 内部的 none–serial tail 边；
+3. no-tail 下 B10/D96/B5–B12/D96/B7 的 scale 边；
+4. serial-tail 下 B10/D96/B5–B12/D96/B7 的 scale 边。
+
+先前 BAL-4D 的 B10 none–serial 50-pair 边仅作历史证据，本矩阵将其按同一 200-pair
+协议重跑。由于纵向同时改变 trunk blocks（B10→B12）和 3D encoder blocks（B5→B7），
+该矩阵估计的是 **scale bundle × tail**，不能把纵向差异单独解释为 B12 trunk 主效应。
+若需要拆分归因，后续还需补 B12/D96/B5 或 B10/D96/B7 serial 中间点。
+
 #### BAL-4X：D64/B3 与 D96/B5 的跨容量 representation 诊断
 
 BAL-3 FP32 与 BAL-4C 使用相同六 anchor scale、FP32、seed、3M `standard_late` 和
