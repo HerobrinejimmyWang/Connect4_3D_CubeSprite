@@ -189,3 +189,29 @@ results unless asked. Preserve user changes in a dirty worktree. When adding
 new generated outputs, document where they are produced, which lineage produced
 them, whether they are verified, and whether they should be tracked. Never
 silently convert archived Legacy evidence into a current V3 default.
+
+### Stage experiment archive completion contract
+
+For Stage 2 and later experiment archives, organize local artifacts by explicit
+stage, round/phase, initialization mode when applicable, and run ID.  Use a
+shape such as
+`training/runs/stage2/archive/<experiment>/<round>/<cold|warm>/<run_id>/`;
+never mix files from several runs into one unlabelled materialized directory.
+
+An archive operation is complete only after all of the following are true:
+
+1. the run is placed in the correct stage/phase/run directory;
+2. the bundle and manifest checksums pass and the receipt is ingested remotely;
+3. the materialized inventory is checked for the resolved config, run manifest,
+   metrics/logs, generation manifests, thinning receipts, latest/terminal
+   checkpoint, and retained gate model artifacts relevant to that run;
+4. remote pruning is revalidated against the ingested receipt; and
+5. verified transport bundle tar files and temporary extraction directories are
+   removed locally after their contents are materialized.  Keep bundle
+   manifests and receipts as provenance; do not call a directory containing
+   redundant extracted bundles a completed archive.
+
+Never remove a transport bundle before verification, materialization, receipt
+ingestion, and any requested remote prune have all succeeded.  A failed
+checksum, incomplete required-file inventory, or ambiguous run classification
+stops the archive workflow.

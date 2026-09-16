@@ -13,6 +13,7 @@ from training.v3.config import OpeningTemperatureMixtureConfig, load_config, mod
 from training.v3.formal_runner import (
     _resolve_exhausted_pending_gate,
     _stability_pause_acknowledged,
+    _thin_pre_gate_checkpoints,
     run_formal,
 )
 from training.v3.formal_state import FormalLoopState, PendingCandidateState
@@ -51,6 +52,41 @@ class FormalRunnerTests(unittest.TestCase):
                 ),
             ),
         )
+
+    def test_accepted_gate_thins_only_non_gate_odd_checkpoints(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            layout = RunLayout.from_root(Path(directory) / "run").create()
+            for generation in range(7):
+                checkpoint = layout.checkpoints / f"g{generation:06d}-s00000001.pt"
+                checkpoint.write_bytes(f"checkpoint-{generation}".encode())
+                digest = hashlib.sha256(checkpoint.read_bytes()).hexdigest()
+                commit = {
+                    "generation": generation,
+                    "checkpoint": checkpoint.relative_to(layout.root).as_posix(),
+                    "checkpoint_sha256": digest,
+                    "gate_verdict": "accept" if generation in {3, 6} else "not_run",
+                }
+                (layout.generation_commits / f"g{generation:06d}.json").write_text(
+                    json.dumps(commit), encoding="utf-8"
+                )
+
+            result = _thin_pre_gate_checkpoints(
+                layout, gate_generation=6, interval_generations=2
+            )
+
+            self.assertIsNotNone(result)
+            self.assertEqual(result["status"], "complete")
+            self.assertEqual(
+                {row["generation"] for row in result["selected"]}, {1, 5}
+            )
+            self.assertFalse((layout.checkpoints / "g000001-s00000001.pt").exists())
+            self.assertFalse((layout.checkpoints / "g000005-s00000001.pt").exists())
+            self.assertTrue((layout.checkpoints / "g000003-s00000001.pt").exists())
+            self.assertTrue((layout.checkpoints / "g000006-s00000001.pt").exists())
+            repeated = _thin_pre_gate_checkpoints(
+                layout, gate_generation=6, interval_generations=2
+            )
+            self.assertEqual(repeated, result)
 
     def test_legacy_terminal_inconclusive_is_audited_and_cleared_on_resume(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

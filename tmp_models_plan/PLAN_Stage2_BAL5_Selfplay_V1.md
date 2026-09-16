@@ -89,12 +89,20 @@ mixture 的 config hash 在阈值为 0 时保持不变；延迟启用会产生�
 - 150-GiB 云盘的 soft watermark 从 70% 调整到 90%，即约保留 15 GiB；正式执行所需
   `hard_free_gib=10` 与约 4-GiB staging headroom 仍保留，因此两条触发线基本一致；
 - generation checkpoint 仍是原子 commit 和精确 resume 的必要状态，不能隔代省略创建；
+- 每次 gate `accept` commit 完成后，清理该 gate generation 之前不属于 2-generation
+  milestone 的 checkpoint；所有历史 `accept` gate generation、当前 gate generation、
+  偶数代和最新恢复点均受保护。`reject`/`inconclusive` 不触发 thinning；每次清理写入
+  `manifests/checkpoint_thinning/gXXXXXX.json`，记录删除前的路径、大小与 SHA-256；
 - verified archive receipt 返回后，云端仅保留最新 generation checkpoint；accepted、
   rejected/candidate gate 模型继续按独立目录及既有策略保留。普通中间 checkpoint 由
   receipt-gated prune 清除，不把“减少长期保留”误实现为破坏 generation commit；
 - 巡检遇到 `archive_required` 时，执行增量 bundle → 本地 checksum/materialization →
   receipt 回传 → 云端 revalidated prune，并在确认空间恢复后立即以 `--resume` 重启当前
   job。任何传输、校验或 receipt 失败都停止，不自动继续训练。
+- 本地路径固定按 `stage2/archive/bal5/r1/<cold|warm>/<run_id>/` 分类。bundle 完成校验、
+  materialization、receipt 回传、远端 prune 和必需文件清单确认后，删除本地 transport
+  tar 与临时解压目录，仅保留 materialized 产物、bundle manifest 和 receipt；完成上述
+  全流程才记为一次归档完成。
 
 ## 4. R1 淘汰与评估
 

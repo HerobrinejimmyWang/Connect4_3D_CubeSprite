@@ -88,7 +88,10 @@ def main(argv: list[str] | None = None) -> int:
         raise RuntimeError(f"cannot resolve exactly one active BAL-5 job: {active_job}")
     job = jobs[0]
     run_dir = str(job["run_dir"])
-    local_root = args.local_archive_root.resolve() / active_job
+    phase = str(job.get("initialization", "unknown"))
+    local_root = (
+        args.local_archive_root.resolve() / "bal5" / "r1" / phase / active_job
+    )
     plan = {
         "status": "archive_required",
         "active_job": active_job,
@@ -115,6 +118,7 @@ def main(argv: list[str] | None = None) -> int:
         "--max-bundles",
         str(args.max_bundles),
         "--prune",
+        "--remove-verified-bundles",
     ]
     archive = json.loads(_run(sync_command))
     if archive.get("status") != "complete":

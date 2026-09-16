@@ -91,6 +91,91 @@ def _provisional_auxiliary(config: V3Config) -> bool:
     )
 
 
+def _thin_pre_gate_checkpoints(
+    layout: RunLayout,
+    *,
+    gate_generation: int,
+    interval_generations: int,
+) -> dict[str, Any] | None:
+    """Drop non-milestone checkpoints only after an accepted gate commit.
+
+    The latest accepted gate generation is excluded by the strict ``<`` bound.
+    Every earlier accepted gate checkpoint is also retained, even when its
+    generation is not an interval milestone.  A plan is written before unlinking
+    so an interrupted cleanup remains auditable and idempotent.
+    """
+
+    interval = int(interval_generations)
+    if interval == 0:
+        return None
+    if interval < 2:
+        raise ValueError("checkpoint thinning interval must be zero or at least two")
+    gate_generation = int(gate_generation)
+    thinning_dir = layout.manifests / "checkpoint_thinning"
+    receipt_path = thinning_dir / f"g{gate_generation:06d}.json"
+    if receipt_path.is_file():
+        existing = json.loads(receipt_path.read_text(encoding="utf-8"))
+        if existing.get("status") == "complete":
+            return existing
+
+    selected: list[dict[str, Any]] = []
+    already_missing: list[str] = []
+    protected_gate_generations: list[int] = []
+    for commit_path in sorted(layout.generation_commits.glob("g*.json")):
+        commit = json.loads(commit_path.read_text(encoding="utf-8"))
+        generation = int(commit["generation"])
+        if generation >= gate_generation:
+            continue
+        if commit.get("gate_verdict") == "accept":
+            protected_gate_generations.append(generation)
+            continue
+        if generation % interval == 0:
+            continue
+        relative = str(commit["checkpoint"])
+        checkpoint = (layout.root / relative).resolve()
+        if not checkpoint.is_relative_to(layout.checkpoints.resolve()):
+            raise ValueError("checkpoint thinning target escaped the checkpoint directory")
+        if not checkpoint.name.startswith(f"g{generation:06d}-"):
+            raise ValueError("checkpoint thinning target generation mismatch")
+        if not checkpoint.is_file():
+            already_missing.append(relative)
+            continue
+        checksum = _sha256_file(checkpoint)
+        if checksum != str(commit["checkpoint_sha256"]):
+            raise ValueError("checkpoint thinning target checksum mismatch")
+        selected.append(
+            {
+                "generation": generation,
+                "path": relative,
+                "size_bytes": checkpoint.stat().st_size,
+                "sha256": checksum,
+            }
+        )
+
+    planned = {
+        "schema": "connect4-v3-checkpoint-thinning-v1",
+        "status": "planned",
+        "created_at": _utc_now(),
+        "gate_generation": gate_generation,
+        "interval_generations": interval,
+        "protected_gate_generations": protected_gate_generations,
+        "already_missing": already_missing,
+        "selected": selected,
+    }
+    _atomic_write_json(receipt_path, planned)
+    for row in selected:
+        (layout.root / str(row["path"])).unlink()
+    completed = {
+        **planned,
+        "status": "complete",
+        "completed_at": _utc_now(),
+        "removed_files": len(selected),
+        "removed_bytes": sum(int(row["size_bytes"]) for row in selected),
+    }
+    _atomic_write_json(receipt_path, completed)
+    return completed
+
+
 def _disk_status(layout: RunLayout, config: V3Config) -> dict[str, Any]:
     usage = shutil.disk_usage(layout.root)
     storage = config.runtime.storage
@@ -1042,6 +1127,16 @@ def _run_generation(
         "checkpoint": str(checkpoint_path),
         "commit": str(commit_path),
     }
+    if commit_payload["gate_verdict"] == "accept":
+        thinning = _thin_pre_gate_checkpoints(
+            layout,
+            gate_generation=generation,
+            interval_generations=(
+                config.runtime.storage.checkpoint_thinning_interval_generations
+            ),
+        )
+        if thinning is not None:
+            result["checkpoint_thinning"] = thinning
     _append_metric(layout, {"stage": "generation_commit", **result})
     return (
         result,

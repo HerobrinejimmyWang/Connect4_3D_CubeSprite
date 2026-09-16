@@ -27,6 +27,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--bundle-target-gib", type=float, default=4.0)
     parser.add_argument("--max-bundles", type=int, default=1)
     parser.add_argument("--prune", action="store_true")
+    parser.add_argument(
+        "--remove-verified-bundles",
+        action="store_true",
+        help="remove local transport tar files after verification, receipt ingestion, and prune",
+    )
     return parser
 
 
@@ -131,6 +136,15 @@ def main(argv: list[str] | None = None) -> int:
                     )
                 )
             )
+        transport_bundle_removed = False
+        if args.remove_verified_bundles:
+            if not args.prune:
+                raise RuntimeError(
+                    "--remove-verified-bundles requires --prune so the receipt is consumed first"
+                )
+            archive_local.unlink()
+            transport_bundle_removed = True
+        completed[-1]["transport_bundle_removed"] = transport_bundle_removed
         if int(created["remaining_unarchived_files"]) == 0:
             break
     prune_result = None

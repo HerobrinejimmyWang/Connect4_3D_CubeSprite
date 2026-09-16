@@ -757,6 +757,7 @@ class StoragePolicyConfig:
     keep_accepted: int = 2
     keep_rejected: int = 1
     representative_games: int = 5
+    checkpoint_thinning_interval_generations: int = 0
 
     def __post_init__(self) -> None:
         if self.mode not in {"keep_all", "archive_ack_prune"}:
@@ -774,6 +775,13 @@ class StoragePolicyConfig:
             self.representative_games,
         ) < 0:
             raise ValueError("runtime.storage retention counts must be non-negative.")
+        if self.checkpoint_thinning_interval_generations not in (0,) and (
+            self.checkpoint_thinning_interval_generations < 2
+        ):
+            raise ValueError(
+                "runtime.storage.checkpoint_thinning_interval_generations "
+                "must be zero (disabled) or at least two."
+            )
 
 
 @dataclass(frozen=True)
