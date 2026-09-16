@@ -84,6 +84,18 @@ mixture 的 config hash 在阈值为 0 时保持不变；延迟启用会产生�
 6. 首次巡检对准 donor→R1 切换边界。确认 R1 controller 已实际进入 cold 阶段且首个
    generation commit 正常后，巡检改为每 12 小时。
 
+### 3.1 BAL-5 存储与自动归档修订（2026-09-16）
+
+- 150-GiB 云盘的 soft watermark 从 70% 调整到 90%，即约保留 15 GiB；正式执行所需
+  `hard_free_gib=10` 与约 4-GiB staging headroom 仍保留，因此两条触发线基本一致；
+- generation checkpoint 仍是原子 commit 和精确 resume 的必要状态，不能隔代省略创建；
+- verified archive receipt 返回后，云端仅保留最新 generation checkpoint；accepted、
+  rejected/candidate gate 模型继续按独立目录及既有策略保留。普通中间 checkpoint 由
+  receipt-gated prune 清除，不把“减少长期保留”误实现为破坏 generation commit；
+- 巡检遇到 `archive_required` 时，执行增量 bundle → 本地 checksum/materialization →
+  receipt 回传 → 云端 revalidated prune，并在确认空间恢复后立即以 `--resume` 重启当前
+  job。任何传输、校验或 receipt 失败都停止，不自动继续训练。
+
 ## 4. R1 淘汰与评估
 
 Cold 1M 只执行稳定性淘汰，不凭早期短局率下降淘汰；短局率下降可以是学习早期策略的

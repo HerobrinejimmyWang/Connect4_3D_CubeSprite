@@ -61,6 +61,7 @@ def main(argv: list[str] | None = None) -> int:
     _remote(args, ["mkdir", "-p", f"{args.run_dir}/archive_receipts"])
 
     completed: list[dict[str, object]] = []
+    prune_passes: list[dict[str, object]] = []
     for _ in range(args.max_bundles):
         raw = _remote(
             args,
@@ -114,10 +115,26 @@ def main(argv: list[str] | None = None) -> int:
                 "entries": len(receipt["entries"]),
             }
         )
+        if args.prune:
+            prune_passes.append(
+                json.loads(
+                    _remote(
+                        args,
+                        [
+                            args.remote_python,
+                            "tools/manage_v3_archive.py",
+                            "prune",
+                            "--run-dir",
+                            args.run_dir,
+                            "--execute",
+                        ],
+                    )
+                )
+            )
         if int(created["remaining_unarchived_files"]) == 0:
             break
     prune_result = None
-    if args.prune:
+    if args.prune and not prune_passes:
         prune_result = json.loads(
             _remote(
                 args,
@@ -131,6 +148,9 @@ def main(argv: list[str] | None = None) -> int:
                 ],
             )
         )
+        prune_passes.append(prune_result)
+    elif prune_passes:
+        prune_result = prune_passes[-1]
     sys.stdout.write(
         json.dumps(
             {
@@ -138,6 +158,7 @@ def main(argv: list[str] | None = None) -> int:
                 "local_root": str(local_root),
                 "bundles": completed,
                 "prune": prune_result,
+                "prune_passes": prune_passes,
             },
             ensure_ascii=False,
             indent=2,
