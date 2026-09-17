@@ -1,17 +1,17 @@
 # Connect4 3D CubeSprite v0.1.1
 
-## 已知 bug 修复
+- Fixes desktop win-rate prediction placement and prevents the 3D view from rotating below the board.
+- Replaces the retired `v2.1_high` model with the completed Stage 1 models: **V3 B6C128**, **V3 B8C192**, and **V3 B10C256**.
+- Windows desktop edition only. No `.pth` model files are included in this release.
 
-基于 commit `98f41a113a0b4181affa40c1612cba65a3c0c1c5`：
+## CPU response latency
 
-1. 修正 desktop 端的胜率预测显示位置。
-2. 修复部分情况下 3D 视图可以旋转至底部的问题。
+Mean response latency excluding forced tactical shortcuts, in seconds:
 
-## 模型注册表调整
+| Model \\ MCTS simulations | 32 | 128 | 256 | 512 | 1024 |
+|---|---:|---:|---:|---:|---:|
+| V3 B6C128 | 0.099 | 0.492 | 0.987 | 2.190 | 4.909 |
+| V3 B8C192 | 0.140 | 0.612 | 1.228 | 2.741 | 5.979 |
+| V3 B10C256 | 0.208 | 0.864 | 1.854 | 3.759 | 8.378 |
 
-1. 移除旧模型 `v2.1_high`。
-2. 新增完成的 Stage 1 Elo 锚点模型：`V3 B6C128`、`V3 B8C192`、`V3 B10C256`。
-
-`B10C224` 是不正确的旧标注；Elo 注册表和锚点产物均确认该模型为 **B10C256**。
-
-这三个模型以产品兼容 ONNX 形式随桌面端资源发布：固定 `6 × 5 × 5`、双通道输入、150 动作输出；V3 的固定规则上下文和 WDL 标量值转换封装在导出适配层中。
+Measured on 22 deterministic non-terminal fixed states at temperature 0.4, with independent searches. The v0.1.0 replay is no longer available locally, so these measurements are not position-for-position comparable to its report.

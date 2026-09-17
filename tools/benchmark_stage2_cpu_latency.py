@@ -175,11 +175,14 @@ def run_one(
     simulations: int,
     *,
     repeats: int = 3,
+    idle_s: float = 0.0,
 ) -> dict[str, Any]:
     if simulations < 1:
         raise ValueError("simulations must be positive")
     if repeats < 1:
         raise ValueError("repeats must be positive")
+    if idle_s < 0:
+        raise ValueError("idle_s must be non-negative")
     predictor, config, evidence = load_model(config_path, model_path)
     game = GameRules()
     predictor.predict(game.get_canonical_form(game.get_init_board(), 1))
@@ -214,6 +217,8 @@ def run_one(
                     "returned_action": int(result.action),
                 }
             )
+            if idle_s > 0:
+                time.sleep(idle_s)
     searched = [row["latency_s"] for row in records if not row["shortcut_triggered"]]
     all_latencies = [row["latency_s"] for row in records]
     shortcut_states = {
@@ -233,7 +238,7 @@ def run_one(
             "repeats": repeats,
             "temperature": 0.4,
             "forced_tactics": True,
-            "idle_s": 0.0,
+            "idle_s": idle_s,
             "excluded_state_indices": list(EXCLUDED_STATE_INDICES),
             "corpus": "deterministic-nonterminal-v1",
             "corpus_seed": CORPUS_SEED,
@@ -289,38 +294,52 @@ def main() -> int:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--sims", nargs="+", type=int, default=[16, 64, 256])
     parser.add_argument("--repeats", type=int, default=3)
+    parser.add_argument("--idle-s", type=float, default=0.0)
+    parser.add_argument("--group-idle-s", type=float, default=0.0)
     args = parser.parse_args()
-    if args.repeats < 1 or any(value < 1 for value in args.sims):
-        raise ValueError("repeats and MCTS simulation counts must be positive")
+    if (
+        args.repeats < 1
+        or any(value < 1 for value in args.sims)
+        or args.idle_s < 0
+        or args.group_idle_s < 0
+    ):
+        raise ValueError("repeats/simulations must be positive and idle intervals non-negative")
     args.output_dir.mkdir(parents=True, exist_ok=True)
     model_paths = sorted(args.model_dir.glob("*.model.pt"))
     if not model_paths:
         raise ValueError(f"no *.model.pt artifacts found in {args.model_dir}")
     results: dict[str, dict[str, Any]] = {}
-    for model_path in model_paths:
+    groups = [
+        (model_path, simulations)
+        for model_path in model_paths
+        for simulations in args.sims
+    ]
+    for group_index, (model_path, simulations) in enumerate(groups):
         model_id = model_path.name.removesuffix(".model.pt")
         config_path = args.model_dir / f"{model_id}.config.json"
         if not config_path.is_file():
             raise FileNotFoundError(f"missing config for {model_path.name}: {config_path}")
-        for simulations in args.sims:
-            key = f"{model_id}@{simulations}"
-            payload = run_one(
-                model_id,
-                model_path,
-                config_path,
-                simulations,
-                repeats=args.repeats,
-            )
-            results[key] = payload
-            (args.output_dir / f"{model_id}_{simulations}.json").write_text(
-                json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-            )
-            stats = payload["summary"]["excluding_shortcuts"]
-            print(
-                f"{model_id} sims={simulations} median={stats['median_s']:.4f}s "
-                f"p95={stats['p95_s']:.4f}s",
-                flush=True,
-            )
+        key = f"{model_id}@{simulations}"
+        payload = run_one(
+            model_id,
+            model_path,
+            config_path,
+            simulations,
+            repeats=args.repeats,
+            idle_s=args.idle_s,
+        )
+        results[key] = payload
+        (args.output_dir / f"{model_id}_{simulations}.json").write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+        stats = payload["summary"]["excluding_shortcuts"]
+        print(
+            f"{model_id} sims={simulations} median={stats['median_s']:.4f}s "
+            f"p95={stats['p95_s']:.4f}s",
+            flush=True,
+        )
+        if group_index + 1 < len(groups) and args.group_idle_s > 0:
+            time.sleep(args.group_idle_s)
     summary = {"schema_version": 2, "results": results}
     (args.output_dir / "summary.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
