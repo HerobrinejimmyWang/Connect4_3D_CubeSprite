@@ -11,6 +11,10 @@ tmp_models_plan/
 .vscode/
 .idea/
 
+# WorkBuddy local state: memories, skills, session data. Read/write still works
+# from disk; this only keeps it out of version control.
+.workbuddy/
+
 *.pth
 *.tar
 arena/history/*
