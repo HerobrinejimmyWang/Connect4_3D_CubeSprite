@@ -289,6 +289,32 @@ class LearnerCheckpointTests(unittest.TestCase):
 
         restore_rng_state(mapped)
 
+    def test_rng_restore_truncates_multi_gpu_snapshot_for_single_gpu_runtime(self):
+        state = capture_rng_state()
+        state["torch_cuda"] = [
+            torch.tensor([1, 2], dtype=torch.uint8),
+            torch.tensor([3, 4], dtype=torch.uint8),
+        ]
+        with (
+            mock.patch("torch.cuda.is_available", return_value=True),
+            mock.patch("torch.cuda.device_count", return_value=1),
+            mock.patch("torch.cuda.set_rng_state_all") as set_all,
+        ):
+            restore_rng_state(state)
+        restored = set_all.call_args.args[0]
+        self.assertEqual(len(restored), 1)
+        self.assertTrue(torch.equal(restored[0], state["torch_cuda"][0]))
+
+    def test_rng_restore_rejects_snapshot_with_too_few_cuda_devices(self):
+        state = capture_rng_state()
+        state["torch_cuda"] = [torch.tensor([1, 2], dtype=torch.uint8)]
+        with (
+            mock.patch("torch.cuda.is_available", return_value=True),
+            mock.patch("torch.cuda.device_count", return_value=2),
+            self.assertRaisesRegex(ValueError, "fewer devices"),
+        ):
+            restore_rng_state(state)
+
     def test_losses_metrics_and_exact_resume(self):
         random.seed(10)
         np.random.seed(11)

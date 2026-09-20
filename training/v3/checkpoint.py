@@ -63,8 +63,17 @@ def restore_rng_state(state: Mapping[str, Any]) -> None:
         torch.backends.cudnn.benchmark = bool(state.get("cudnn_benchmark", False))
     cuda_state = state.get("torch_cuda")
     if cuda_state is not None and torch.cuda.is_available():
+        device_count = torch.cuda.device_count()
+        if len(cuda_state) < device_count:
+            raise ValueError(
+                "checkpoint CUDA RNG state has fewer devices than the current runtime: "
+                f"checkpoint={len(cuda_state)}, runtime={device_count}"
+            )
         torch.cuda.set_rng_state_all(
-            [torch.as_tensor(item, dtype=torch.uint8).detach().cpu() for item in cuda_state]
+            [
+                torch.as_tensor(item, dtype=torch.uint8).detach().cpu()
+                for item in cuda_state[:device_count]
+            ]
         )
 
 
