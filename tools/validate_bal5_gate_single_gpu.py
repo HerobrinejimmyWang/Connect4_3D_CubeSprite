@@ -2,6 +2,13 @@
 
 This is an operational validation tool.  It never writes into a source run;
 each replay and its strict comparison are written below ``--output-root``.
+
+The replay runs in V3's replicated evaluation mode on a single GPU: every
+concurrent game gets its own worker process on ``cuda:0`` and loads its own
+predictor from an ``EvaluationModelSource``.  The central-batched mode is not
+usable here because this tool hands the gate model references rather than live
+predictor objects.  Requested parallelism is preserved, so ``--evaluation-parallel-games``
+matches the concurrency of the multi-device reference protocol.
 """
 
 from __future__ import annotations
@@ -120,6 +127,25 @@ def _model_sources(
     )
 
 
+def _replica_devices(parallel_games: int) -> tuple[str, ...]:
+    """Map requested concurrent games onto the single-GPU replicated topology.
+
+    ``evaluation_devices`` rejects duplicates, so concurrency comes from
+    ``evaluation_replicas_per_device`` rather than from repeating one device.
+    Replicas are excluded from the semantic config hash, so raising the replica
+    count reproduces the reference protocol's concurrency (2 devices x 4
+    replicas = 8 concurrent games) on one device without changing lineage.
+    """
+
+    if parallel_games < 1:
+        raise ValueError("evaluation parallel games must be positive")
+    return ("cuda:0",)
+
+
+def _replicas_per_device(parallel_games: int) -> int:
+    return parallel_games // len(_replica_devices(parallel_games))
+
+
 def replay_case(
     run_dir: Path,
     generation: int,
@@ -133,16 +159,27 @@ def replay_case(
     gate_path = run_dir / "metrics" / f"gate_g{generation:06d}.json"
     gate = _read_json(gate_path)
     config = load_config(run_dir / "resolved_config.json")
+    # V3 keeps two mutually exclusive evaluation modes: replicated workers, which
+    # load their own predictor from an ``EvaluationModelSource``, and the
+    # central-batched mode, which requires live predictor objects.  This tool only
+    # ever supplies sources, so it must select the replicated mode even on one
+    # GPU.  Leaving ``evaluation_devices`` empty silently lands in the
+    # central-batched branch, where the missing predictor fails inside the
+    # inference worker.  Parallelism is preserved to stay comparable with the
+    # multi-device reference protocol, where 2 devices x 4 replicas gave 8
+    # concurrent games.
+    replica_devices = _replica_devices(evaluation_parallel_games)
+    replicas_per_device = _replicas_per_device(evaluation_parallel_games)
     config = replace(
         config,
         runtime=replace(
             config.runtime,
             device="cuda:0",
-            evaluation_devices=(),
-            evaluation_parallel_games=evaluation_parallel_games,
-            evaluation_inference_batch_size=evaluation_inference_batch_size,
+            evaluation_devices=replica_devices,
+            evaluation_replicas_per_device=replicas_per_device,
+            evaluation_parallel_games=1,
+            evaluation_inference_batch_size=1,
             evaluation_inference_batch_timeout_ms=evaluation_inference_batch_timeout_ms,
-            evaluation_replicas_per_device=1,
             evaluation_reuse_committed_role_control=True,
         ),
     )
@@ -195,6 +232,9 @@ def replay_case(
         "elapsed_seconds": elapsed,
         "single_gpu_runtime": {
             "device": "cuda:0",
+            "evaluation_mode": "replicated",
+            "evaluation_devices": list(replica_devices),
+            "evaluation_replicas_per_device": replicas_per_device,
             "evaluation_parallel_games": evaluation_parallel_games,
             "evaluation_inference_batch_size": evaluation_inference_batch_size,
             "evaluation_inference_batch_timeout_ms": evaluation_inference_batch_timeout_ms,
@@ -252,6 +292,13 @@ def main() -> int:
         "all_passed": all_passed,
         "single_gpu_runtime": {
             "device": "cuda:0",
+            "evaluation_mode": "replicated",
+            "evaluation_devices": list(
+                _replica_devices(args.evaluation_parallel_games)
+            ),
+            "evaluation_replicas_per_device": _replicas_per_device(
+                args.evaluation_parallel_games
+            ),
             "evaluation_parallel_games": args.evaluation_parallel_games,
             "evaluation_inference_batch_size": args.evaluation_inference_batch_size,
             "evaluation_inference_batch_timeout_ms": (
