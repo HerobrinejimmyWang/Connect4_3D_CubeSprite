@@ -500,8 +500,6 @@ def _run_sequential_gate(
     cached_controls = list(cached_control_results)
     if cached_controls and not config.runtime.evaluation_reuse_committed_role_control:
         raise ValueError("committed role control cache is disabled by runtime config")
-    if cached_controls and not config.runtime.evaluation_reuse_committed_role_control:
-        raise ValueError("committed role control cache is disabled by runtime config")
     if len(results) % 2 != 0:
         raise ValueError("paired gate history must contain an even number of games")
     completed_pairs = len(results) // 2
