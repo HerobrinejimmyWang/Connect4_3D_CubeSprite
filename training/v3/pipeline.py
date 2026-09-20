@@ -245,6 +245,41 @@ def _validate_generation_commit(
         ):
             raise ValueError("generation commit candidate model is missing or corrupt")
 
+    gate_reference_keys = {
+        "gate_path",
+        "gate_sha256",
+        "gate_evaluation_contract_sha256",
+    }
+    if gate_reference_keys.intersection(commit):
+        gate_path_value = commit.get("gate_path")
+        gate_hash = commit.get("gate_sha256")
+        gate_contract_hash = commit.get("gate_evaluation_contract_sha256")
+        if gate_path_value is None:
+            if gate_hash is not None or gate_contract_hash is not None:
+                raise ValueError("generation commit has a partial null gate reference")
+        else:
+            gate_artifact = _run_artifact_path(layout, gate_path_value)
+            if not gate_artifact.is_relative_to(layout.metrics.resolve()):
+                raise ValueError("generation commit gate escaped the metrics directory")
+            if not gate_artifact.is_file() or _sha256_file(gate_artifact) != gate_hash:
+                raise ValueError("generation commit gate result is missing or corrupt")
+            gate_payload = json.loads(gate_artifact.read_text(encoding="utf-8"))
+            if gate_payload.get("schema_version") != 2:
+                raise ValueError("generation commit gate result has an unsupported schema")
+            contract = gate_payload.get("evaluation_contract")
+            if contract is None:
+                if gate_contract_hash is not None:
+                    raise ValueError("generation commit random gate has a contract hash")
+            else:
+                encoded = json.dumps(
+                    contract,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ).encode("utf-8")
+                if hashlib.sha256(encoded).hexdigest() != gate_contract_hash:
+                    raise ValueError("generation commit gate contract checksum mismatch")
+
     checkpoint_path = _run_artifact_path(layout, commit.get("checkpoint"))
     checkpoint = load_checkpoint(checkpoint_path, map_location="cpu")
     if checkpoint.generation != generation or checkpoint.config_hash != expected_hash:
@@ -451,6 +486,8 @@ def _run_sequential_gate(
     incumbent_predictor: Any,
     existing_results: Iterable[Any] = (),
     existing_control_results: Iterable[Any] = (),
+    cached_control_results: Iterable[Any] = (),
+    cached_control_provenance: Mapping[str, Any] | None = None,
     runtime_records: list[dict[str, Any]] | None = None,
     candidate_source: EvaluationModelSource | None = None,
     incumbent_source: EvaluationModelSource | None = None,
@@ -460,6 +497,11 @@ def _run_sequential_gate(
 
     results = list(existing_results)
     control_results = list(existing_control_results)
+    cached_controls = list(cached_control_results)
+    if cached_controls and not config.runtime.evaluation_reuse_committed_role_control:
+        raise ValueError("committed role control cache is disabled by runtime config")
+    if cached_controls and not config.runtime.evaluation_reuse_committed_role_control:
+        raise ValueError("committed role control cache is disabled by runtime config")
     if len(results) % 2 != 0:
         raise ValueError("paired gate history must contain an even number of games")
     completed_pairs = len(results) // 2
@@ -479,12 +521,22 @@ def _run_sequential_gate(
             raise ValueError(
                 "relative role non-inferiority requires a committed accepted champion"
             )
+        if random_bootstrap_control and cached_controls:
+            raise ValueError("random bootstrap role control cannot use committed cache evidence")
         if len(control_results) != len(results):
             raise ValueError(
                 "relative role control history must cover the same opening pairs as the gate"
             )
+        if len(cached_controls) % 2 != 0:
+            raise ValueError("cached role control evidence must contain complete opening pairs")
+        if len(cached_controls) > 2 * config.gate.max_opening_pairs:
+            raise ValueError("cached role control evidence exceeds gate.max_opening_pairs")
+        if cached_controls[: len(control_results)] != control_results:
+            raise ValueError("cached role control prefix differs from active gate history")
     elif control_results:
         raise ValueError("absolute role-floor gates cannot carry role control history")
+    elif cached_controls:
+        raise ValueError("absolute role-floor gates cannot use cached role control evidence")
 
     gate_search_sims = config.gate.search_sims_for_generation(generation)
     looks: list[dict[str, Any]] = []
@@ -574,31 +626,58 @@ def _run_sequential_gate(
                 )
             results.extend(new_results)
             if relative_role_guard:
-                control_batch, control_runtime = evaluate_batch(
-                    new_openings,
-                    batch_candidate_predictor=incumbent_predictor,
-                    batch_incumbent_predictor=incumbent_predictor,
-                    batch_candidate_source=incumbent_source,
-                    batch_incumbent_source=incumbent_source,
-                )
-                if len(control_batch) != expected_games:
-                    raise RuntimeError(
-                        "accepted-control gate returned "
-                        f"{len(control_batch)} games, expected {expected_games}"
+                control_pair_start = len(control_results) // 2
+                cached_pair_stop = min(target_pairs, len(cached_controls) // 2)
+                if cached_pair_stop > control_pair_start:
+                    game_start = 2 * control_pair_start
+                    game_stop = 2 * cached_pair_stop
+                    control_results.extend(cached_controls[game_start:game_stop])
+                    if runtime_records is not None:
+                        runtime_records.append(
+                            {
+                                "evidence": "accepted_champion_control",
+                                "execution": "reused_committed",
+                                "pair_start": control_pair_start,
+                                "pair_stop": cached_pair_stop,
+                                "games": game_stop - game_start,
+                                "wall_seconds": 0.0,
+                                "cache": dict(cached_control_provenance or {}),
+                            }
+                        )
+                    control_pair_start = cached_pair_stop
+                if control_pair_start < target_pairs:
+                    control_openings = openings[control_pair_start:target_pairs]
+                    control_batch, control_runtime = evaluate_batch(
+                        control_openings,
+                        batch_candidate_predictor=incumbent_predictor,
+                        batch_incumbent_predictor=incumbent_predictor,
+                        batch_candidate_source=incumbent_source,
+                        batch_incumbent_source=incumbent_source,
                     )
-                control_results.extend(control_batch)
-                if runtime_records is not None:
-                    runtime_records.append(
-                        {
+                    expected_control_games = 2 * (target_pairs - control_pair_start)
+                    if len(control_batch) != expected_control_games:
+                        raise RuntimeError(
+                            "accepted-control gate returned "
+                            f"{len(control_batch)} games, expected {expected_control_games}"
+                        )
+                    control_results.extend(control_batch)
+                    if runtime_records is not None:
+                        control_record = {
                             "evidence": (
                                 "random_bootstrap_control"
                                 if random_bootstrap_control
                                 else "accepted_champion_control"
                             ),
-                            "pair_start": pair_start,
+                            "pair_start": control_pair_start,
                             "pair_stop": target_pairs,
                             **control_runtime,
                         }
+                        if config.runtime.evaluation_reuse_committed_role_control:
+                            control_record["execution"] = "evaluated"
+                        runtime_records.append(control_record)
+                if len(control_results) != len(results):
+                    raise RuntimeError(
+                        "relative role control evidence does not cover the candidate gate"
                     )
             completed_pairs = target_pairs
 

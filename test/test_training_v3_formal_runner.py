@@ -4,18 +4,22 @@ import json
 import hashlib
 import tempfile
 import unittest
-from dataclasses import replace
+from dataclasses import asdict, replace
 from pathlib import Path
 
 import torch
 
 from training.v3.config import OpeningTemperatureMixtureConfig, load_config, model_config_dict
 from training.v3.formal_runner import (
+    _canonical_mapping_sha256,
+    _load_committed_role_control_cache,
     _resolve_exhausted_pending_gate,
     _stability_pause_acknowledged,
     _thin_pre_gate_checkpoints,
     run_formal,
 )
+from training.v3.evaluation import Opening
+from training.v3.gate import GateGameResult
 from training.v3.formal_state import FormalLoopState, PendingCandidateState
 from training.v3.layout import RunLayout
 from training.v3.model import build_model
@@ -52,6 +56,193 @@ class FormalRunnerTests(unittest.TestCase):
                 ),
             ),
         )
+
+    @staticmethod
+    def _cache_contract(*, incumbent: str = "accepted-g3") -> dict:
+        return {
+            "schema_version": 1,
+            "incumbent_model_id": incumbent,
+            "incumbent_model_sha256": "1" * 64,
+            "opening_manifest_sha256": "2" * 64,
+            "rule_id": "classic",
+            "rule_version": 1,
+            "search_sims": 256,
+            "cpuct": 1.5,
+            "evaluator_code_hash": "3" * 64,
+            "search_semantics": {
+                "mcts_lanes": 1,
+                "root_noise": False,
+                "temperature": 0.0,
+            },
+            "topology": {
+                "mode": "device_local_replicated_serial",
+                "devices": ["cuda:0", "cuda:1"],
+                "replicas_per_device": 4,
+            },
+        }
+
+    @staticmethod
+    def _cache_openings() -> list[Opening]:
+        return [
+            Opening(f"opening-{index:04d}", 1000 + index, (), "classic", 1)
+            for index in range(4)
+        ]
+
+    def _write_committed_gate_cache(
+        self,
+        layout: RunLayout,
+        *,
+        generation: int,
+        config_hash: str,
+        contract: dict,
+        pair_count: int,
+    ) -> Path:
+        openings = self._cache_openings()
+        games = [
+            GateGameResult(
+                opening.opening_id,
+                opening.seed,
+                candidate_is_first,
+                0.5,
+            )
+            for opening in openings[:pair_count]
+            for candidate_is_first in (True, False)
+        ]
+        gate_path = layout.metrics / f"gate_g{generation:06d}.json"
+        gate_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 2,
+                    "evaluation_contract": contract,
+                    "role_control_baseline": "accepted_champion",
+                    "role_control_games": [asdict(game) for game in games],
+                },
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+        gate_sha256 = hashlib.sha256(gate_path.read_bytes()).hexdigest()
+        commit = {
+            "schema_version": 1,
+            "generation": generation,
+            "config_hash": config_hash,
+            "gate_path": gate_path.relative_to(layout.root).as_posix(),
+            "gate_sha256": gate_sha256,
+            "gate_evaluation_contract_sha256": _canonical_mapping_sha256(contract),
+        }
+        (layout.generation_commits / f"g{generation:06d}.json").write_text(
+            json.dumps(commit, sort_keys=True), encoding="utf-8"
+        )
+        return gate_path
+
+    def test_committed_role_control_cache_uses_longest_compatible_prefix(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            layout = RunLayout.from_root(Path(directory) / "run").create()
+            contract = self._cache_contract()
+            self._write_committed_gate_cache(
+                layout,
+                generation=3,
+                config_hash="config-hash",
+                contract=contract,
+                pair_count=2,
+            )
+            self._write_committed_gate_cache(
+                layout,
+                generation=7,
+                config_hash="config-hash",
+                contract=contract,
+                pair_count=4,
+            )
+
+            games, provenance = _load_committed_role_control_cache(
+                layout,
+                expected_hash="config-hash",
+                before_generation=8,
+                evaluation_contract=contract,
+                openings=self._cache_openings(),
+            )
+
+            self.assertEqual(len(games), 8)
+            self.assertEqual(provenance["source_generation"], 7)
+            self.assertEqual(provenance["pairs_available"], 4)
+
+    def test_committed_role_control_cache_requires_exact_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            layout = RunLayout.from_root(Path(directory) / "run").create()
+            contract = self._cache_contract()
+            self._write_committed_gate_cache(
+                layout,
+                generation=3,
+                config_hash="config-hash",
+                contract=contract,
+                pair_count=2,
+            )
+            mutations = {
+                "incumbent": {**contract, "incumbent_model_id": "accepted-g4"},
+                "model_sha": {**contract, "incumbent_model_sha256": "4" * 64},
+                "opening": {**contract, "opening_manifest_sha256": "5" * 64},
+                "search": {**contract, "search_sims": 512},
+                "cpuct": {**contract, "cpuct": 1.25},
+                "evaluator": {**contract, "evaluator_code_hash": "6" * 64},
+                "topology": {
+                    **contract,
+                    "topology": {**contract["topology"], "replicas_per_device": 8},
+                },
+            }
+            for label, changed in mutations.items():
+                with self.subTest(label=label):
+                    games, provenance = _load_committed_role_control_cache(
+                        layout,
+                        expected_hash="config-hash",
+                        before_generation=8,
+                        evaluation_contract=changed,
+                        openings=self._cache_openings(),
+                    )
+                    self.assertEqual(games, [])
+                    self.assertIsNone(provenance)
+
+    def test_committed_role_control_cache_ignores_orphan_and_rejects_corruption(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            layout = RunLayout.from_root(Path(directory) / "run").create()
+            contract = self._cache_contract()
+            orphan = layout.metrics / "gate_g000001.json"
+            orphan.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 2,
+                        "evaluation_contract": contract,
+                        "role_control_baseline": "accepted_champion",
+                        "role_control_games": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            games, provenance = _load_committed_role_control_cache(
+                layout,
+                expected_hash="config-hash",
+                before_generation=2,
+                evaluation_contract=contract,
+                openings=self._cache_openings(),
+            )
+            self.assertEqual(games, [])
+            self.assertIsNone(provenance)
+
+            gate_path = self._write_committed_gate_cache(
+                layout,
+                generation=3,
+                config_hash="config-hash",
+                contract=contract,
+                pair_count=2,
+            )
+            gate_path.write_text("{}", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "missing or corrupt"):
+                _load_committed_role_control_cache(
+                    layout,
+                    expected_hash="config-hash",
+                    before_generation=4,
+                    evaluation_contract=contract,
+                    openings=self._cache_openings(),
+                )
 
     def test_accepted_gate_thins_only_non_gate_odd_checkpoints(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

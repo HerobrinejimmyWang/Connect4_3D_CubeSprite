@@ -796,6 +796,7 @@ class RuntimeConfig:
     evaluation_inference_batch_timeout_ms: float = 1.0
     evaluation_devices: tuple[str, ...] = ()
     evaluation_replicas_per_device: int = 1
+    evaluation_reuse_committed_role_control: bool = False
     num_workers: int = 0
     torch_threads: int = 1
     deterministic: bool = True
@@ -829,6 +830,10 @@ class RuntimeConfig:
             raise ValueError("runtime.evaluation_devices cannot contain duplicates.")
         if self.evaluation_replicas_per_device < 1:
             raise ValueError("runtime evaluation replicas per device must be positive.")
+        if type(self.evaluation_reuse_committed_role_control) is not bool:
+            raise TypeError(
+                "runtime.evaluation_reuse_committed_role_control must be a boolean."
+            )
         if self.evaluation_devices and (
             self.evaluation_parallel_games != 1
             or self.evaluation_inference_batch_size != 1

@@ -92,6 +92,16 @@ class ConfigTests(unittest.TestCase):
             ),
         )
         self.assertEqual(config_hash(config), config_hash(replicated_evaluation_change))
+        role_control_cache_change = replace(
+            config,
+            runtime=replace(
+                config.runtime,
+                evaluation_reuse_committed_role_control=True,
+            ),
+        )
+        self.assertEqual(config_hash(config), config_hash(role_control_cache_change))
+        with self.assertRaisesRegex(TypeError, "must be a boolean"):
+            replace(config.runtime, evaluation_reuse_committed_role_control=1)
         lane_change = replace(
             config,
             runtime=replace(config.runtime, mcts_lanes_per_actor=2),

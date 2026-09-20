@@ -8,6 +8,7 @@ wrapped by the no-clobber coordinator lock and checksum-bound draft journal.
 from __future__ import annotations
 
 import json
+import hashlib
 import math
 import os
 import shutil
@@ -25,6 +26,7 @@ from .actor_runtime import run_self_play_actor_pool
 from .checkpoint import CheckpointV1, load_checkpoint, save_checkpoint
 from .config import V3Config, model_config_dict
 from .dynamic_exploration import prepare_dynamic_exploration
+from .anchored_elo import evaluator_code_hash
 from .evaluation import build_openings, write_opening_manifest
 from .evaluation_runtime import EvaluationModelSource
 from .formal_journal import (
@@ -35,6 +37,7 @@ from .formal_journal import (
 from .formal_state import FormalLoopState, PendingCandidateState
 from .layout import RunLayout
 from .model import TorchPredictor, build_model
+from .gate import GateGameResult
 from .learner import OnlineD4Dataset
 from .pipeline import (
     _append_metric,
@@ -49,6 +52,7 @@ from .pipeline import (
     _load_replay_from_cursor,
     _prepare_audit_replays,
     _result_counts,
+    _run_artifact_path,
     _run_sequential_gate,
     _selfplay_health,
     _sha256_file,
@@ -199,6 +203,162 @@ def _disk_status(layout: RunLayout, config: V3Config) -> dict[str, Any]:
 
 def _run_relative(layout: RunLayout, path: Path) -> str:
     return path.resolve().relative_to(layout.root).as_posix()
+
+
+def _canonical_mapping_sha256(payload: Mapping[str, Any]) -> str:
+    encoded = json.dumps(
+        dict(payload), ensure_ascii=False, separators=(",", ":"), sort_keys=True
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _gate_evaluation_topology(config: V3Config) -> dict[str, Any]:
+    if config.runtime.evaluation_devices:
+        return {
+            "mode": "device_local_replicated_serial",
+            "devices": list(config.runtime.evaluation_devices),
+            "replicas_per_device": config.runtime.evaluation_replicas_per_device,
+        }
+    if (
+        config.runtime.evaluation_parallel_games != 1
+        or config.runtime.evaluation_inference_batch_size != 1
+    ):
+        return {
+            "mode": "central_batched",
+            "device": config.runtime.device,
+            "parallel_games": config.runtime.evaluation_parallel_games,
+            "inference_batch_size": config.runtime.evaluation_inference_batch_size,
+            "inference_batch_timeout_ms": (
+                config.runtime.evaluation_inference_batch_timeout_ms
+            ),
+        }
+    return {"mode": "serial", "device": config.runtime.device}
+
+
+def _gate_evaluation_contract(
+    config: V3Config,
+    *,
+    generation: int,
+    opening_manifest_path: Path,
+    openings: list[Any],
+    incumbent_model_id: str,
+    incumbent_model_path: Path,
+) -> dict[str, Any]:
+    if not openings:
+        raise ValueError("gate evaluation contract needs at least one opening")
+    rule_contexts = {
+        (str(opening.rule_id), int(opening.rule_version)) for opening in openings
+    }
+    if len(rule_contexts) != 1:
+        raise ValueError("gate evaluation contract needs one rule context")
+    rule_id, rule_version = next(iter(rule_contexts))
+    return {
+        "schema_version": 1,
+        "incumbent_model_id": incumbent_model_id,
+        "incumbent_model_sha256": _sha256_file(incumbent_model_path),
+        "opening_manifest_sha256": _sha256_file(opening_manifest_path),
+        "rule_id": rule_id,
+        "rule_version": rule_version,
+        "search_sims": config.gate.search_sims_for_generation(generation),
+        "cpuct": config.gate.cpuct,
+        "evaluator_code_hash": evaluator_code_hash(Path(__file__).resolve().parents[2]),
+        "search_semantics": {
+            "mcts_lanes": 1,
+            "root_noise": False,
+            "temperature": 0.0,
+        },
+        "topology": _gate_evaluation_topology(config),
+    }
+
+
+def _validate_cached_control_games(
+    raw_games: object,
+    *,
+    openings: list[Any],
+) -> list[GateGameResult]:
+    if not isinstance(raw_games, list) or len(raw_games) % 2 != 0:
+        raise ValueError("committed role control evidence lacks complete opening pairs")
+    if len(raw_games) > 2 * len(openings):
+        raise ValueError("committed role control evidence exceeds the opening suite")
+    games: list[GateGameResult] = []
+    for index, raw in enumerate(raw_games):
+        if not isinstance(raw, Mapping):
+            raise ValueError("committed role control game is not a mapping")
+        if set(raw) != {"opening_id", "seed", "candidate_is_first", "candidate_score"}:
+            raise ValueError("committed role control game has an invalid schema")
+        game = GateGameResult(**raw)
+        opening = openings[index // 2]
+        if (
+            game.opening_id != opening.opening_id
+            or game.seed != opening.seed
+            or game.candidate_is_first is not (index % 2 == 0)
+        ):
+            raise ValueError("committed role control game order differs from the opening suite")
+        games.append(game)
+    return games
+
+
+def _load_committed_role_control_cache(
+    layout: RunLayout,
+    *,
+    expected_hash: str,
+    before_generation: int,
+    evaluation_contract: Mapping[str, Any],
+    openings: list[Any],
+) -> tuple[list[GateGameResult], dict[str, Any] | None]:
+    """Load the longest checksum-bound control prefix from a published gate."""
+
+    contract_hash = _canonical_mapping_sha256(evaluation_contract)
+    best_games: list[GateGameResult] = []
+    best_provenance: dict[str, Any] | None = None
+    for commit_path in sorted(layout.generation_commits.glob("g*.json"), reverse=True):
+        try:
+            generation = int(commit_path.stem[1:])
+        except ValueError as exc:
+            raise ValueError("generation commit has an invalid filename") from exc
+        if generation >= before_generation:
+            continue
+        commit = json.loads(commit_path.read_text(encoding="utf-8"))
+        if (
+            commit.get("schema_version") != 1
+            or int(commit.get("generation", -1)) != generation
+            or commit.get("config_hash") != expected_hash
+        ):
+            continue
+        recorded_contract_hash = commit.get("gate_evaluation_contract_sha256")
+        if recorded_contract_hash != contract_hash:
+            continue
+        gate_relative = commit.get("gate_path")
+        gate_sha256 = commit.get("gate_sha256")
+        if not isinstance(gate_relative, str) or not isinstance(gate_sha256, str):
+            raise ValueError("compatible committed gate has incomplete evidence references")
+        gate_path = _run_artifact_path(layout, gate_relative)
+        if not gate_path.is_relative_to(layout.metrics.resolve()):
+            raise ValueError("committed gate evidence escaped the metrics directory")
+        if not gate_path.is_file() or _sha256_file(gate_path) != gate_sha256:
+            raise ValueError("compatible committed gate evidence is missing or corrupt")
+        gate = json.loads(gate_path.read_text(encoding="utf-8"))
+        if gate.get("schema_version") != 2:
+            raise ValueError("compatible committed gate has an unsupported schema")
+        if gate.get("evaluation_contract") != dict(evaluation_contract):
+            raise ValueError("compatible committed gate contract differs from its checksum key")
+        if gate.get("role_control_baseline") != "accepted_champion":
+            raise ValueError("compatible committed gate is not an accepted-champion control")
+        games = _validate_cached_control_games(
+            gate.get("role_control_games"), openings=openings
+        )
+        if len(games) > len(best_games):
+            best_games = games
+            best_provenance = {
+                "source_generation": generation,
+                "source_gate": gate_relative,
+                "source_gate_sha256": gate_sha256,
+                "evaluation_contract_sha256": contract_hash,
+                "pairs_available": len(games) // 2,
+            }
+        if len(best_games) == 2 * len(openings):
+            break
+    return best_games, best_provenance
 
 
 def _accepted_assets(
@@ -896,6 +1056,8 @@ def _run_generation(
     candidate_final_path: Path | None = None
     gate_decision: Any | None = None
     gate_path: Path | None = None
+    gate_evaluation_contract: dict[str, Any] | None = None
+    gate_evaluation_contract_sha256: str | None = None
     opening_manifest_path: Path | None = None
     accepted_after = accepted_model_id
     if next_state.candidate_due(config.gate):
@@ -940,6 +1102,33 @@ def _run_generation(
                 accepted_model_id,
             )
         )
+        cached_control_results: list[GateGameResult] = []
+        cached_control_provenance: dict[str, Any] | None = None
+        if (
+            incumbent_source is not None
+            and config.runtime.evaluation_reuse_committed_role_control
+        ):
+            gate_evaluation_contract = _gate_evaluation_contract(
+                config,
+                generation=generation,
+                opening_manifest_path=opening_manifest_path,
+                openings=list(openings),
+                incumbent_model_id=incumbent_source.model_id,
+                incumbent_model_path=Path(incumbent_source.path),
+            )
+            gate_evaluation_contract_sha256 = _canonical_mapping_sha256(
+                gate_evaluation_contract
+            )
+            if config.gate.role_guard_mode == "relative_noninferiority":
+                cached_control_results, cached_control_provenance = (
+                    _load_committed_role_control_cache(
+                        layout,
+                        expected_hash=expected_hash,
+                        before_generation=generation,
+                        evaluation_contract=gate_evaluation_contract,
+                        openings=list(openings),
+                    )
+                )
         gate_results, gate_control_results, gate_decision, gate_looks = _run_sequential_gate(
             config,
             generation=generation,
@@ -949,37 +1138,51 @@ def _run_generation(
             runtime_records=gate_evaluation_runtime,
             candidate_source=candidate_source,
             incumbent_source=incumbent_source,
+            cached_control_results=cached_control_results,
+            cached_control_provenance=cached_control_provenance,
             allow_random_bootstrap_control=accepted_model_id is None,
         )
         gate_path = layout.metrics / f"gate_g{generation:06d}.json"
-        _atomic_write_json(
-            gate_path,
-            {
-                "schema_version": 1,
-                "candidate_model_id": candidate_model_id,
-                "incumbent_model_id": accepted_model_id or "random",
-                "opening_manifest": _run_relative(layout, opening_manifest_path),
-                "search_sims": config.gate.search_sims_for_generation(generation),
-                "initial_pairs": config.gate.initial_opening_pairs,
-                "pair_increment": config.gate.pair_increment,
-                "max_pairs": config.gate.max_opening_pairs,
-                "games": [asdict(result) for result in gate_results],
-                "role_control_games": [asdict(result) for result in gate_control_results],
-                "role_control_baseline": (
-                    "random_bootstrap"
+        gate_payload = {
+            "schema_version": 2 if gate_evaluation_contract is not None else 1,
+            "candidate_model_id": candidate_model_id,
+            "incumbent_model_id": accepted_model_id or "random",
+            "opening_manifest": _run_relative(layout, opening_manifest_path),
+            "search_sims": config.gate.search_sims_for_generation(generation),
+            "initial_pairs": config.gate.initial_opening_pairs,
+            "pair_increment": config.gate.pair_increment,
+            "max_pairs": config.gate.max_opening_pairs,
+            "games": [asdict(result) for result in gate_results],
+            "role_control_games": [asdict(result) for result in gate_control_results],
+            "role_control_baseline": (
+                "random_bootstrap"
+                if config.gate.role_guard_mode == "relative_noninferiority"
+                and accepted_model_id is None
+                else (
+                    "accepted_champion"
                     if config.gate.role_guard_mode == "relative_noninferiority"
-                    and accepted_model_id is None
-                    else (
-                        "accepted_champion"
-                        if config.gate.role_guard_mode == "relative_noninferiority"
-                        else None
-                    )
-                ),
-                "looks": gate_looks,
-                "evaluation_runtime": gate_evaluation_runtime,
-                **gate_decision.to_dict(),
-            },
-        )
+                    else None
+                )
+            ),
+            "looks": gate_looks,
+            "evaluation_runtime": gate_evaluation_runtime,
+            **gate_decision.to_dict(),
+        }
+        if gate_evaluation_contract is not None:
+            gate_payload.update(
+                {
+                    "evaluation_contract": gate_evaluation_contract,
+                    "role_control_cache": {
+                        "enabled": True,
+                        "pairs_reused": min(
+                            len(cached_control_results) // 2,
+                            len(gate_control_results) // 2,
+                        ),
+                        "source": cached_control_provenance,
+                    },
+                }
+            )
+        _atomic_write_json(gate_path, gate_payload)
         candidate_final_path = candidate_path
         if gate_decision.verdict == "accept":
             candidate_final_path = layout.accepted / candidate_path.name
@@ -1107,6 +1310,16 @@ def _run_generation(
         "audit_index_sha256": audit_artifacts["audit_index_sha256"],
         "next_game_id": next_state.next_game_id,
     }
+    if gate_evaluation_contract_sha256 is not None:
+        if gate_path is None:
+            raise RuntimeError("gate evaluation contract exists without a gate artifact")
+        commit_payload.update(
+            {
+                "gate_path": _run_relative(layout, gate_path),
+                "gate_sha256": _sha256_file(gate_path),
+                "gate_evaluation_contract_sha256": gate_evaluation_contract_sha256,
+            }
+        )
     journal.stage_commit(commit_payload)
     commit_path = journal.publish_commit()
     committed = _validate_generation_commit(layout, commit_path, expected_hash=expected_hash)

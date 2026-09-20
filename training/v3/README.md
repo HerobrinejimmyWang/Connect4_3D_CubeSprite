@@ -228,6 +228,18 @@ comparisons and frozen anchor calibration reproduced the same game outcomes.
 It keeps single-lane search semantics and uses host-wide CPU utilization only
 as supporting operational evidence, never as a proxy for search quality.
 
+Formal runs may opt into
+`runtime.evaluation_reuse_committed_role_control`.  For relative-role gates,
+this reuses only an accepted-champion self-match prefix that is checksum-bound
+to an earlier published generation and has the exact same incumbent artifact,
+opening manifest, rule/search contract, evaluator code hash, and replicated
+topology.  Candidate-versus-incumbent games are never reused.  Missing cache
+coverage is evaluated normally, random-bootstrap controls are not cached, and
+a corrupt compatible source is a hard error.  The switch is operational,
+defaults to false, and is excluded from the model-lineage hash; every reuse is
+recorded in the new gate artifact together with its source generation and
+checksum.
+
 For utilization checks, discard model loading and the final under-filled tail.
 Use a workload with at least several times as many opening pairs as replicas and
 report the highest sustained 10-30 second steady-state window, not a single

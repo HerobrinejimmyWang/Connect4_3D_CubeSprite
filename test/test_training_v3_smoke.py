@@ -13,6 +13,7 @@ from unittest import mock
 from training.v3.config import GateConfig, load_config
 from training.v3.cli import main as cli_main
 from training.v3.evaluation_runtime import EvaluationModelSource
+from training.v3.gate import GateGameResult
 from training.v3.pipeline import _run_sequential_gate, run_smoke
 from training.v3.preflight import PreflightError, run_preflight
 from training.v3.replay import load_replay_shard, replay_ready_path
@@ -330,6 +331,216 @@ class SequentialGateTests(unittest.TestCase):
             ["candidate_vs_incumbent", "accepted_champion_control"],
         )
         self.assertEqual(evaluate.call_args.kwargs["role_control_results"], control_games)
+
+    def test_relative_role_guard_reuses_complete_committed_control(self) -> None:
+        config = load_config(SMOKE_CONFIG)
+        config = replace(
+            config,
+            gate=replace(
+                config.gate,
+                initial_opening_pairs=2,
+                pair_increment=2,
+                max_opening_pairs=2,
+                role_guard_mode="relative_noninferiority",
+            ),
+            runtime=replace(
+                config.runtime,
+                evaluation_reuse_committed_role_control=True,
+            ),
+        )
+        candidate_games = [object()] * 4
+        cached_controls = [object()] * 4
+        decision = SimpleNamespace(
+            verdict="accept",
+            role_guard_mode="relative_noninferiority",
+            role_noninferiority=None,
+            summary=SimpleNamespace(
+                overall=SimpleNamespace(point_score=0.75),
+                ci_lower=0.6,
+                ci_upper=0.9,
+            ),
+        )
+        runtime_records = []
+        provenance = {"source_generation": 3, "source_gate": "metrics/gate_g000003.json"}
+        with (
+            mock.patch(
+                "training.v3.pipeline.play_paired_openings",
+                return_value=candidate_games,
+            ) as serial,
+            mock.patch("training.v3.pipeline.evaluate_gate", return_value=decision) as evaluate,
+        ):
+            results, controls, final_decision, _looks = _run_sequential_gate(
+                config,
+                generation=4,
+                openings=list(range(2)),
+                candidate_predictor=object(),
+                incumbent_predictor=object(),
+                cached_control_results=cached_controls,
+                cached_control_provenance=provenance,
+                runtime_records=runtime_records,
+            )
+
+        serial.assert_called_once()
+        self.assertEqual(results, candidate_games)
+        self.assertEqual(controls, cached_controls)
+        self.assertEqual(final_decision.verdict, "accept")
+        self.assertEqual(evaluate.call_args.kwargs["role_control_results"], cached_controls)
+        self.assertEqual(runtime_records[1]["execution"], "reused_committed")
+        self.assertEqual(runtime_records[1]["pair_start"], 0)
+        self.assertEqual(runtime_records[1]["pair_stop"], 2)
+        self.assertEqual(runtime_records[1]["cache"], provenance)
+
+    def test_committed_role_control_cache_requires_runtime_opt_in(self) -> None:
+        config = load_config(SMOKE_CONFIG)
+        config = replace(
+            config,
+            gate=replace(config.gate, role_guard_mode="relative_noninferiority"),
+        )
+        with self.assertRaisesRegex(ValueError, "disabled by runtime config"):
+            _run_sequential_gate(
+                config,
+                generation=0,
+                openings=list(range(config.gate.max_opening_pairs)),
+                candidate_predictor=object(),
+                incumbent_predictor=object(),
+                cached_control_results=[object(), object()],
+            )
+
+    def test_committed_control_reuse_preserves_gate_decision_and_looks(self) -> None:
+        base = load_config(SMOKE_CONFIG)
+        baseline_config = replace(
+            base,
+            gate=replace(
+                base.gate,
+                initial_opening_pairs=2,
+                pair_increment=2,
+                max_opening_pairs=2,
+                role_guard_mode="relative_noninferiority",
+                role_floor=0.0,
+                role_hard_reject_floor=0.0,
+            ),
+        )
+        cached_config = replace(
+            baseline_config,
+            runtime=replace(
+                baseline_config.runtime,
+                evaluation_reuse_committed_role_control=True,
+            ),
+        )
+        candidate_games = [
+            GateGameResult(f"opening-{pair}", 100 + pair, candidate_is_first, 0.5)
+            for pair in range(2)
+            for candidate_is_first in (True, False)
+        ]
+        control_games = [
+            GateGameResult(f"opening-{pair}", 100 + pair, candidate_is_first, 0.5)
+            for pair in range(2)
+            for candidate_is_first in (True, False)
+        ]
+        with mock.patch(
+            "training.v3.pipeline.play_paired_openings",
+            side_effect=[candidate_games, control_games],
+        ):
+            baseline = _run_sequential_gate(
+                baseline_config,
+                generation=0,
+                openings=list(range(2)),
+                candidate_predictor=object(),
+                incumbent_predictor=object(),
+            )
+        with mock.patch(
+            "training.v3.pipeline.play_paired_openings",
+            return_value=candidate_games,
+        ) as cached_play:
+            cached = _run_sequential_gate(
+                cached_config,
+                generation=0,
+                openings=list(range(2)),
+                candidate_predictor=object(),
+                incumbent_predictor=object(),
+                cached_control_results=control_games,
+                cached_control_provenance={"source_generation": 1},
+            )
+
+        cached_play.assert_called_once()
+        self.assertEqual(baseline[0], cached[0])
+        self.assertEqual(baseline[1], cached[1])
+        self.assertEqual(baseline[2].to_dict(), cached[2].to_dict())
+        self.assertEqual(baseline[3], cached[3])
+
+    def test_relative_role_guard_reuses_prefix_and_evaluates_only_missing_control(self) -> None:
+        config = load_config(SMOKE_CONFIG)
+        config = replace(
+            config,
+            gate=replace(
+                config.gate,
+                initial_opening_pairs=2,
+                pair_increment=2,
+                max_opening_pairs=4,
+                role_guard_mode="relative_noninferiority",
+            ),
+            runtime=replace(
+                config.runtime,
+                evaluation_reuse_committed_role_control=True,
+            ),
+        )
+        cached_controls = [object()] * 4
+        decisions = [
+            SimpleNamespace(
+                verdict="inconclusive",
+                role_guard_mode="relative_noninferiority",
+                role_noninferiority=None,
+                summary=SimpleNamespace(
+                    overall=SimpleNamespace(point_score=0.5),
+                    ci_lower=0.4,
+                    ci_upper=0.6,
+                ),
+            ),
+            SimpleNamespace(
+                verdict="accept",
+                role_guard_mode="relative_noninferiority",
+                role_noninferiority=None,
+                summary=SimpleNamespace(
+                    overall=SimpleNamespace(point_score=0.75),
+                    ci_lower=0.6,
+                    ci_upper=0.9,
+                ),
+            ),
+        ]
+        played_slices = []
+
+        def play(openings, **_kwargs):
+            played_slices.append(tuple(openings))
+            return [object()] * (2 * len(openings))
+
+        runtime_records = []
+        with (
+            mock.patch("training.v3.pipeline.play_paired_openings", side_effect=play),
+            mock.patch("training.v3.pipeline.evaluate_gate", side_effect=decisions),
+        ):
+            _results, controls, final_decision, looks = _run_sequential_gate(
+                config,
+                generation=4,
+                openings=list(range(4)),
+                candidate_predictor=object(),
+                incumbent_predictor=object(),
+                cached_control_results=cached_controls,
+                cached_control_provenance={"source_generation": 3},
+                runtime_records=runtime_records,
+            )
+
+        self.assertEqual(played_slices, [(0, 1), (2, 3), (2, 3)])
+        self.assertEqual(len(controls), 8)
+        self.assertEqual(controls[:4], cached_controls)
+        self.assertEqual(final_decision.verdict, "accept")
+        self.assertEqual([look["pairs"] for look in looks], [2, 4])
+        control_records = [
+            row for row in runtime_records if row["evidence"] == "accepted_champion_control"
+        ]
+        self.assertEqual(
+            [(row["execution"], row["pair_start"], row["pair_stop"]) for row in control_records],
+            [("reused_committed", 0, 2), ("evaluated", 2, 4)],
+        )
 
     def test_relative_role_guard_uses_explicit_random_bootstrap_control(self) -> None:
         config = load_config(SMOKE_CONFIG)
