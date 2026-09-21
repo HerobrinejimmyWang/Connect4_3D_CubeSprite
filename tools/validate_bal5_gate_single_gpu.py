@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import subprocess
 import sys
 import time
@@ -127,23 +128,35 @@ def _model_sources(
     )
 
 
-def _replica_devices(parallel_games: int) -> tuple[str, ...]:
-    """Map requested concurrent games onto the single-GPU replicated topology.
+def _replica_devices(device_names: tuple[str, ...]) -> tuple[str, ...]:
+    """Return the evaluation device tuple to use for a gate replay.
 
     ``evaluation_devices`` rejects duplicates, so concurrency comes from
     ``evaluation_replicas_per_device`` rather than from repeating one device.
-    Replicas are excluded from the semantic config hash, so raising the replica
-    count reproduces the reference protocol's concurrency (2 devices x 4
-    replicas = 8 concurrent games) on one device without changing lineage.
+    Replicas are excluded from the semantic config hash, so the same concurrent
+    game count can be reproduced on one card (1 device x 8 replicas) or on the
+    multi-card topology the reference run used (2 devices x 4 replicas) without
+    changing lineage. Keeping concurrent games identical is what makes the two
+    machines' gate timings comparable.
     """
 
-    if parallel_games < 1:
-        raise ValueError("evaluation parallel games must be positive")
-    return ("cuda:0",)
+    if not device_names:
+        raise ValueError("at least one evaluation device is required")
+    for device in device_names:
+        if re.fullmatch(r"cuda:\d+", device) is None:
+            raise ValueError(f"invalid evaluation device name: {device}")
+    if len(set(device_names)) != len(device_names):
+        raise ValueError("evaluation devices cannot contain duplicates")
+    return tuple(device_names)
 
 
-def _replicas_per_device(parallel_games: int) -> int:
-    return parallel_games // len(_replica_devices(parallel_games))
+def _replicas_per_device(parallel_games: int, device_names: tuple[str, ...]) -> int:
+    devices = _replica_devices(device_names)
+    if parallel_games % len(devices) != 0:
+        raise ValueError(
+            "evaluation parallel games must divide evenly over the evaluation devices"
+        )
+    return parallel_games // len(devices)
 
 
 def replay_case(
@@ -154,6 +167,7 @@ def replay_case(
     evaluation_parallel_games: int,
     evaluation_inference_batch_size: int,
     evaluation_inference_batch_timeout_ms: float,
+    evaluation_devices: tuple[str, ...] = ("cuda:0",),
 ) -> bool:
     run_dir = run_dir.resolve()
     gate_path = run_dir / "metrics" / f"gate_g{generation:06d}.json"
@@ -168,8 +182,8 @@ def replay_case(
     # inference worker.  Parallelism is preserved to stay comparable with the
     # multi-device reference protocol, where 2 devices x 4 replicas gave 8
     # concurrent games.
-    replica_devices = _replica_devices(evaluation_parallel_games)
-    replicas_per_device = _replicas_per_device(evaluation_parallel_games)
+    replica_devices = _replica_devices(evaluation_devices)
+    replicas_per_device = _replicas_per_device(evaluation_parallel_games, evaluation_devices)
     config = replace(
         config,
         runtime=replace(
@@ -260,6 +274,19 @@ def main() -> int:
     parser.add_argument("--evaluation-parallel-games", type=int, default=8)
     parser.add_argument("--evaluation-inference-batch-size", type=int, default=32)
     parser.add_argument("--evaluation-inference-batch-timeout-ms", type=float, default=1.0)
+    parser.add_argument(
+        "--evaluation-devices",
+        default="cuda:0",
+        help=(
+            "comma-separated evaluation GPUs; concurrent games are split as "
+            "replicas x devices (e.g. cuda:0 for 1x4090, cuda:0,cuda:1 for 2x3080Ti)"
+        ),
+    )
+    parser.add_argument(
+        "--allow-partial",
+        action="store_true",
+        help="continue to later cases after a mismatch instead of stopping at the first one",
+    )
     args = parser.parse_args()
     if (
         args.evaluation_parallel_games < 1
@@ -267,6 +294,11 @@ def main() -> int:
         or args.evaluation_inference_batch_timeout_ms < 0.0
     ):
         raise ValueError("single-GPU evaluation runtime values are invalid")
+    evaluation_devices = tuple(
+        part.strip() for part in args.evaluation_devices.split(",") if part.strip()
+    )
+    _replica_devices(evaluation_devices)  # validate early, before any GPU work
+    _replicas_per_device(args.evaluation_parallel_games, evaluation_devices)
     args.output_root.mkdir(parents=True, exist_ok=False)
     summary: list[dict[str, Any]] = []
     all_passed = True
@@ -281,23 +313,23 @@ def main() -> int:
             evaluation_inference_batch_timeout_ms=(
                 args.evaluation_inference_batch_timeout_ms
             ),
+            evaluation_devices=evaluation_devices,
         )
         summary.append({"run_dir": run_text, "generation": int(generation_text), "passed": passed})
         all_passed &= passed
-        if not passed:
+        if not passed and not args.allow_partial:
             break
     payload = {
         "schema": "connect4-v3-gate-control-reuse-validation-summary-v1",
         "git_commit": _git_revision(),
         "all_passed": all_passed,
+        "cases_attempted": len(summary),
         "single_gpu_runtime": {
-            "device": "cuda:0",
+            "device": evaluation_devices[0],
             "evaluation_mode": "replicated",
-            "evaluation_devices": list(
-                _replica_devices(args.evaluation_parallel_games)
-            ),
+            "evaluation_devices": list(evaluation_devices),
             "evaluation_replicas_per_device": _replicas_per_device(
-                args.evaluation_parallel_games
+                args.evaluation_parallel_games, evaluation_devices
             ),
             "evaluation_parallel_games": args.evaluation_parallel_games,
             "evaluation_inference_batch_size": args.evaluation_inference_batch_size,
