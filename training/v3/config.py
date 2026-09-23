@@ -812,6 +812,7 @@ class RuntimeConfig:
     evaluation_devices: tuple[str, ...] = ()
     evaluation_replicas_per_device: int = 1
     evaluation_reuse_committed_role_control: bool = False
+    multi_rule_actor_pool_mode: str = "sequential"
     num_workers: int = 0
     torch_threads: int = 1
     deterministic: bool = True
@@ -819,6 +820,8 @@ class RuntimeConfig:
     storage: StoragePolicyConfig = field(default_factory=StoragePolicyConfig)
 
     def __post_init__(self) -> None:
+        if self.multi_rule_actor_pool_mode not in {"sequential", "persistent"}:
+            raise ValueError("runtime.multi_rule_actor_pool_mode must be sequential or persistent")
         cuda_pattern = re.compile(r"cuda:(0|[1-9][0-9]*)\Z")
         if self.device != "cpu" and cuda_pattern.fullmatch(self.device) is None:
             raise ValueError("runtime.device must be 'cpu' or an exact CUDA device such as 'cuda:0'.")

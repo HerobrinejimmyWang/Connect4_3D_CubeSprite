@@ -65,6 +65,13 @@ class ConfigTests(unittest.TestCase):
         )
         self.assertEqual(V3Config.from_dict(multi.to_dict()), multi)
         self.assertNotEqual(config_hash(multi), config_hash(baseline))
+        persistent = replace(
+            multi,
+            runtime=replace(multi.runtime, multi_rule_actor_pool_mode="persistent"),
+        )
+        self.assertEqual(config_hash(persistent), config_hash(multi))
+        with self.assertRaisesRegex(ValueError, "sequential or persistent"):
+            replace(baseline.runtime, multi_rule_actor_pool_mode="invalid")
 
     def test_strict_config_round_trip_hash_and_overrides(self) -> None:
         config = V3Config()

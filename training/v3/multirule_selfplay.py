@@ -17,14 +17,18 @@ class MultiRuleActorMetrics:
     per_rule: Mapping[str, Mapping[str, Any]]
     games: int
     raw_positions: int
+    shared_actor_runtime: Mapping[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "schema": "connect4-v3-bal5-r2-actor-routing-v1",
             "per_rule": {key: dict(value) for key, value in self.per_rule.items()},
             "games": self.games,
             "raw_positions": self.raw_positions,
         }
+        if self.shared_actor_runtime is not None:
+            result["shared_actor_runtime"] = dict(self.shared_actor_runtime)
+        return result
 
 
 @dataclass(frozen=True)
@@ -108,5 +112,76 @@ def run_multirule_actor_pool(
             per_rule=metrics,
             games=len(games),
             raw_positions=sum(len(game.samples) for game in games),
+        ),
+    )
+
+
+def run_multirule_actor_pool_persistent(
+    config: V3Config,
+    *,
+    accepted_model_state: Mapping[str, Any] | None,
+    producer_model_id: str | None,
+    start_game_id: int,
+    generation: int,
+    actor_pool: Callable[..., ActorPoolResult] = run_self_play_actor_pool,
+) -> MultiRuleActorResult:
+    """Use one actor/inference pool for all five rules in a generation.
+
+    Game IDs and per-game seeds retain the same contiguous rule blocks as the
+    sequential router; only process lifetime and boundary scheduling change.
+    """
+
+    rule_ids = config.selfplay.multi_rule_ids
+    if rule_ids != tuple(spec.rule_id for spec in BAL5_R2_RULE_REGISTRY.specs):
+        raise ValueError("persistent routing requires the frozen five-rule config")
+    if accepted_model_state is None or not producer_model_id or producer_model_id == "random":
+        raise ValueError("persistent routing requires a committed accepted producer")
+    if start_game_id < 0 or generation < 0:
+        raise ValueError("game ID and generation must be non-negative")
+    stage = config.selfplay.stage_for_generation(generation)
+    divisor = len(rule_ids) * (2 if config.selfplay.opening_temperature_mixture.enabled else 1)
+    if stage.games % divisor:
+        raise ValueError("generation games must split equally across rules and variants")
+    games_per_rule = stage.games // len(rule_ids)
+    game_rule_ids = tuple(rule_id for rule_id in rule_ids for _ in range(games_per_rule))
+    batch = actor_pool(
+        config,
+        accepted_model_state=accepted_model_state,
+        producer_model_id=producer_model_id,
+        start_game_id=start_game_id,
+        generation=generation,
+        game_rule_ids=game_rule_ids,
+    )
+    games = tuple(batch.games)
+    if len(games) != stage.games:
+        raise RuntimeError("persistent routing returned the wrong game count")
+    metrics: dict[str, dict[str, Any]] = {}
+    for index, rule_id in enumerate(rule_ids):
+        rule = BAL5_R2_RULE_REGISTRY.get(rule_id)
+        first = start_game_id + index * games_per_rule
+        rows = games[index * games_per_rule : (index + 1) * games_per_rule]
+        if any(
+            game.game_id != first + offset
+            or game.rule_id != rule_id
+            or game.rule_code != rule.rule_code
+            or game.producer_model_id != producer_model_id
+            or any(sample.rule_code != rule.rule_code for sample in game.samples)
+            for offset, game in enumerate(rows)
+        ):
+            raise RuntimeError(f"persistent routing broke {rule_id} game or sample lineage")
+        metrics[rule_id] = {
+            "games": len(rows),
+            "raw_positions": sum(len(game.samples) for game in rows),
+            "game_id_start": first,
+            "game_id_stop": first + len(rows),
+            "producer_model_id": producer_model_id,
+        }
+    return MultiRuleActorResult(
+        games=games,
+        metrics=MultiRuleActorMetrics(
+            per_rule=metrics,
+            games=len(games),
+            raw_positions=sum(len(game.samples) for game in games),
+            shared_actor_runtime=batch.metrics.to_dict(),
         ),
     )

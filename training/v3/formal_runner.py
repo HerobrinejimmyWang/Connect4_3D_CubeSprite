@@ -43,7 +43,10 @@ from .formal_journal import (
 from .formal_state import FormalLoopState, PendingCandidateState
 from .layout import RunLayout
 from .model import TorchPredictor, build_model
-from .multirule_selfplay import run_multirule_actor_pool
+from .multirule_selfplay import (
+    run_multirule_actor_pool,
+    run_multirule_actor_pool_persistent,
+)
 from .multirule_gate import BAL5_R2_RULE_IDS, run_multirule_sequential_gate
 from .gate import GateGameResult
 from .learner import OnlineD4Dataset
@@ -1052,9 +1055,14 @@ def _run_generation(
         }
     search_stage = effective_selfplay.stage_for_generation(generation)
     actor_runner = (
-        run_multirule_actor_pool
+        run_multirule_actor_pool_persistent
         if effective_selfplay.multi_rule_ids
-        else run_self_play_actor_pool
+        and config.runtime.multi_rule_actor_pool_mode == "persistent"
+        else (
+            run_multirule_actor_pool
+            if effective_selfplay.multi_rule_ids
+            else run_self_play_actor_pool
+        )
     )
     actor_batch = actor_runner(
         generation_config,

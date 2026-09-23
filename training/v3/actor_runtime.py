@@ -12,8 +12,8 @@ import multiprocessing as mp
 import queue
 import time
 import traceback
-from dataclasses import asdict, dataclass
-from typing import Any, Mapping
+from dataclasses import asdict, dataclass, replace
+from typing import Any, Mapping, Sequence
 
 import numpy as np
 import torch
@@ -28,6 +28,7 @@ from .selfplay import GameRecord, run_self_play_game
 class ActorTask:
     game_id: int
     generation: int
+    rule_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -285,6 +286,10 @@ def _actor_main(
     force_full_search_before_ply: int,
 ) -> None:
     try:
+        rule_configs = {
+            rule_id: replace(selfplay_config, rule_id=rule_id)
+            for rule_id in selfplay_config.multi_rule_ids
+        }
         predictor = (
             RandomPredictor()
             if inference_request_queue is None
@@ -302,7 +307,7 @@ def _actor_main(
             if not isinstance(task, ActorTask):
                 raise TypeError(f"actor received unsupported task: {type(task).__name__}")
             game = run_self_play_game(
-                selfplay_config,
+                selfplay_config if task.rule_id is None else rule_configs[task.rule_id],
                 run_seed=run_seed,
                 game_id=task.game_id,
                 generation=task.generation,
@@ -341,6 +346,7 @@ def run_self_play_actor_pool(
     inference_response_timeout_s: float = 120.0,
     inference_batch_timeout_s: float = 0.001,
     force_full_search_before_ply: int = 0,
+    game_rule_ids: Sequence[str] | None = None,
 ) -> ActorPoolResult:
     """Generate one deterministic V3 self-play batch with bounded processes.
 
@@ -369,6 +375,12 @@ def run_self_play_actor_pool(
 
     search_stage = config.selfplay.stage_for_generation(generation)
     game_count = int(search_stage.games)
+    if game_rule_ids is not None:
+        game_rule_ids = tuple(game_rule_ids)
+        if not config.selfplay.multi_rule_ids or len(game_rule_ids) != game_count:
+            raise ValueError("per-game rules require one frozen multi-rule ID per game")
+        if any(rule_id not in config.selfplay.multi_rule_ids for rule_id in game_rule_ids):
+            raise ValueError("per-game rule ID is outside the frozen multi-rule set")
     actor_count = min(int(config.runtime.actor_processes), game_count)
     if actor_count < 1:
         raise ValueError("actor pool requires at least one actor and one game")
@@ -387,6 +399,13 @@ def run_self_play_actor_pool(
     actor_service: dict[int, int] = {}
     service_metrics: list[InferenceServiceMetrics] = []
     started = time.perf_counter()
+
+    def task_for_offset(offset: int) -> ActorTask:
+        return ActorTask(
+            start_game_id + offset,
+            generation,
+            None if game_rule_ids is None else game_rule_ids[offset],
+        )
 
     try:
         if accepted_model_state is not None:
@@ -463,7 +482,7 @@ def run_self_play_actor_pool(
         next_offset = 0
         initial_tasks = min(game_count, task_capacity)
         for _ in range(initial_tasks):
-            task_queue.put(ActorTask(start_game_id + next_offset, generation))
+            task_queue.put(task_for_offset(next_offset))
             next_offset += 1
 
         games_by_id: dict[int, GameRecord] = {}
@@ -489,7 +508,7 @@ def run_self_play_actor_pool(
                 raise RuntimeError(f"duplicate V3 self-play result for game {game_id}")
             games_by_id[game_id] = payload
             if next_offset < game_count:
-                task_queue.put(ActorTask(start_game_id + next_offset, generation))
+                task_queue.put(task_for_offset(next_offset))
                 next_offset += 1
 
         for _ in actors:

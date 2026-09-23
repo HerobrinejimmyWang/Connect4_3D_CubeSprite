@@ -156,6 +156,17 @@ generation/gate smoke 已覆盖五规则等量对局、gate 结果与 opening ch
 这些属于本地功能验收，尚非云端 R2 训练结果；云端启动须另核对 donor hash、
 resolved config、机器配额/磁盘与首代运行状态。
 
+2026-09-23 启动的 Classic-routing canary 固定使用 `sequential` actor-pool 模式：
+每条规则重新建立一组 actor 和 inference service。首代 800 局按每规则 160 局
+完成，GPU 曲线在规则切换点出现同步低谷；远端进程开始时间也证实了重复启动。
+本地增加了可选的 `persistent` 模式：在同一代内复用一组 actor/inference service，
+每局任务携带 rule ID，仍按原有连续 game ID 分组、相同种子及 accepted producer
+产出。固定模型与种子的 CPU 小规模对照验证了落子序列和胜负一致。
+`persistent` 是不改变 learning semantic hash 的 runtime 拓扑开关，必须在
+generation commit 边界排空、记录新代码提交和 `runtime_invocations` 后切换，
+绝不在活跃 actor 池中替换代码。固定模型与种子的 CPU 对照已通过；云端
+切换后仍须检查下一代等量局数、样本 lineage、数值稳定性和 GPU 低谷。
+
 1. 多规则等权 macro paired score 的 95% CI 下界必须大于 50%；
 2. 允许预注册的单规则退化容忍带。正式执行前必须在 5% 与 10% 中冻结唯一 hard
    threshold，禁止看结果后选择；
