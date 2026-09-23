@@ -277,6 +277,11 @@ P1_LAYER0_IGNORED_RULE = compose_rule(
     rule_code=3,
     modifiers=(P1_LAYER0_IGNORED_MODIFIER,),
 )
+P1_VERTICAL_AND_LAYER0_IGNORED_RULE = compose_rule(
+    rule_id="p1_vertical_and_layer0_ignored",
+    rule_code=4,
+    modifiers=(P1_VERTICAL_IGNORED_MODIFIER, P1_LAYER0_IGNORED_MODIFIER),
+)
 
 # Short aliases are convenient in experiments, while persisted IDs remain descriptive.
 RULE1 = P1_VERTICAL_IGNORED_RULE
@@ -284,3 +289,15 @@ RULE2 = P1_VERTICAL_FORBIDDEN_RULE
 RULE3 = P1_LAYER0_IGNORED_RULE
 
 DEFAULT_RULE_REGISTRY = RuleRegistry((CLASSIC_RULE, RULE1, RULE2, RULE3))
+
+# Keep the original registry immutable for existing V3 lineage hashes.  R2
+# selects this separately versioned registry when it trains on all five rules.
+BAL5_R2_RULE_REGISTRY = RuleRegistry(
+    (
+        CLASSIC_RULE,
+        P1_VERTICAL_IGNORED_RULE,
+        P1_VERTICAL_FORBIDDEN_RULE,
+        P1_LAYER0_IGNORED_RULE,
+        P1_VERTICAL_AND_LAYER0_IGNORED_RULE,
+    )
+)

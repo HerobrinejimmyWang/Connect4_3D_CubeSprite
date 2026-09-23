@@ -14,6 +14,7 @@ from .engine import (
     TurnKind,
 )
 from .specs import (
+    BAL5_R2_RULE_REGISTRY,
     CLASSIC_RULE,
     DEFAULT_RULE_REGISTRY,
     FEATURE_DIM,
@@ -24,6 +25,7 @@ from .specs import (
     P1_VERTICAL_FORBIDDEN_MODIFIER,
     P1_VERTICAL_IGNORED_RULE,
     P1_VERTICAL_IGNORED_MODIFIER,
+    P1_VERTICAL_AND_LAYER0_IGNORED_RULE,
     RULE1,
     RULE2,
     RULE3,
@@ -39,6 +41,7 @@ from .specs import (
 )
 
 __all__ = [
+    "BAL5_R2_RULE_REGISTRY",
     "CLASSIC_RULE",
     "COLUMN_COUNT",
     "D4_SYMMETRIES",
@@ -58,6 +61,7 @@ __all__ = [
     "P1_VERTICAL_FORBIDDEN_MODIFIER",
     "P1_VERTICAL_IGNORED_RULE",
     "P1_VERTICAL_IGNORED_MODIFIER",
+    "P1_VERTICAL_AND_LAYER0_IGNORED_RULE",
     "RULE1",
     "RULE2",
     "RULE3",

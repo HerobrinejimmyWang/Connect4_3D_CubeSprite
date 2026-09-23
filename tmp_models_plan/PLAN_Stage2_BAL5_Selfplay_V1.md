@@ -121,7 +121,20 @@ Warm 5M 完成后跑两条独立但同协议的组内循环赛：
 第三名与第二名的 Elo 95% CI 不重叠且方向一致，也淘汰第三名，否则保留。必须同时报告
 两条线的 W/D/L、Elo、95% CI、先后手分项和 checkpoint hash，不能只用一个合成分数。
 
-## 5. R2 multi-rule 预冻结设计（本轮不执行）
+## 5. R2 multi-rule 预冻结设计（实施准备中）
+
+2026-09-23 规则语义更正：R2 canary 的五规则等权集合冻结为
+`classic`、`p1_vertical_ignored`、`p1_vertical_forbidden`、
+`p1_layer0_ignored`、`p1_vertical_and_layer0_ignored`。其中
+`p1_vertical_forbidden` 是先手完成同柱连四的落子**非法**，并非落子后判负。
+第五项同时应用“先手同柱连四不计胜”与“先手第一层连四不计胜”。
+旧四规则注册表哈希必须保持不变；五规则使用独立注册表哈希。
+
+R1 两线循环赛已完成，验证后的晋级 receipt 位于本地
+`training/runs/stage2/archive/bal5/r1/evaluation/r1_promotion_receipt.json`。
+晋级 `winning_serial_attn2`、`column_no_tail`、`column_serial_attn2`，
+淘汰 `winning_no_tail`；首个多规则 canary 使用 `column_no_tail` 的
+last-accepted V3 模型 artifact，并新开 lineage。
 
 R2 的 primary gate 改为规则分层 gate：
 

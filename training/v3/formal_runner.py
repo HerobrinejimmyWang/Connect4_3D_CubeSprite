@@ -1383,6 +1383,11 @@ def run_formal(
 
     if not isinstance(config, V3Config):
         raise TypeError("run_formal requires a resolved V3Config")
+    if config.selfplay.multi_rule_ids:
+        raise RuntimeError(
+            "BAL-5 R2 multi-rule execution requires the dedicated producer, "
+            "replay, and macro-gate path; the single-rule runner must not run it."
+        )
     if isinstance(max_train_positions, bool) or int(max_train_positions) < 1:
         raise ValueError("max_train_positions must be a positive integer")
     if max_generations is not None and (

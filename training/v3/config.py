@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass, field, fields, is_dataclass, replace
 from pathlib import Path
 from typing import Any, Mapping, TypeVar, get_args, get_origin, get_type_hints
 
-from connect4_core.rules import DEFAULT_RULE_REGISTRY
+from connect4_core.rules import BAL5_R2_RULE_REGISTRY, DEFAULT_RULE_REGISTRY
 
 
 @dataclass(frozen=True)
@@ -414,6 +414,7 @@ class SelfPlayConfig:
     virtual_loss: float = 1.0
     rule_id: str = "classic"
     rule_registry_hash: str = DEFAULT_RULE_REGISTRY.registry_hash
+    multi_rule_ids: tuple[str, ...] = ()
     opening_full_search_plies: int = 0
     dynamic_exploration: DynamicExplorationConfig = field(
         default_factory=DynamicExplorationConfig
@@ -460,14 +461,35 @@ class SelfPlayConfig:
                 raise ValueError(
                     "opening temperature mixture boundary must precede the greedy phase."
                 )
-        try:
-            DEFAULT_RULE_REGISTRY.get(self.rule_id)
-        except (KeyError, TypeError) as exc:
-            raise ValueError(f"selfplay.rule_id is unknown: {self.rule_id!r}.") from exc
-        if self.rule_registry_hash != DEFAULT_RULE_REGISTRY.registry_hash:
-            raise ValueError(
-                "selfplay.rule_registry_hash does not match the executable V1 registry."
+        if self.multi_rule_ids:
+            expected_ids = tuple(
+                spec.rule_id for spec in BAL5_R2_RULE_REGISTRY.specs
             )
+            if self.rule_id != "classic" or self.multi_rule_ids != expected_ids:
+                raise ValueError(
+                    "selfplay.multi_rule_ids must use the frozen BAL-5 R2 five-rule order."
+                )
+            if self.rule_registry_hash != BAL5_R2_RULE_REGISTRY.registry_hash:
+                raise ValueError(
+                    "selfplay.rule_registry_hash must match the BAL-5 R2 registry."
+                )
+            divisor = len(self.multi_rule_ids) * (
+                2 if self.opening_temperature_mixture.enabled else 1
+            )
+            if any(stage.games % divisor for stage in self.search_schedule):
+                raise ValueError(
+                    "selfplay search-stage games must split equally across R2 rules "
+                    "and exploration variants."
+                )
+        else:
+            try:
+                DEFAULT_RULE_REGISTRY.get(self.rule_id)
+            except (KeyError, TypeError) as exc:
+                raise ValueError(f"selfplay.rule_id is unknown: {self.rule_id!r}.") from exc
+            if self.rule_registry_hash != DEFAULT_RULE_REGISTRY.registry_hash:
+                raise ValueError(
+                    "selfplay.rule_registry_hash does not match the executable V1 registry."
+                )
 
     def stage_for_generation(self, generation: int) -> SearchStageConfig:
         if generation < 0:
@@ -1019,6 +1041,8 @@ def config_hash(config: V3Config) -> str:
         run_semantics["warm_start_mode"] = config.run.warm_start_mode
         run_semantics["warm_start_checkpoint_sha256"] = config.run.warm_start_checkpoint_sha256
     selfplay_semantics = asdict(config.selfplay)
+    if not selfplay_semantics["multi_rule_ids"]:
+        selfplay_semantics.pop("multi_rule_ids")
     # Preserve hashes of pre-extension lineages while making every non-zero
     # opening override an explicit semantic fork.
     if selfplay_semantics["opening_full_search_plies"] == 0:

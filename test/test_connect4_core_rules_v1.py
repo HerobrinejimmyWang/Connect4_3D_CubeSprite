@@ -7,8 +7,10 @@ import numpy as np
 
 from connect4_core import GameRules
 from connect4_core.rules import (
+    BAL5_R2_RULE_REGISTRY,
     CLASSIC_RULE,
     DEFAULT_RULE_REGISTRY,
+    P1_VERTICAL_AND_LAYER0_IGNORED_RULE,
     RULE1,
     RULE2,
     RULE3,
@@ -26,6 +28,33 @@ from connect4_core.rules import (
 
 
 class RuleContractTests(unittest.TestCase):
+    def test_bal5_r2_combined_rule_keeps_original_registry_stable(self) -> None:
+        combined = BAL5_R2_RULE_REGISTRY.get("p1_vertical_and_layer0_ignored")
+        self.assertIs(combined, P1_VERTICAL_AND_LAYER0_IGNORED_RULE)
+        self.assertNotEqual(
+            BAL5_R2_RULE_REGISTRY.registry_hash,
+            DEFAULT_RULE_REGISTRY.registry_hash,
+        )
+        self.assertEqual(len(DEFAULT_RULE_REGISTRY.specs), 4)
+        self.assertEqual(len(BAL5_R2_RULE_REGISTRY.specs), 5)
+        features = BAL5_R2_RULE_REGISTRY.features(combined)
+        self.assertEqual(features[:8], (0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0))
+
+        board = np.zeros((6, 5, 5), dtype=np.int8)
+        board[0:3, 0, 0] = 1
+        engine = RuleEngine(combined, registry=BAL5_R2_RULE_REGISTRY)
+        vertical = engine.step(
+            engine.state_from_board(board, player_to_move=1), TurnAction.place(0)
+        )
+        self.assertEqual(vertical.outcome, GameOutcome.ONGOING)
+
+        board = np.zeros((6, 5, 5), dtype=np.int8)
+        board[0, 0, 0:3] = 1
+        layer0 = engine.step(
+            engine.state_from_board(board, player_to_move=1), TurnAction.place(3)
+        )
+        self.assertEqual(layer0.outcome, GameOutcome.ONGOING)
+
     def test_specs_registry_and_features_are_stable_and_immutable(self) -> None:
         with self.assertRaises(dataclasses.FrozenInstanceError):
             CLASSIC_RULE.rule_id = "changed"  # type: ignore[misc]

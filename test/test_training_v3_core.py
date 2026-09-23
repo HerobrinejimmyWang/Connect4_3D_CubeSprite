@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from connect4_core import GameRules, RuleEngine
+from connect4_core import BAL5_R2_RULE_REGISTRY, GameRules, RuleEngine
 from training.v3.config import (
     ExplorationPhaseConfig,
     ModelConfig,
@@ -51,6 +51,30 @@ FULL_DRAW_COLUMNS = (
 
 
 class ConfigTests(unittest.TestCase):
+    def test_bal5_r2_config_is_distinct_and_single_rule_runner_rejects_it(self) -> None:
+        from training.v3.formal_runner import run_formal
+
+        baseline = V3Config()
+        ids = tuple(spec.rule_id for spec in BAL5_R2_RULE_REGISTRY.specs)
+        multi = replace(
+            baseline,
+            selfplay=replace(
+                baseline.selfplay,
+                search_schedule=(replace(baseline.selfplay.search_schedule[0], games=10),),
+                rule_registry_hash=BAL5_R2_RULE_REGISTRY.registry_hash,
+                multi_rule_ids=ids,
+            ),
+        )
+        self.assertEqual(V3Config.from_dict(multi.to_dict()), multi)
+        self.assertNotEqual(config_hash(multi), config_hash(baseline))
+        with self.assertRaisesRegex(RuntimeError, "dedicated producer"):
+            run_formal(multi, max_train_positions=100)
+        with self.assertRaisesRegex(ValueError, "split equally"):
+            replace(
+                multi.selfplay,
+                search_schedule=(replace(multi.selfplay.search_schedule[0], games=11),),
+            )
+
     def test_strict_config_round_trip_hash_and_overrides(self) -> None:
         config = V3Config()
         with tempfile.TemporaryDirectory() as temp_dir:
