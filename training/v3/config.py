@@ -36,6 +36,7 @@ class RunConfig:
         if self.warm_start_mode and self.warm_start_mode not in {
             "optimizer_fresh_replay_v1",
             "model_only_fresh_optimizer_replay_v1",
+            "accepted_artifact_fresh_optimizer_replay_v1",
         }:
             raise ValueError("run.warm_start_mode is unsupported.")
         if self.warm_start_checkpoint_sha256 and (
@@ -472,14 +473,6 @@ class SelfPlayConfig:
             if self.rule_registry_hash != BAL5_R2_RULE_REGISTRY.registry_hash:
                 raise ValueError(
                     "selfplay.rule_registry_hash must match the BAL-5 R2 registry."
-                )
-            divisor = len(self.multi_rule_ids) * (
-                2 if self.opening_temperature_mixture.enabled else 1
-            )
-            if any(stage.games % divisor for stage in self.search_schedule):
-                raise ValueError(
-                    "selfplay search-stage games must split equally across R2 rules "
-                    "and exploration variants."
                 )
         else:
             try:

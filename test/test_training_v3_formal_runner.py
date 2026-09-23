@@ -645,6 +645,47 @@ class FormalRunnerTests(unittest.TestCase):
                 "model_only_fresh_optimizer_replay_v1",
             )
 
+    def test_accepted_artifact_warm_start_is_a_new_lineage(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            base = self._config(root / "child")
+            source = root / "accepted_candidate.pt"
+            model = build_model(base.model)
+            torch.save(
+                {
+                    "format": "connect4-v3-model",
+                    "format_version": 1,
+                    "model_config": model_config_dict(base.model),
+                    "model_state": model.state_dict(),
+                    "metadata": {
+                        "candidate_model_id": "candidate-g000072-s00017472-d01115851",
+                        "config_hash": "a" * 64,
+                    },
+                },
+                source,
+            )
+            source_sha256 = hashlib.sha256(source.read_bytes()).hexdigest()
+            child = replace(
+                base,
+                run=replace(
+                    base.run,
+                    run_id="formal_runner_accepted_warm_child",
+                    warm_start_checkpoint=str(source),
+                    warm_start_checkpoint_sha256=source_sha256,
+                    warm_start_mode="accepted_artifact_fresh_optimizer_replay_v1",
+                ),
+            )
+            result = run_formal(child, max_train_positions=5, max_generations=1)
+            self.assertEqual(result["generations_completed"], 1)
+            self.assertTrue(
+                result["results"][0]["producer_model_id"].startswith("warmstart-accepted-")
+            )
+            manifest = json.loads(
+                (root / "child" / "run_manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(manifest["warm_start"]["optimizer_state"], "fresh")
+            self.assertEqual(manifest["warm_start"]["checkpoint_sha256"], source_sha256)
+
 
 if __name__ == "__main__":
     unittest.main()

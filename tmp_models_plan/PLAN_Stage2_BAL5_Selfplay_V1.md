@@ -144,7 +144,13 @@ Canary 的单规则 hard regression tolerance 预先固定为 **5 个百分点**
 低于 45% 时拒绝。五规则各自按 opening pair bootstrap，等权平均每次 bootstrap
 的规则均值；macro 95% CI 下界严格大于 50% 才允许接受。此统计合同目前已在
 `training/v3/multirule_gate.py` 实现与单测；五规则 opening manifest 使用独立注册表
-哈希与不同的 opening ID 前缀。producer 路由和正式 runner 接入仍待完成。
+哈希与不同的 opening ID 前缀。正式 runner 的多规则 gate 接入仍待完成。
+
+实现进度：`training/v3/multirule_selfplay.py` 已提供等量局数、全局 game ID、
+rule code、accepted producer 的路由与校验，`formal_runner` 已准备接收其分规则
+指标；R1 last-accepted V3 model artifact 的全新优化器/replay warm start 模式也已
+验证。正式多规则 gate 调度、local-maximum 可恢复状态及保留策略仍待完成，因此
+`run_formal` 当前明确拒绝 multi-rule 配置，不能据此启动 R2 canary。
 
 1. 多规则等权 macro paired score 的 95% CI 下界必须大于 50%；
 2. 允许预注册的单规则退化容忍带。正式执行前必须在 5% 与 10% 中冻结唯一 hard

@@ -39,6 +39,7 @@ from .formal_journal import (
 from .formal_state import FormalLoopState, PendingCandidateState
 from .layout import RunLayout
 from .model import TorchPredictor, build_model
+from .multirule_selfplay import run_multirule_actor_pool
 from .gate import GateGameResult
 from .learner import OnlineD4Dataset
 from .pipeline import (
@@ -616,7 +617,10 @@ def _load_training_state(
             source_sha256 = _sha256_file(source)
             if source_sha256 != config.run.warm_start_checkpoint_sha256:
                 raise ValueError("warm-start checkpoint SHA-256 mismatch")
-            if config.run.warm_start_mode == "model_only_fresh_optimizer_replay_v1":
+            if config.run.warm_start_mode in {
+                "model_only_fresh_optimizer_replay_v1",
+                "accepted_artifact_fresh_optimizer_replay_v1",
+            }:
                 payload = torch.load(source, map_location="cpu", weights_only=True)
                 if (
                     payload.get("format") != "connect4-v3-model"
@@ -626,12 +630,30 @@ def _load_training_state(
                 if payload.get("model_config") != model_config_dict(config.model):
                     raise ValueError("warm-start model config differs from child config")
                 metadata = payload.get("metadata", {})
-                if metadata.get("lineage") != "v3_stage2_offline":
-                    raise ValueError("model-only warm start must come from Stage 2 offline training")
-                if metadata.get("train_regime") != "standard_late":
-                    raise ValueError("model-only warm start must come from standard_late")
+                if config.run.warm_start_mode == "model_only_fresh_optimizer_replay_v1":
+                    if metadata.get("lineage") != "v3_stage2_offline":
+                        raise ValueError(
+                            "model-only warm start must come from Stage 2 offline training"
+                        )
+                    if metadata.get("train_regime") != "standard_late":
+                        raise ValueError("model-only warm start must come from standard_late")
+                elif not (
+                    isinstance(metadata.get("candidate_model_id"), str)
+                    and metadata["candidate_model_id"].startswith("candidate-g")
+                    and isinstance(metadata.get("config_hash"), str)
+                    and len(metadata["config_hash"]) == 64
+                ):
+                    raise ValueError(
+                        "accepted-artifact warm start requires a V3 accepted candidate"
+                    )
                 model.load_state_dict(payload["model_state"], strict=True)
-                accepted_model_id = f"warmstart-offline-{source_sha256[:16]}"
+                source_kind = (
+                    "accepted"
+                    if config.run.warm_start_mode
+                    == "accepted_artifact_fresh_optimizer_replay_v1"
+                    else "offline"
+                )
+                accepted_model_id = f"warmstart-{source_kind}-{source_sha256[:16]}"
                 accepted_path = layout.accepted / f"{accepted_model_id}.pt"
                 if not accepted_path.exists():
                     _atomic_save_model_artifact(
@@ -647,6 +669,7 @@ def _load_training_state(
                             "source_checkpoint_sha256": source_sha256,
                             "source_train_regime": metadata.get("train_regime"),
                             "source_train_positions_consumed": metadata.get("train_positions"),
+                            "source_candidate_model_id": metadata.get("candidate_model_id"),
                         },
                     )
                 else:
@@ -862,7 +885,12 @@ def _run_generation(
             name: tensor.detach().cpu() for name, tensor in accepted_model.state_dict().items()
         }
     search_stage = effective_selfplay.stage_for_generation(generation)
-    actor_batch = run_self_play_actor_pool(
+    actor_runner = (
+        run_multirule_actor_pool
+        if effective_selfplay.multi_rule_ids
+        else run_self_play_actor_pool
+    )
+    actor_batch = actor_runner(
         generation_config,
         accepted_model_state=accepted_state,
         producer_model_id=accepted_model_id,
@@ -897,6 +925,13 @@ def _run_generation(
                 "producer_model_id": producer_model_id,
                 "seed_range": {"start": shard_games[0].seed, "end": shard_games[-1].seed},
                 "results": _result_counts(shard_games),
+                "rule_games": {
+                    rule_id: sum(game.rule_id == rule_id for game in shard_games)
+                    for rule_id in (
+                        effective_selfplay.multi_rule_ids
+                        or (effective_selfplay.rule_id,)
+                    )
+                },
                 "search_config": {
                     "active_stage": asdict(search_stage),
                     "exploration_phases": [
@@ -957,6 +992,20 @@ def _run_generation(
             asdict(phase) for phase in effective_selfplay.exploration_phases
         ),
     )
+    if effective_selfplay.multi_rule_ids:
+        health["per_rule"] = {
+            rule_id: _selfplay_health(
+                [game for game in games if game.rule_id == rule_id],
+                expected_search_sims={
+                    "full": search_stage.full_search_sims,
+                    "fast": search_stage.fast_search_sims,
+                },
+                exploration_phases=(
+                    asdict(phase) for phase in effective_selfplay.exploration_phases
+                ),
+            )
+            for rule_id in effective_selfplay.multi_rule_ids
+        }
     if effective_selfplay.opening_temperature_mixture.enabled:
         mixture_health: dict[str, Any] = {}
         for variant in ("baseline", "lowered_opening_temperature"):
@@ -1470,8 +1519,16 @@ def run_formal(
                 "checkpoint": str(Path(config.run.warm_start_checkpoint).resolve()),
                 "checkpoint_sha256": config.run.warm_start_checkpoint_sha256,
                 "replay_policy": "fresh",
-                "optimizer_state": "preserved",
-                "learner_state": "preserved",
+                "optimizer_state": (
+                    "fresh"
+                    if config.run.warm_start_mode.endswith("fresh_optimizer_replay_v1")
+                    else "preserved"
+                ),
+                "learner_state": (
+                    "fresh"
+                    if config.run.warm_start_mode.endswith("fresh_optimizer_replay_v1")
+                    else "preserved"
+                ),
             }
         _atomic_write_json(layout.run_manifest, run_manifest)
         artifact_config = replace(config, run=replace(config.run, run_dir=str(layout.root)))

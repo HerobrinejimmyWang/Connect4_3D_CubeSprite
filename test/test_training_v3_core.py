@@ -69,11 +69,6 @@ class ConfigTests(unittest.TestCase):
         self.assertNotEqual(config_hash(multi), config_hash(baseline))
         with self.assertRaisesRegex(RuntimeError, "dedicated producer"):
             run_formal(multi, max_train_positions=100)
-        with self.assertRaisesRegex(ValueError, "split equally"):
-            replace(
-                multi.selfplay,
-                search_schedule=(replace(multi.selfplay.search_schedule[0], games=11),),
-            )
 
     def test_strict_config_round_trip_hash_and_overrides(self) -> None:
         config = V3Config()
