@@ -11,11 +11,13 @@ from typing import Any, Iterable
 import numpy as np
 
 from connect4_core.rules import (
+    BAL5_R2_RULE_REGISTRY,
     CLASSIC_RULE,
     DEFAULT_RULE_REGISTRY,
     GameOutcome,
     GameState,
     RuleEngine,
+    RuleRegistry,
     TurnAction,
 )
 
@@ -25,6 +27,12 @@ from .search import MCTS, Predictor, policy_from_visits
 
 OPENING_SCHEMA_VERSION = 2
 MAX_GATE_TURNS = 300
+
+
+def _registry_for_rule_id(rule_id: str) -> RuleRegistry:
+    if rule_id == "p1_vertical_and_layer0_ignored":
+        return BAL5_R2_RULE_REGISTRY
+    return DEFAULT_RULE_REGISTRY
 
 
 @dataclass(frozen=True)
@@ -78,6 +86,8 @@ def build_openings(
     run_seed: int,
     rule_id: str = CLASSIC_RULE.rule_id,
     prefix_lengths: Iterable[int] = (0, 2, 4, 6),
+    registry: RuleRegistry = DEFAULT_RULE_REGISTRY,
+    opening_id_prefix: str = "opening",
 ) -> tuple[Opening, ...]:
     """Build deterministic, D4-deduplicated, non-terminal opening prefixes."""
 
@@ -91,7 +101,9 @@ def build_openings(
     non_empty_lengths = lengths[1:] or (1,)
     openings: list[Opening] = []
     seen_positions: set[tuple[str, int, bytes]] = set()
-    engine = RuleEngine(rule_id)
+    if not opening_id_prefix or any(character.isspace() for character in opening_id_prefix):
+        raise ValueError("opening_id_prefix must be non-empty and contain no whitespace")
+    engine = RuleEngine(registry.get(rule_id), registry=registry)
     attempt = 0
     max_attempts = max(1000, count * 1000)
     while len(openings) < count and attempt < max_attempts:
@@ -130,7 +142,7 @@ def build_openings(
             seen_positions.add(key)
             openings.append(
                 Opening(
-                    opening_id=f"opening-{len(openings):04d}",
+                    opening_id=f"{opening_id_prefix}-{len(openings):04d}",
                     seed=seed,
                     columns=tuple(columns),
                     rule_id=engine.spec.rule_id,
@@ -143,7 +155,12 @@ def build_openings(
     return tuple(openings)
 
 
-def write_opening_manifest(path: str | Path, openings: Iterable[Opening]) -> Path:
+def write_opening_manifest(
+    path: str | Path,
+    openings: Iterable[Opening],
+    *,
+    registry: RuleRegistry = DEFAULT_RULE_REGISTRY,
+) -> Path:
     target = Path(path)
     rows = tuple(openings)
     if not rows:
@@ -152,11 +169,14 @@ def write_opening_manifest(path: str | Path, openings: Iterable[Opening]) -> Pat
     if len(rule_contexts) != 1:
         raise ValueError("an opening manifest must use exactly one rule context")
     rule_id, rule_version = next(iter(rule_contexts))
+    spec = registry.get(rule_id)
+    if spec.rule_version != rule_version:
+        raise ValueError("opening rule version does not match the selected registry")
     payload = {
         "schema_version": OPENING_SCHEMA_VERSION,
         "rule_id": rule_id,
         "rule_version": rule_version,
-        "rule_registry_hash": DEFAULT_RULE_REGISTRY.registry_hash,
+        "rule_registry_hash": registry.registry_hash,
         "openings": [opening.to_dict() for opening in rows],
     }
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -175,7 +195,9 @@ def write_opening_manifest(path: str | Path, openings: Iterable[Opening]) -> Pat
     return target
 
 
-def load_opening_manifest(path: str | Path) -> tuple[Opening, ...]:
+def load_opening_manifest(
+    path: str | Path, *, registry: RuleRegistry = DEFAULT_RULE_REGISTRY
+) -> tuple[Opening, ...]:
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
     expected_manifest_keys = {
         "schema_version",
@@ -188,7 +210,7 @@ def load_opening_manifest(path: str | Path) -> tuple[Opening, ...]:
         raise ValueError("opening manifest fields do not match schema V2")
     if payload.get("schema_version") != OPENING_SCHEMA_VERSION:
         raise ValueError(f"unsupported opening schema: {payload.get('schema_version')!r}")
-    if payload.get("rule_registry_hash") != DEFAULT_RULE_REGISTRY.registry_hash:
+    if payload.get("rule_registry_hash") != registry.registry_hash:
         raise ValueError("opening manifest rule registry hash does not match executable rules")
     rule_id = str(payload.get("rule_id", ""))
     rule_version = int(payload.get("rule_version", 0))
@@ -216,7 +238,7 @@ def load_opening_manifest(path: str | Path) -> tuple[Opening, ...]:
         for opening in openings
     ):
         raise ValueError("opening rows do not match the manifest rule context")
-    spec = DEFAULT_RULE_REGISTRY.get(rule_id)
+    spec = registry.get(rule_id)
     if spec.rule_version != rule_version:
         raise ValueError(
             f"opening rule version {rule_version} does not match registered version {spec.rule_version}"
@@ -295,7 +317,8 @@ def play_paired_game(
     incumbent_sims = search_sims if incumbent_search_sims is None else incumbent_search_sims
     if search_sims < 1 or candidate_sims < 1 or incumbent_sims < 1 or cpuct <= 0.0:
         raise ValueError("search_sims and cpuct must be positive")
-    engine = RuleEngine(opening.rule_id)
+    registry = _registry_for_rule_id(opening.rule_id)
+    engine = RuleEngine(registry.get(opening.rule_id), registry=registry)
     if engine.spec.rule_version != opening.rule_version:
         raise ValueError(
             f"opening rule version {opening.rule_version} does not match registered version "

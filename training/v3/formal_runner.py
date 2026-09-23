@@ -21,6 +21,8 @@ from typing import Any, Mapping
 import numpy as np
 import torch
 
+from connect4_core.rules import BAL5_R2_RULE_REGISTRY, DEFAULT_RULE_REGISTRY
+
 from . import __version__
 from .actor_runtime import run_self_play_actor_pool
 from .checkpoint import CheckpointV1, load_checkpoint, save_checkpoint
@@ -455,11 +457,15 @@ def _build_global_active_datasets(
             ],
             dtype=np.int64,
         )
+    registry = (
+        BAL5_R2_RULE_REGISTRY if config.selfplay.multi_rule_ids else DEFAULT_RULE_REGISTRY
+    )
     dataset = OnlineD4Dataset(
         train_replay,
         augmentation_seed=config.run.seed + 701,
         source_positions=train_indices + retained_position_start,
         sampling_groups=train_sampling_groups,
+        rule_registry=registry,
     )
     validation = None
     if len(validation_indices):
@@ -467,6 +473,7 @@ def _build_global_active_datasets(
             replay.take(validation_indices),
             augmentation_seed=config.run.seed + 702,
             source_positions=validation_indices + retained_position_start,
+            rule_registry=registry,
         )
     selection = {
         "schema_version": 1,

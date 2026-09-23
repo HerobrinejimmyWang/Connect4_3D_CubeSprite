@@ -465,7 +465,7 @@ class SelfPlayConfig:
             expected_ids = tuple(
                 spec.rule_id for spec in BAL5_R2_RULE_REGISTRY.specs
             )
-            if self.rule_id != "classic" or self.multi_rule_ids != expected_ids:
+            if self.rule_id not in expected_ids or self.multi_rule_ids != expected_ids:
                 raise ValueError(
                     "selfplay.multi_rule_ids must use the frozen BAL-5 R2 five-rule order."
                 )

@@ -138,6 +138,14 @@ last-accepted V3 模型 artifact，并新开 lineage。
 
 R2 的 primary gate 改为规则分层 gate：
 
+Canary 的单规则 hard regression tolerance 预先固定为 **5 个百分点**。
+候选模型对每条规则的 retained local maximum 都用与该规则 incumbent gate
+完全相同的 opening IDs、seeds 和交换先后手协议评估；该规则 paired point score
+低于 45% 时拒绝。五规则各自按 opening pair bootstrap，等权平均每次 bootstrap
+的规则均值；macro 95% CI 下界严格大于 50% 才允许接受。此统计合同目前已在
+`training/v3/multirule_gate.py` 实现与单测；五规则 opening manifest 使用独立注册表
+哈希与不同的 opening ID 前缀。producer 路由和正式 runner 接入仍待完成。
+
 1. 多规则等权 macro paired score 的 95% CI 下界必须大于 50%；
 2. 允许预注册的单规则退化容忍带。正式执行前必须在 5% 与 10% 中冻结唯一 hard
    threshold，禁止看结果后选择；

@@ -7,6 +7,7 @@ import numpy as np
 
 from connect4_core import BOARD_SHAPE
 from connect4_core.rules import (
+    BAL5_R2_RULE_REGISTRY,
     DEFAULT_RULE_REGISTRY,
     MAX_PLACEMENTS,
     MAX_TURNS,
@@ -355,8 +356,13 @@ def run_self_play_game(
         int(effective_selfplay.opening_full_search_plies),
     )
     search_stage = effective_selfplay.stage_for_generation(generation)
-    rule_spec = DEFAULT_RULE_REGISTRY.get(effective_selfplay.rule_id)
-    engine = RuleEngine(rule_spec)
+    registry = (
+        BAL5_R2_RULE_REGISTRY
+        if effective_selfplay.multi_rule_ids
+        else DEFAULT_RULE_REGISTRY
+    )
+    rule_spec = registry.get(effective_selfplay.rule_id)
+    engine = RuleEngine(rule_spec, registry=registry)
     game_seed = derive_game_seed(run_seed, game_id)
     state = engine.initial_state()
     pending_samples: list[SelfPlaySample] = []
