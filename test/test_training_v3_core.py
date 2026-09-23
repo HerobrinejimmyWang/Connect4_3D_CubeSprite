@@ -51,9 +51,7 @@ FULL_DRAW_COLUMNS = (
 
 
 class ConfigTests(unittest.TestCase):
-    def test_bal5_r2_config_is_distinct_and_single_rule_runner_rejects_it(self) -> None:
-        from training.v3.formal_runner import run_formal
-
+    def test_bal5_r2_config_is_distinct_from_single_rule_lineage(self) -> None:
         baseline = V3Config()
         ids = tuple(spec.rule_id for spec in BAL5_R2_RULE_REGISTRY.specs)
         multi = replace(
@@ -67,8 +65,6 @@ class ConfigTests(unittest.TestCase):
         )
         self.assertEqual(V3Config.from_dict(multi.to_dict()), multi)
         self.assertNotEqual(config_hash(multi), config_hash(baseline))
-        with self.assertRaisesRegex(RuntimeError, "dedicated producer"):
-            run_formal(multi, max_train_positions=100)
 
     def test_strict_config_round_trip_hash_and_overrides(self) -> None:
         config = V3Config()

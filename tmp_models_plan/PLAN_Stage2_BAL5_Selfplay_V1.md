@@ -121,7 +121,7 @@ Warm 5M 完成后跑两条独立但同协议的组内循环赛：
 第三名与第二名的 Elo 95% CI 不重叠且方向一致，也淘汰第三名，否则保留。必须同时报告
 两条线的 W/D/L、Elo、95% CI、先后手分项和 checkpoint hash，不能只用一个合成分数。
 
-## 5. R2 multi-rule 预冻结设计（实施准备中）
+## 5. R2 multi-rule 预冻结设计（本地实现已验证，云端未启动）
 
 2026-09-23 规则语义更正：R2 canary 的五规则等权集合冻结为
 `classic`、`p1_vertical_ignored`、`p1_vertical_forbidden`、
@@ -142,15 +142,19 @@ Canary 的单规则 hard regression tolerance 预先固定为 **5 个百分点**
 候选模型对每条规则的 retained local maximum 都用与该规则 incumbent gate
 完全相同的 opening IDs、seeds 和交换先后手协议评估；该规则 paired point score
 低于 45% 时拒绝。五规则各自按 opening pair bootstrap，等权平均每次 bootstrap
-的规则均值；macro 95% CI 下界严格大于 50% 才允许接受。此统计合同目前已在
-`training/v3/multirule_gate.py` 实现与单测；五规则 opening manifest 使用独立注册表
-哈希与不同的 opening ID 前缀。正式 runner 的多规则 gate 接入仍待完成。
+的规则均值；macro 95% CI 下界严格大于 50% 才允许接受。此统计合同已在
+`training/v3/multirule_gate.py` 实现；五规则 opening manifest 使用独立注册表
+哈希与不同的 opening ID 前缀。Canary 固定使用 Classic producer routing；
+EXP1/EXP2 尚未实现，不能从本轮结果推断其效果。
 
 实现进度：`training/v3/multirule_selfplay.py` 已提供等量局数、全局 game ID、
-rule code、accepted producer 的路由与校验，`formal_runner` 已准备接收其分规则
-指标；R1 last-accepted V3 model artifact 的全新优化器/replay warm start 模式也已
-验证。正式多规则 gate 调度、local-maximum 可恢复状态及保留策略仍待完成，因此
-`run_formal` 当前明确拒绝 multi-rule 配置，不能据此启动 R2 canary。
+rule code、accepted producer 的路由与校验；`formal_runner` 已接入分规则指标、
+独立 opening、macro gate、可恢复的 local-maximum ID 与连续退化计数；
+generation commit 校验并保护每条规则的 peak model artifact。R1 last-accepted
+V3 model artifact 的新优化器/新 replay warm start 模式已验证。CPU 小规模
+generation/gate smoke 已覆盖五规则等量对局、gate 结果与 opening checksum 篡改拒绝。
+这些属于本地功能验收，尚非云端 R2 训练结果；云端启动须另核对 donor hash、
+resolved config、机器配额/磁盘与首代运行状态。
 
 1. 多规则等权 macro paired score 的 95% CI 下界必须大于 50%；
 2. 允许预注册的单规则退化容忍带。正式执行前必须在 5% 与 10% 中冻结唯一 hard
@@ -167,9 +171,9 @@ Multi-rule replay 比较三种 producer 路由：
 - EXP2-mix：退化规则由 local maximum 与最新 accepted 以冻结比例（首选 50/50）混合产生
   数据，直至超过 local maximum。
 
-R2 执行前还需补齐：macro CI 的分层 bootstrap 实现、local-maximum 状态机、规则隔离的
-opening lineage、producer-per-rule lineage 与三种 replay recipe 的等预算矩阵。R1 的
-classic checkpoint 不自动获得 R2 准入资格，必须先通过上述淘汰规则。
+完整 R2 的 EXP1/EXP2 producer 路由与三种 replay recipe 等预算矩阵仍待实现；
+本次仅允许 Classic routing 的单架构 canary。R1 的 classic checkpoint 不自动获得
+R2 准入资格，必须先通过上述淘汰规则。
 
 ## 6. R1 必留证据
 

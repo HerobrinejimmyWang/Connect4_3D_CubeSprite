@@ -40,6 +40,7 @@ from .hardware_plan import plan_hardware
 from .layout import RunLayout
 from .learner import OnlineD4Dataset, V3Learner, build_adamw
 from .model import TorchPredictor, build_model
+from .multirule_gate import BAL5_R2_RULE_IDS
 from .policy_target_quality import summarize_visit_targets
 from .replay import (
     ReplayShard,
@@ -264,8 +265,29 @@ def _validate_generation_commit(
             if not gate_artifact.is_file() or _sha256_file(gate_artifact) != gate_hash:
                 raise ValueError("generation commit gate result is missing or corrupt")
             gate_payload = json.loads(gate_artifact.read_text(encoding="utf-8"))
-            if gate_payload.get("schema_version") != 2:
+            gate_schema = gate_payload.get("schema_version")
+            if gate_schema not in (2, 3):
                 raise ValueError("generation commit gate result has an unsupported schema")
+            if gate_schema == 3:
+                if gate_contract_hash is not None:
+                    raise ValueError("multi-rule gate must not use a single-rule contract")
+                if gate_payload.get("candidate_model_id") != candidate_id:
+                    raise ValueError("multi-rule gate candidate differs from commit")
+                if set(gate_payload.get("games_by_rule", {})) != set(BAL5_R2_RULE_IDS):
+                    raise ValueError("multi-rule gate is missing rule evidence")
+                if set(gate_payload.get("peak_games_by_rule", {})) != set(BAL5_R2_RULE_IDS):
+                    raise ValueError("multi-rule gate is missing peak evidence")
+                opening_index = _run_artifact_path(layout, gate_payload.get("opening_manifest"))
+                index = json.loads(opening_index.read_text(encoding="utf-8"))
+                if set(index.get("rules", {})) != set(BAL5_R2_RULE_IDS):
+                    raise ValueError("multi-rule gate opening index is incomplete")
+                for rule_id in BAL5_R2_RULE_IDS:
+                    row = index["rules"][rule_id]
+                    opening_path = _run_artifact_path(layout, row.get("path"))
+                    if not opening_path.is_file() or _sha256_file(opening_path) != row.get("sha256"):
+                        raise ValueError("multi-rule opening manifest is missing or corrupt")
+                if gate_payload.get("verdict") != commit.get("gate_verdict"):
+                    raise ValueError("multi-rule gate verdict differs from commit")
             contract = gate_payload.get("evaluation_contract")
             if contract is None:
                 if gate_contract_hash is not None:
@@ -288,6 +310,23 @@ def _validate_generation_commit(
         raise ValueError("generation commit accepted model differs from checkpoint")
     if checkpoint.candidate_model_id != commit.get("candidate_model_id"):
         raise ValueError("generation commit candidate model differs from checkpoint")
+    peak_artifacts = commit.get("rule_peak_artifacts")
+    if peak_artifacts is not None:
+        if set(peak_artifacts) != set(BAL5_R2_RULE_IDS):
+            raise ValueError("multi-rule commit has incomplete rule peaks")
+        state = checkpoint.extra_state.get("formal_loop_state", {})
+        peak_ids = state.get("rule_peak_model_ids", ())
+        if len(peak_ids) != len(BAL5_R2_RULE_IDS):
+            raise ValueError("multi-rule checkpoint has incomplete rule peaks")
+        for rule_id, model_id in zip(BAL5_R2_RULE_IDS, peak_ids, strict=True):
+            row = peak_artifacts[rule_id]
+            artifact = _run_artifact_path(layout, row.get("path"))
+            if (row.get("model_id") != model_id
+                    or artifact.parent != layout.accepted.resolve()
+                    or artifact.stem != model_id
+                    or not artifact.is_file()
+                    or _sha256_file(artifact) != row.get("sha256")):
+                raise ValueError("multi-rule peak artifact is missing or corrupt")
     run_id = commit.get("run_id")
     if not isinstance(run_id, str) or not run_id:
         raise ValueError("generation commit run_id must be a non-empty string")

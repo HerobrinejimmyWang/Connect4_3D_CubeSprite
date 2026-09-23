@@ -29,8 +29,12 @@ from .checkpoint import CheckpointV1, load_checkpoint, save_checkpoint
 from .config import V3Config, model_config_dict
 from .dynamic_exploration import prepare_dynamic_exploration
 from .anchored_elo import evaluator_code_hash
-from .evaluation import build_openings, write_opening_manifest
-from .evaluation_runtime import EvaluationModelSource
+from .evaluation import build_openings, load_opening_manifest, play_paired_openings, write_opening_manifest
+from .evaluation_runtime import (
+    EvaluationModelSource,
+    play_paired_openings_parallel,
+    play_paired_openings_replicated,
+)
 from .formal_journal import (
     CoordinatorLock,
     GenerationJournal,
@@ -40,6 +44,7 @@ from .formal_state import FormalLoopState, PendingCandidateState
 from .layout import RunLayout
 from .model import TorchPredictor, build_model
 from .multirule_selfplay import run_multirule_actor_pool
+from .multirule_gate import BAL5_R2_RULE_IDS, run_multirule_sequential_gate
 from .gate import GateGameResult
 from .learner import OnlineD4Dataset
 from .pipeline import (
@@ -375,6 +380,165 @@ def _accepted_assets(
     model = _load_model_artifact(path, config)
     model_id = str(commit["accepted_model_id"])
     return model, TorchPredictor(model, config.runtime.device), model_id
+
+
+def _run_formal_multirule_gate(
+    config: V3Config,
+    layout: RunLayout,
+    *,
+    generation: int,
+    candidate_path: Path,
+    candidate_model_id: str,
+    candidate_predictor: TorchPredictor,
+    accepted_model_id: str,
+    peak_model_ids: tuple[str, ...],
+    evaluation_runtime: list[dict[str, Any]],
+) -> tuple[dict[str, Any], Any, list[Path]]:
+    """Evaluate one candidate against incumbent and retained per-rule peaks."""
+
+    if len(peak_model_ids) != len(BAL5_R2_RULE_IDS):
+        raise ValueError("multi-rule gate needs five initialized local peaks")
+    peak_by_rule = dict(zip(BAL5_R2_RULE_IDS, peak_model_ids, strict=True))
+    openings_by_rule: dict[str, tuple[Any, ...]] = {}
+    manifest_paths: list[Path] = []
+    for index, rule_id in enumerate(BAL5_R2_RULE_IDS):
+        openings = build_openings(
+            config.gate.max_opening_pairs,
+            run_seed=config.run.seed + 1_000_003 * index,
+            prefix_lengths=config.gate.opening_depths,
+            rule_id=rule_id,
+            registry=BAL5_R2_RULE_REGISTRY,
+            opening_id_prefix=f"{rule_id}-opening",
+        )
+        path = layout.manifests / f"gate_openings_{rule_id}.json"
+        if path.exists():
+            if load_opening_manifest(path, registry=BAL5_R2_RULE_REGISTRY) != openings:
+                raise ValueError(f"multi-rule opening manifest drift: {path}")
+        else:
+            write_opening_manifest(path, openings, registry=BAL5_R2_RULE_REGISTRY)
+        openings_by_rule[rule_id] = openings
+        manifest_paths.append(path)
+
+    candidate_source = EvaluationModelSource(
+        "v3_artifact", str(candidate_path.resolve()), candidate_model_id
+    )
+    predictor_cache: dict[str, TorchPredictor] = {}
+
+    def evaluate(rule_id: str, openings: Any, opponent_model_id: str) -> list[Any]:
+        opponent_path = layout.accepted / f"{opponent_model_id}.pt"
+        if not opponent_path.is_file():
+            raise FileNotFoundError(f"multi-rule peak artifact is missing: {opponent_path}")
+        opponent_source = EvaluationModelSource(
+            "v3_artifact", str(opponent_path.resolve()), opponent_model_id
+        )
+        search_sims = config.gate.search_sims_for_generation(generation)
+        if config.runtime.evaluation_devices:
+            worker_devices = tuple(
+                device
+                for _ in range(config.runtime.evaluation_replicas_per_device)
+                for device in config.runtime.evaluation_devices
+            )
+            result = play_paired_openings_replicated(
+                openings,
+                candidate_source=candidate_source,
+                incumbent_source=opponent_source,
+                search_sims=search_sims,
+                cpuct=config.gate.cpuct,
+                worker_devices=worker_devices,
+            )
+            games = list(result.games)
+            runtime = result.metrics.to_dict()
+        else:
+            if opponent_model_id not in predictor_cache:
+                predictor_cache[opponent_model_id] = TorchPredictor(
+                    _load_model_artifact(opponent_path, config), config.runtime.device
+                )
+            opponent_predictor = predictor_cache[opponent_model_id]
+            if config.runtime.evaluation_parallel_games == 1:
+                games = list(
+                    play_paired_openings(
+                        openings,
+                        candidate_predictor=candidate_predictor,
+                        incumbent_predictor=opponent_predictor,
+                        search_sims=search_sims,
+                        cpuct=config.gate.cpuct,
+                    )
+                )
+                runtime = {"parallel_games": 1, "games": len(games)}
+            else:
+                result = play_paired_openings_parallel(
+                    openings,
+                    candidate_predictor=candidate_predictor,
+                    incumbent_predictor=opponent_predictor,
+                    search_sims=search_sims,
+                    cpuct=config.gate.cpuct,
+                    parallel_games=config.runtime.evaluation_parallel_games,
+                    inference_batch_size=config.runtime.evaluation_inference_batch_size,
+                    inference_batch_timeout_s=(
+                        config.runtime.evaluation_inference_batch_timeout_ms / 1000.0
+                    ),
+                )
+                games = list(result.games)
+                runtime = result.metrics.to_dict()
+        evaluation_runtime.append(
+            {
+                "rule_id": rule_id,
+                "opponent_model_id": opponent_model_id,
+                "candidate_model_id": candidate_model_id,
+                "opening_ids": [opening.opening_id for opening in openings],
+                **runtime,
+            }
+        )
+        return games
+
+    incumbent, peaks, decision, looks = run_multirule_sequential_gate(
+        openings_by_rule,
+        gate=config.gate,
+        run_seed=config.run.seed,
+        incumbent_model_id=accepted_model_id,
+        peak_model_ids=peak_by_rule,
+        evaluate_pairs=evaluate,
+    )
+    index_path = layout.manifests / "gate_openings_multirule.json"
+    index_payload = {
+        "schema": "connect4-v3-bal5-r2-opening-index-v1",
+        "rule_registry_hash": BAL5_R2_RULE_REGISTRY.registry_hash,
+        "rules": {
+            rule_id: {
+                "path": _run_relative(layout, path),
+                "sha256": _sha256_file(path),
+            }
+            for rule_id, path in zip(BAL5_R2_RULE_IDS, manifest_paths, strict=True)
+        },
+    }
+    if index_path.exists():
+        if json.loads(index_path.read_text(encoding="utf-8")) != index_payload:
+            raise ValueError("multi-rule opening index drift")
+    else:
+        _atomic_write_json(index_path, index_payload)
+    payload = {
+        "schema_version": 3,
+        "candidate_model_id": candidate_model_id,
+        "incumbent_model_id": accepted_model_id,
+        "peak_model_ids": peak_by_rule,
+        "opening_manifest": _run_relative(layout, index_path),
+        "search_sims": config.gate.search_sims_for_generation(generation),
+        "initial_pairs": config.gate.initial_opening_pairs,
+        "pair_increment": config.gate.pair_increment,
+        "max_pairs": config.gate.max_opening_pairs,
+        "games_by_rule": {
+            rule_id: [asdict(row) for row in incumbent[rule_id]]
+            for rule_id in BAL5_R2_RULE_IDS
+        },
+        "peak_games_by_rule": {
+            rule_id: [asdict(row) for row in peaks[rule_id]]
+            for rule_id in BAL5_R2_RULE_IDS
+        },
+        "looks": looks,
+        "evaluation_runtime": evaluation_runtime,
+        **decision.to_dict(),
+    }
+    return payload, decision, [*manifest_paths, index_path]
 
 
 def _record(journal: GenerationJournal, path: Path, kind: str) -> None:
@@ -853,6 +1017,8 @@ def _run_generation(
     dict[str, Any],
 ]:
     generation = formal_state.next_generation
+    if config.selfplay.multi_rule_ids:
+        formal_state = formal_state.initialize_rule_peaks()
     scheduled_selfplay = config.selfplay.for_train_positions(
         formal_state.train_positions_consumed
     )
@@ -1135,109 +1301,130 @@ def _run_generation(
                 "git_commit": code_commit,
             },
         )
-        openings = build_openings(
-            config.gate.max_opening_pairs,
-            run_seed=config.run.seed,
-            prefix_lengths=config.gate.opening_depths,
-            rule_id=config.selfplay.rule_id,
-        )
-        opening_manifest_path = layout.manifests / "gate_openings.json"
-        if not opening_manifest_path.exists():
-            write_opening_manifest(opening_manifest_path, openings)
-        candidate_predictor = TorchPredictor(model, config.runtime.device)
-        gate_evaluation_runtime: list[dict[str, Any]] = []
-        candidate_source = EvaluationModelSource(
-            "v3_artifact", str(candidate_path.resolve()), candidate_model_id
-        )
-        incumbent_source = (
-            None
-            if accepted_model_id is None or latest_commit is None
-            else EvaluationModelSource(
-                "v3_artifact",
-                str((layout.root / str(latest_commit["accepted_model_path"])).resolve()),
-                accepted_model_id,
+        if config.selfplay.multi_rule_ids:
+            candidate_predictor = TorchPredictor(model, config.runtime.device)
+            gate_evaluation_runtime: list[dict[str, Any]] = []
+            gate_payload, gate_decision, gate_opening_paths = _run_formal_multirule_gate(
+                config,
+                layout,
+                generation=generation,
+                candidate_path=candidate_path,
+                candidate_model_id=candidate_model_id,
+                candidate_predictor=candidate_predictor,
+                accepted_model_id=accepted_model_id,
+                peak_model_ids=next_state.rule_peak_model_ids,
+                evaluation_runtime=gate_evaluation_runtime,
             )
-        )
-        cached_control_results: list[GateGameResult] = []
-        cached_control_provenance: dict[str, Any] | None = None
-        if (
-            incumbent_source is not None
-            and config.runtime.evaluation_reuse_committed_role_control
-        ):
-            gate_evaluation_contract = _gate_evaluation_contract(
+            opening_manifest_path = gate_opening_paths[-1]
+            gate_results = gate_payload["games_by_rule"][BAL5_R2_RULE_IDS[0]]
+            gate_control_results = []
+            gate_path = layout.metrics / f"gate_g{generation:06d}.json"
+            for rule_opening_path in gate_opening_paths[:-1]:
+                _record(journal, rule_opening_path, "gate_openings")
+        else:
+            openings = build_openings(
+                config.gate.max_opening_pairs,
+                run_seed=config.run.seed,
+                prefix_lengths=config.gate.opening_depths,
+                rule_id=config.selfplay.rule_id,
+            )
+            opening_manifest_path = layout.manifests / "gate_openings.json"
+            if not opening_manifest_path.exists():
+                write_opening_manifest(opening_manifest_path, openings)
+            candidate_predictor = TorchPredictor(model, config.runtime.device)
+            gate_evaluation_runtime: list[dict[str, Any]] = []
+            candidate_source = EvaluationModelSource(
+                "v3_artifact", str(candidate_path.resolve()), candidate_model_id
+            )
+            incumbent_source = (
+                None
+                if accepted_model_id is None or latest_commit is None
+                else EvaluationModelSource(
+                    "v3_artifact",
+                    str((layout.root / str(latest_commit["accepted_model_path"])).resolve()),
+                    accepted_model_id,
+                )
+            )
+            cached_control_results: list[GateGameResult] = []
+            cached_control_provenance: dict[str, Any] | None = None
+            if (
+                incumbent_source is not None
+                and config.runtime.evaluation_reuse_committed_role_control
+            ):
+                gate_evaluation_contract = _gate_evaluation_contract(
+                    config,
+                    generation=generation,
+                    opening_manifest_path=opening_manifest_path,
+                    openings=list(openings),
+                    incumbent_model_id=incumbent_source.model_id,
+                    incumbent_model_path=Path(incumbent_source.path),
+                )
+                gate_evaluation_contract_sha256 = _canonical_mapping_sha256(
+                    gate_evaluation_contract
+                )
+                if config.gate.role_guard_mode == "relative_noninferiority":
+                    cached_control_results, cached_control_provenance = (
+                        _load_committed_role_control_cache(
+                            layout,
+                            expected_hash=expected_hash,
+                            before_generation=generation,
+                            evaluation_contract=gate_evaluation_contract,
+                            openings=list(openings),
+                        )
+                    )
+            gate_results, gate_control_results, gate_decision, gate_looks = _run_sequential_gate(
                 config,
                 generation=generation,
-                opening_manifest_path=opening_manifest_path,
-                openings=list(openings),
-                incumbent_model_id=incumbent_source.model_id,
-                incumbent_model_path=Path(incumbent_source.path),
+                openings=openings,
+                candidate_predictor=candidate_predictor,
+                incumbent_predictor=accepted_predictor,
+                runtime_records=gate_evaluation_runtime,
+                candidate_source=candidate_source,
+                incumbent_source=incumbent_source,
+                cached_control_results=cached_control_results,
+                cached_control_provenance=cached_control_provenance,
+                allow_random_bootstrap_control=accepted_model_id is None,
             )
-            gate_evaluation_contract_sha256 = _canonical_mapping_sha256(
-                gate_evaluation_contract
-            )
-            if config.gate.role_guard_mode == "relative_noninferiority":
-                cached_control_results, cached_control_provenance = (
-                    _load_committed_role_control_cache(
-                        layout,
-                        expected_hash=expected_hash,
-                        before_generation=generation,
-                        evaluation_contract=gate_evaluation_contract,
-                        openings=list(openings),
-                    )
-                )
-        gate_results, gate_control_results, gate_decision, gate_looks = _run_sequential_gate(
-            config,
-            generation=generation,
-            openings=openings,
-            candidate_predictor=candidate_predictor,
-            incumbent_predictor=accepted_predictor,
-            runtime_records=gate_evaluation_runtime,
-            candidate_source=candidate_source,
-            incumbent_source=incumbent_source,
-            cached_control_results=cached_control_results,
-            cached_control_provenance=cached_control_provenance,
-            allow_random_bootstrap_control=accepted_model_id is None,
-        )
-        gate_path = layout.metrics / f"gate_g{generation:06d}.json"
-        gate_payload = {
-            "schema_version": 2 if gate_evaluation_contract is not None else 1,
-            "candidate_model_id": candidate_model_id,
-            "incumbent_model_id": accepted_model_id or "random",
-            "opening_manifest": _run_relative(layout, opening_manifest_path),
-            "search_sims": config.gate.search_sims_for_generation(generation),
-            "initial_pairs": config.gate.initial_opening_pairs,
-            "pair_increment": config.gate.pair_increment,
-            "max_pairs": config.gate.max_opening_pairs,
-            "games": [asdict(result) for result in gate_results],
-            "role_control_games": [asdict(result) for result in gate_control_results],
-            "role_control_baseline": (
-                "random_bootstrap"
-                if config.gate.role_guard_mode == "relative_noninferiority"
-                and accepted_model_id is None
-                else (
-                    "accepted_champion"
+            gate_path = layout.metrics / f"gate_g{generation:06d}.json"
+            gate_payload = {
+                "schema_version": 2 if gate_evaluation_contract is not None else 1,
+                "candidate_model_id": candidate_model_id,
+                "incumbent_model_id": accepted_model_id or "random",
+                "opening_manifest": _run_relative(layout, opening_manifest_path),
+                "search_sims": config.gate.search_sims_for_generation(generation),
+                "initial_pairs": config.gate.initial_opening_pairs,
+                "pair_increment": config.gate.pair_increment,
+                "max_pairs": config.gate.max_opening_pairs,
+                "games": [asdict(result) for result in gate_results],
+                "role_control_games": [asdict(result) for result in gate_control_results],
+                "role_control_baseline": (
+                    "random_bootstrap"
                     if config.gate.role_guard_mode == "relative_noninferiority"
-                    else None
+                    and accepted_model_id is None
+                    else (
+                        "accepted_champion"
+                        if config.gate.role_guard_mode == "relative_noninferiority"
+                        else None
+                    )
+                ),
+                "looks": gate_looks,
+                "evaluation_runtime": gate_evaluation_runtime,
+                **gate_decision.to_dict(),
+            }
+            if gate_evaluation_contract is not None:
+                gate_payload.update(
+                    {
+                        "evaluation_contract": gate_evaluation_contract,
+                        "role_control_cache": {
+                            "enabled": True,
+                            "pairs_reused": min(
+                                len(cached_control_results) // 2,
+                                len(gate_control_results) // 2,
+                            ),
+                            "source": cached_control_provenance,
+                        },
+                    }
                 )
-            ),
-            "looks": gate_looks,
-            "evaluation_runtime": gate_evaluation_runtime,
-            **gate_decision.to_dict(),
-        }
-        if gate_evaluation_contract is not None:
-            gate_payload.update(
-                {
-                    "evaluation_contract": gate_evaluation_contract,
-                    "role_control_cache": {
-                        "enabled": True,
-                        "pairs_reused": min(
-                            len(cached_control_results) // 2,
-                            len(gate_control_results) // 2,
-                        ),
-                        "source": cached_control_provenance,
-                    },
-                }
-            )
         _atomic_write_json(gate_path, gate_payload)
         candidate_final_path = candidate_path
         if gate_decision.verdict == "accept":
@@ -1260,6 +1447,32 @@ def _run_generation(
         )
         if gate_decision.verdict == "accept":
             next_state = next_state.resolve_pending_candidate(accepted=True)
+            if config.selfplay.multi_rule_ids:
+                next_state = next_state.advance_rule_peaks(
+                    candidate_model_id,
+                    tuple(
+                        gate_decision.versus_peak[rule_id].overall.point_score
+                        for rule_id in BAL5_R2_RULE_IDS
+                    ),
+                )
+                if any(streak >= 2 for streak in next_state.rule_regression_streaks):
+                    _append_metric(
+                        layout,
+                        {
+                            "stage": "multirule_regression_warning",
+                            "generation": generation,
+                            "rule_streaks": dict(
+                                zip(
+                                    BAL5_R2_RULE_IDS,
+                                    next_state.rule_regression_streaks,
+                                    strict=True,
+                                )
+                            ),
+                            "peak_model_ids": dict(
+                                zip(BAL5_R2_RULE_IDS, next_state.rule_peak_model_ids, strict=True)
+                            ),
+                        },
+                    )
         elif gate_decision.verdict == "reject":
             next_state = next_state.resolve_pending_candidate(accepted=False)
         for artifact, kind in (
@@ -1366,7 +1579,26 @@ def _run_generation(
         "audit_index_sha256": audit_artifacts["audit_index_sha256"],
         "next_game_id": next_state.next_game_id,
     }
-    if gate_evaluation_contract_sha256 is not None:
+    if config.selfplay.multi_rule_ids:
+        commit_payload["rule_peak_artifacts"] = {
+            rule_id: {
+                "model_id": model_id,
+                "path": f"accepted/{model_id}.pt",
+                "sha256": _sha256_file(layout.accepted / f"{model_id}.pt"),
+            }
+            for rule_id, model_id in zip(
+                BAL5_R2_RULE_IDS, next_state.rule_peak_model_ids, strict=True
+            )
+        }
+    if gate_path is not None and config.selfplay.multi_rule_ids:
+        commit_payload.update(
+            {
+                "gate_path": _run_relative(layout, gate_path),
+                "gate_sha256": _sha256_file(gate_path),
+                "gate_evaluation_contract_sha256": None,
+            }
+        )
+    elif gate_evaluation_contract_sha256 is not None:
         if gate_path is None:
             raise RuntimeError("gate evaluation contract exists without a gate artifact")
         commit_payload.update(
@@ -1439,11 +1671,6 @@ def run_formal(
 
     if not isinstance(config, V3Config):
         raise TypeError("run_formal requires a resolved V3Config")
-    if config.selfplay.multi_rule_ids:
-        raise RuntimeError(
-            "BAL-5 R2 multi-rule execution requires the dedicated producer, "
-            "replay, and macro-gate path; the single-rule runner must not run it."
-        )
     if isinstance(max_train_positions, bool) or int(max_train_positions) < 1:
         raise ValueError("max_train_positions must be a positive integer")
     if max_generations is not None and (

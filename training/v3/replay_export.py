@@ -19,9 +19,21 @@ from typing import Any, Iterable, Mapping, Sequence
 import numpy as np
 
 from connect4_core import GameRules
-from connect4_core.rules import DEFAULT_RULE_REGISTRY, GameOutcome, RuleEngine, TurnAction, TurnKind
-
+from connect4_core.rules import (
+    BAL5_R2_RULE_REGISTRY,
+    DEFAULT_RULE_REGISTRY,
+    GameOutcome,
+    RuleEngine,
+    TurnAction,
+    TurnKind,
+)
 from .selfplay import GameRecord
+
+
+def _registry_for_rule_id(rule_id: str):
+    if rule_id == "p1_vertical_and_layer0_ignored":
+        return BAL5_R2_RULE_REGISTRY
+    return DEFAULT_RULE_REGISTRY
 
 
 REPLAY_FORMAT = "cubesprite.replay"
@@ -196,14 +208,15 @@ def game_record_to_replay(
 
     game = GameRules()
     try:
-        rule_spec = DEFAULT_RULE_REGISTRY.get(game_record.rule_id)
+        registry = _registry_for_rule_id(game_record.rule_id)
+        rule_spec = registry.get(game_record.rule_id)
     except (KeyError, TypeError) as exc:
         raise ValueError(f"unknown game rule {game_record.rule_id!r}") from exc
     if int(game_record.rule_code) != rule_spec.rule_code:
         raise ValueError("game rule_id and rule_code disagree")
     if int(game_record.rule_version) != rule_spec.rule_version:
         raise ValueError("game rule version does not match the executable registry")
-    engine = RuleEngine(rule_spec)
+    engine = RuleEngine(rule_spec, registry=registry)
     state = engine.initial_state()
     turns: list[dict[str, Any]] = []
 
@@ -334,7 +347,8 @@ def validate_replay_document(document: Mapping[str, Any]) -> None:
     if document["rules"] != _rules_document(GameRules()):
         raise ValueError("replay rules descriptor is unsupported")
     try:
-        spec = DEFAULT_RULE_REGISTRY.get(document["rule_id"])
+        registry = _registry_for_rule_id(document["rule_id"])
+        spec = registry.get(document["rule_id"])
     except (KeyError, TypeError) as exc:
         raise ValueError("replay rule_id is not registered") from exc
     if int(document["rule_version"]) != spec.rule_version:
@@ -372,7 +386,7 @@ def validate_replay_document(document: Mapping[str, Any]) -> None:
     turns = document["turns"]
     if not isinstance(turns, list) or len(turns) != int(document["turn_count"]):
         raise ValueError("replay turn_count does not match turns")
-    engine = RuleEngine(spec)
+    engine = RuleEngine(spec, registry=registry)
     game = GameRules()
     state = engine.initial_state()
     for index, turn in enumerate(turns):

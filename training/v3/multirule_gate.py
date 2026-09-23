@@ -8,14 +8,15 @@ evidence and state atomically before changing its accepted champion.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Iterable, Mapping
+from dataclasses import dataclass, replace
+from typing import Any, Callable, Iterable, Mapping, Sequence
 
 import numpy as np
 
 from connect4_core.rules import BAL5_R2_RULE_REGISTRY
 
 from .gate import GateSummary, summarize_paired_results
+from .config import GateConfig
 
 
 BAL5_R2_RULE_IDS = tuple(spec.rule_id for spec in BAL5_R2_RULE_REGISTRY.specs)
@@ -144,3 +145,71 @@ def summarize_multirule_gate(
         opening_pairs_per_rule=pair_counts.pop(),
         regression_tolerance=float(regression_tolerance),
     )
+
+
+def run_multirule_sequential_gate(
+    openings_by_rule: Mapping[str, Sequence[Any]],
+    *,
+    gate: GateConfig,
+    run_seed: int,
+    incumbent_model_id: str,
+    peak_model_ids: Mapping[str, str],
+    evaluate_pairs: Callable[[str, Sequence[Any], str], Iterable[object]],
+    regression_tolerance: float = 0.05,
+) -> tuple[
+    dict[str, list[object]],
+    dict[str, list[object]],
+    MultiRuleGateSummary,
+    list[dict[str, Any]],
+]:
+    """Append equal opening-pair batches until the macro gate resolves."""
+
+    expected = set(BAL5_R2_RULE_IDS)
+    if set(openings_by_rule) != expected or set(peak_model_ids) != expected:
+        raise ValueError("sequential gate needs openings and peak IDs for five rules")
+    if not incumbent_model_id or any(not value for value in peak_model_ids.values()):
+        raise ValueError("sequential gate needs committed incumbent and peak model IDs")
+    if any(len(openings_by_rule[rule]) < gate.max_opening_pairs for rule in BAL5_R2_RULE_IDS):
+        raise ValueError("opening manifests must cover the maximum pair budget")
+    incumbent_results: dict[str, list[object]] = {rule: [] for rule in BAL5_R2_RULE_IDS}
+    peak_results: dict[str, list[object]] = {rule: [] for rule in BAL5_R2_RULE_IDS}
+    looks: list[dict[str, Any]] = []
+    pair_start = 0
+    target_pairs = gate.initial_opening_pairs
+    while True:
+        for rule_id in BAL5_R2_RULE_IDS:
+            openings = openings_by_rule[rule_id][pair_start:target_pairs]
+            candidate = list(evaluate_pairs(rule_id, openings, incumbent_model_id))
+            expected_games = 2 * len(openings)
+            if len(candidate) != expected_games:
+                raise RuntimeError("candidate-incumbent gate returned incomplete paired evidence")
+            incumbent_results[rule_id].extend(candidate)
+            if peak_model_ids[rule_id] == incumbent_model_id:
+                peak_results[rule_id].extend(candidate)
+            else:
+                peak = list(evaluate_pairs(rule_id, openings, peak_model_ids[rule_id]))
+                if len(peak) != expected_games:
+                    raise RuntimeError("candidate-peak gate returned incomplete paired evidence")
+                peak_results[rule_id].extend(peak)
+        summary = summarize_multirule_gate(
+            incumbent_results,
+            peak_results,
+            bootstrap_samples=gate.bootstrap_samples,
+            confidence=gate.decision_confidence(),
+            bootstrap_seed=run_seed + 2701,
+            regression_tolerance=regression_tolerance,
+        )
+        looks.append({"pairs_per_rule": target_pairs, **summary.to_dict()})
+        if summary.verdict != "inconclusive":
+            break
+        if target_pairs >= gate.max_opening_pairs:
+            summary = replace(
+                summary,
+                verdict="reject",
+                reason="maximum paired opening budget exhausted without macro improvement",
+            )
+            looks[-1] = {"pairs_per_rule": target_pairs, **summary.to_dict()}
+            break
+        pair_start = target_pairs
+        target_pairs += gate.pair_increment
+    return incumbent_results, peak_results, summary, looks

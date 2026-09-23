@@ -3,11 +3,17 @@ from __future__ import annotations
 import unittest
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
 from connect4_core.rules import BAL5_R2_RULE_REGISTRY
 from training.v3.evaluation import build_openings, load_opening_manifest, write_opening_manifest
 from training.v3.gate import GateGameResult
-from training.v3.multirule_gate import BAL5_R2_RULE_IDS, summarize_multirule_gate
+from training.v3.config import GateConfig
+from training.v3.multirule_gate import (
+    BAL5_R2_RULE_IDS,
+    run_multirule_sequential_gate,
+    summarize_multirule_gate,
+)
 
 
 def evidence(score: float, *, pairs: int = 10, shared_ids: bool = False):
@@ -23,6 +29,43 @@ def evidence(score: float, *, pairs: int = 10, shared_ids: bool = False):
 
 
 class MultiRuleGateTests(unittest.TestCase):
+    def test_sequential_gate_extends_equal_rule_pairs_and_reuses_incumbent_peak(self) -> None:
+        openings = {
+            rule: tuple(
+                SimpleNamespace(opening_id=f"{rule}-opening-{pair}", seed=index * 100 + pair)
+                for pair in range(4)
+            )
+            for index, rule in enumerate(BAL5_R2_RULE_IDS)
+        }
+        calls = []
+
+        def evaluate(rule_id, rows, opponent_model_id):
+            calls.append((rule_id, opponent_model_id, len(rows)))
+            score = 0.5 if rows[0].opening_id.endswith(("-0", "-1")) else 1.0
+            return tuple(
+                GateGameResult(row.opening_id, row.seed, role, score)
+                for row in rows
+                for role in (True, False)
+            )
+
+        current, peaks, decision, looks = run_multirule_sequential_gate(
+            openings,
+            gate=GateConfig(
+                initial_opening_pairs=2,
+                pair_increment=2,
+                max_opening_pairs=4,
+                bootstrap_samples=1000,
+            ),
+            run_seed=7,
+            incumbent_model_id="accepted-root",
+            peak_model_ids={rule: "accepted-root" for rule in BAL5_R2_RULE_IDS},
+            evaluate_pairs=evaluate,
+        )
+        self.assertEqual(decision.verdict, "accept")
+        self.assertEqual([look["pairs_per_rule"] for look in looks], [2, 4])
+        self.assertEqual(len(calls), 10)
+        self.assertTrue(all(len(current[rule]) == len(peaks[rule]) == 8 for rule in BAL5_R2_RULE_IDS))
+
     def test_five_rule_opening_manifests_have_distinct_ids_and_registry(self) -> None:
         all_ids = set()
         with tempfile.TemporaryDirectory() as temp_dir:

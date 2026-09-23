@@ -8,6 +8,7 @@ from dataclasses import asdict, replace
 from pathlib import Path
 
 import torch
+from connect4_core.rules import BAL5_R2_RULE_REGISTRY
 
 from training.v3.config import OpeningTemperatureMixtureConfig, load_config, model_config_dict
 from training.v3.formal_runner import (
@@ -23,12 +24,84 @@ from training.v3.gate import GateGameResult
 from training.v3.formal_state import FormalLoopState, PendingCandidateState
 from training.v3.layout import RunLayout
 from training.v3.model import build_model
+from training.v3.multirule_gate import BAL5_R2_RULE_IDS
+from training.v3.archive import plan_prune
+from training.v3.pipeline import _validate_generation_commit
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class FormalRunnerTests(unittest.TestCase):
+    def test_multirule_cpu_generation_preserves_producer_and_peak_lineage(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            base = self._config(root / "r2")
+            source = root / "accepted_candidate.pt"
+            model = build_model(base.model)
+            torch.save(
+                {
+                    "format": "connect4-v3-model",
+                    "format_version": 1,
+                    "model_config": model_config_dict(base.model),
+                    "model_state": model.state_dict(),
+                    "metadata": {
+                        "candidate_model_id": "candidate-g000001-s00000001-d00000001",
+                        "config_hash": "a" * 64,
+                    },
+                },
+                source,
+            )
+            child = replace(
+                base,
+                run=replace(
+                    base.run,
+                    warm_start_checkpoint=str(source),
+                    warm_start_checkpoint_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
+                    warm_start_mode="accepted_artifact_fresh_optimizer_replay_v1",
+                ),
+                selfplay=replace(
+                    base.selfplay,
+                    multi_rule_ids=BAL5_R2_RULE_IDS,
+                    rule_registry_hash=BAL5_R2_RULE_REGISTRY.registry_hash,
+                    search_schedule=(
+                        replace(base.selfplay.search_schedule[0], games=10, full_search_sims=2, fast_search_sims=1),
+                    ),
+                ),
+                gate=replace(base.gate, candidate_train_positions=8),
+            )
+            result = run_formal(child, max_train_positions=8, max_generations=1)
+            self.assertEqual(result["generations_completed"], 1)
+            commit = json.loads(
+                (root / "r2" / "manifests" / "generations" / "g000000.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(set(commit["rule_peak_artifacts"]), set(BAL5_R2_RULE_IDS))
+            self.assertIn(commit["gate_verdict"], ("accept", "reject"))
+            self.assertEqual(
+                json.loads((root / "r2" / commit["gate_path"]).read_text(encoding="utf-8"))["schema_version"],
+                3,
+            )
+            self.assertTrue(commit["accepted_model_id"].startswith("warmstart-accepted-"))
+            totals = {rule: 0 for rule in BAL5_R2_RULE_IDS}
+            for shard in (root / "r2" / "replay" / "raw").glob("*.manifest.json"):
+                manifest = json.loads(shard.read_text(encoding="utf-8"))
+                for rule, count in manifest["rule_games"].items():
+                    totals[rule] += count
+            self.assertEqual(totals, {rule: 2 for rule in BAL5_R2_RULE_IDS})
+            prune = plan_prune(root / "r2")
+            for row in commit["rule_peak_artifacts"].values():
+                self.assertIn(row["path"], prune["protected_paths"])
+            gate = json.loads((root / "r2" / commit["gate_path"]).read_text(encoding="utf-8"))
+            index = json.loads((root / "r2" / gate["opening_manifest"]).read_text(encoding="utf-8"))
+            opening = root / "r2" / index["rules"][BAL5_R2_RULE_IDS[0]]["path"]
+            opening.write_text("{}", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "opening manifest"):
+                _validate_generation_commit(
+                    RunLayout.from_root(root / "r2"),
+                    root / "r2" / "manifests" / "generations" / "g000000.json",
+                    expected_hash=commit["config_hash"],
+                )
+
     def _config(self, run_dir: Path, *, resume: bool = False):
         base = load_config(ROOT / "training" / "v3" / "configs" / "smoke_cpu.json")
         return replace(

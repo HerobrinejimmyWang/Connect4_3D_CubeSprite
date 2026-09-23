@@ -20,6 +20,16 @@ def _pending(*, pairs: int = 2, incumbent: str = "random") -> PendingCandidateSt
 
 
 class FormalLoopStateTests(unittest.TestCase):
+    def test_multirule_peak_state_round_trip_and_streaks(self) -> None:
+        state = FormalLoopState(accepted_model_id="accepted-root").initialize_rule_peaks()
+        updated = state.advance_rule_peaks("candidate-g1", (0.6, 0.49, 0.5, 0.4, 0.8))
+        self.assertEqual(
+            updated.rule_peak_model_ids,
+            ("candidate-g1", "accepted-root", "candidate-g1", "accepted-root", "candidate-g1"),
+        )
+        self.assertEqual(updated.rule_regression_streaks, (0, 1, 0, 1, 0))
+        self.assertEqual(FormalLoopState.from_dict(updated.to_dict()), updated)
+
     def test_candidate_cadence_uses_consumed_positions_and_blocks_pending(self) -> None:
         gate = GateConfig(
             bootstrap_candidate_train_positions=8,

@@ -76,6 +76,8 @@ class FormalLoopState:
     exploration_stage_index: int = 0
     exploration_stage_started_generation: int = 0
     opening_temperature_mixture_start_game_id: int | None = None
+    rule_peak_model_ids: tuple[str, ...] = ()
+    rule_regression_streaks: tuple[int, ...] = ()
 
     def __post_init__(self) -> None:
         counters = (
@@ -110,6 +112,13 @@ class FormalLoopState:
             and self.pending_candidate.incumbent_model_id != (self.accepted_model_id or "random")
         ):
             raise ValueError("pending candidate incumbent differs from accepted model state")
+        if self.rule_peak_model_ids or self.rule_regression_streaks:
+            if len(self.rule_peak_model_ids) != 5 or len(self.rule_regression_streaks) != 5:
+                raise ValueError("multi-rule peak state must contain five aligned rules")
+            if any(not model_id for model_id in self.rule_peak_model_ids):
+                raise ValueError("multi-rule peak model IDs must be non-empty")
+            if any(type(streak) is not int or streak < 0 for streak in self.rule_regression_streaks):
+                raise ValueError("multi-rule regression streaks must be non-negative integers")
 
     @classmethod
     def from_dict(cls, raw: Mapping[str, Any]) -> "FormalLoopState":
@@ -127,13 +136,18 @@ class FormalLoopState:
             "exploration_stage_started_generation",
         }
         delayed_mixture = current | {"opening_temperature_mixture_start_game_id"}
+        multirule = delayed_mixture | {"rule_peak_model_ids", "rule_regression_streaks"}
         keys = set(raw)
-        if not legacy.issubset(keys) or not keys.issubset(delayed_mixture):
+        if not legacy.issubset(keys) or not keys.issubset(multirule):
             raise ValueError("formal loop state has an unsupported schema")
         values = dict(raw)
         values.setdefault("exploration_stage_index", 0)
         values.setdefault("exploration_stage_started_generation", 0)
         values.setdefault("opening_temperature_mixture_start_game_id", None)
+        values.setdefault("rule_peak_model_ids", ())
+        values.setdefault("rule_regression_streaks", ())
+        values["rule_peak_model_ids"] = tuple(values["rule_peak_model_ids"])
+        values["rule_regression_streaks"] = tuple(values["rule_regression_streaks"])
         pending = values["pending_candidate"]
         values["pending_candidate"] = (
             None if pending is None else PendingCandidateState.from_dict(pending)
@@ -191,6 +205,34 @@ class FormalLoopState:
         if game_id < 0 or game_id > self.next_game_id:
             raise ValueError("opening temperature mixture game boundary is invalid")
         return replace(self, opening_temperature_mixture_start_game_id=int(game_id))
+
+    def initialize_rule_peaks(self) -> "FormalLoopState":
+        if self.rule_peak_model_ids:
+            return self
+        if not self.accepted_model_id:
+            raise ValueError("multi-rule peaks need a committed accepted model")
+        return replace(
+            self,
+            rule_peak_model_ids=(self.accepted_model_id,) * 5,
+            rule_regression_streaks=(0,) * 5,
+        )
+
+    def advance_rule_peaks(
+        self, candidate_model_id: str, point_scores: tuple[float, ...]
+    ) -> "FormalLoopState":
+        if len(point_scores) != 5 or len(self.rule_peak_model_ids) != 5:
+            raise ValueError("rule peak update needs five scores and initialized state")
+        if not candidate_model_id:
+            raise ValueError("candidate model ID must be non-empty")
+        models = tuple(
+            candidate_model_id if score >= 0.5 else peak
+            for peak, score in zip(self.rule_peak_model_ids, point_scores, strict=True)
+        )
+        streaks = tuple(
+            0 if score >= 0.5 else streak + 1
+            for streak, score in zip(self.rule_regression_streaks, point_scores, strict=True)
+        )
+        return replace(self, rule_peak_model_ids=models, rule_regression_streaks=streaks)
 
     def emit_candidate(self, pending: PendingCandidateState) -> "FormalLoopState":
         if self.pending_candidate is not None:

@@ -436,6 +436,8 @@ def plan_prune(run_dir: str | Path) -> dict[str, Any]:
         for key in ("accepted_model_path", "candidate_path"):
             if commit.get(key):
                 protected.add(str(commit[key]))
+        for peak in commit.get("rule_peak_artifacts", {}).values():
+            protected.add(str(peak["path"]))
         for row in commit["replay_shards"]:
             shard = str(row["path"])
             protected.update(
