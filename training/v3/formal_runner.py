@@ -533,14 +533,19 @@ def _run_formal_multirule_gate(
             rule_id: [asdict(row) for row in incumbent[rule_id]]
             for rule_id in BAL5_R2_RULE_IDS
         },
-        "peak_games_by_rule": {
-            rule_id: [asdict(row) for row in peaks[rule_id]]
-            for rule_id in BAL5_R2_RULE_IDS
-        },
+        "peak_games_by_rule": (
+            None if decision.peak_evidence_status == "not_evaluated" else {
+                rule_id: [asdict(row) for row in peaks[rule_id]]
+                for rule_id in BAL5_R2_RULE_IDS
+            }
+        ),
         "looks": looks,
         "evaluation_runtime": evaluation_runtime,
         **decision.to_dict(),
     }
+    if config.gate.multirule_evaluation_mode == "incumbent_first":
+        payload["multirule_evaluation_mode"] = "incumbent_first"
+        payload["peak_evidence_status"] = decision.peak_evidence_status
     return payload, decision, [*manifest_paths, index_path]
 
 

@@ -699,6 +699,7 @@ class GateConfig:
     role_guard_mode: str = "absolute_floor"
     role_noninferiority_margin: float = 0.05
     accept_threshold: float = 0.5
+    multirule_evaluation_mode: str = "complete"
 
     def __post_init__(self) -> None:
         if self.bootstrap_candidate_train_positions < 1 or self.candidate_train_positions < 1:
@@ -741,6 +742,8 @@ class GateConfig:
             raise ValueError("gate.role_noninferiority_margin must be in [0, 1].")
         if not 0.0 <= self.accept_threshold <= 1.0:
             raise ValueError("gate.accept_threshold must be in [0, 1].")
+        if self.multirule_evaluation_mode not in {"complete", "incumbent_first"}:
+            raise ValueError("gate.multirule_evaluation_mode must be complete or incumbent_first.")
 
     def search_sims_for_generation(self, generation: int) -> int:
         if generation < 0:
@@ -875,6 +878,13 @@ class V3Config:
     gate: GateConfig = field(default_factory=GateConfig)
     stability: StabilityConfig = field(default_factory=StabilityConfig)
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
+
+    def __post_init__(self) -> None:
+        if (
+            self.gate.multirule_evaluation_mode == "incumbent_first"
+            and not self.selfplay.multi_rule_ids
+        ):
+            raise ValueError("incumbent_first gate requires five-rule self-play")
 
     @classmethod
     def from_dict(cls, raw: Mapping[str, Any]) -> "V3Config":
@@ -1061,6 +1071,8 @@ def config_hash(config: V3Config) -> str:
             "mcts_lanes_per_actor": config.runtime.mcts_lanes_per_actor,
         },
     }
+    if config.gate.multirule_evaluation_mode == "complete":
+        semantic["gate"].pop("multirule_evaluation_mode")
     if config.stability != StabilityConfig():
         semantic["stability"] = asdict(config.stability)
     # Preserve existing lineage hashes when the optional role-floor extension

@@ -798,3 +798,6 @@ authorizes deletion.
 
 See `STATIC_AUDIT.md` for the review decisions, on-machine pilot matrix, health
 watch levels, and remaining production blockers.
+
+For new Stage 3 single-model five-rule runs, see `STAGE3_MULTIRULE_GATE.md` for
+the optional incumbent-first gate mode and dual-GPU evaluation calibration.

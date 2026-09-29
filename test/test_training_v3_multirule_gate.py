@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from connect4_core.rules import BAL5_R2_RULE_REGISTRY
 from training.v3.evaluation import build_openings, load_opening_manifest, write_opening_manifest
 from training.v3.gate import GateGameResult
-from training.v3.config import GateConfig
+from training.v3.config import GateConfig, config_hash, load_config
 from training.v3.multirule_gate import (
     BAL5_R2_RULE_IDS,
     run_multirule_sequential_gate,
@@ -29,6 +29,147 @@ def evidence(score: float, *, pairs: int = 10, shared_ids: bool = False):
 
 
 class MultiRuleGateTests(unittest.TestCase):
+    @staticmethod
+    def _staged_gate(*, incumbent_score: float, peak_score: float, pairs: int = 2,
+                     max_pairs: int = 4, same_peak: bool = False):
+        openings = {
+            rule: tuple(SimpleNamespace(opening_id=f"{rule}-{pair}", seed=index * 100 + pair)
+                        for pair in range(max_pairs))
+            for index, rule in enumerate(BAL5_R2_RULE_IDS)
+        }
+        calls = []
+
+        def evaluate(rule_id, rows, opponent_model_id):
+            calls.append((rule_id, opponent_model_id, tuple(row.opening_id for row in rows)))
+            score = incumbent_score if opponent_model_id == "incumbent" else peak_score
+            return [GateGameResult(row.opening_id, row.seed, role, score)
+                    for row in rows for role in (True, False)]
+
+        result = run_multirule_sequential_gate(
+            openings,
+            gate=GateConfig(initial_opening_pairs=pairs, pair_increment=2,
+                            max_opening_pairs=max_pairs, bootstrap_samples=100,
+                            multirule_evaluation_mode="incumbent_first"),
+            run_seed=19,
+            incumbent_model_id="incumbent",
+            peak_model_ids={rule: "incumbent" if same_peak else "peak"
+                            for rule in BAL5_R2_RULE_IDS},
+            evaluate_pairs=evaluate,
+        )
+        return result, calls
+
+    def test_staged_macro_reject_skips_peak_with_explicit_unknown(self) -> None:
+        (current, peaks, decision, looks), calls = self._staged_gate(
+            incumbent_score=0.0, peak_score=1.0
+        )
+        self.assertEqual(decision.verdict, "reject")
+        self.assertEqual(decision.peak_evidence_status, "not_evaluated")
+        self.assertIsNone(decision.hard_regressions)
+        self.assertIsNone(decision.to_dict()["versus_peak"])
+        self.assertEqual(decision.to_dict()["schema"], "connect4-v3-bal5-r2-multirule-gate-v2")
+        self.assertEqual(len(calls), 5)
+        self.assertEqual([look["pairs_per_rule"] for look in looks], [2])
+        self.assertTrue(all(len(peaks[rule]) == 0 and len(current[rule]) == 4
+                            for rule in BAL5_R2_RULE_IDS))
+
+    def test_staged_exhaustion_skips_peak(self) -> None:
+        (_, peaks, decision, looks), calls = self._staged_gate(
+            incumbent_score=0.5, peak_score=1.0
+        )
+        self.assertEqual(decision.verdict, "reject")
+        self.assertEqual(decision.peak_evidence_status, "not_evaluated")
+        self.assertEqual([look["pairs_per_rule"] for look in looks], [2, 4])
+        self.assertEqual(len(calls), 10)
+        self.assertTrue(all(not peaks[rule] for rule in BAL5_R2_RULE_IDS))
+
+    def test_staged_checks_every_peak_before_acceptance(self) -> None:
+        (current, peaks, decision, looks), calls = self._staged_gate(
+            incumbent_score=1.0, peak_score=0.0
+        )
+        self.assertEqual(decision.verdict, "reject")
+        self.assertEqual(decision.hard_regressions, BAL5_R2_RULE_IDS)
+        self.assertEqual(decision.peak_evidence_status, "complete")
+        self.assertEqual(len(calls), 10)
+        self.assertEqual([look["pairs_per_rule"] for look in looks], [2])
+        self.assertTrue(all(len(current[rule]) == len(peaks[rule]) == 4
+                            for rule in BAL5_R2_RULE_IDS))
+
+    def test_staged_accept_reuses_identical_peak(self) -> None:
+        (_, peaks, decision, _), calls = self._staged_gate(
+            incumbent_score=1.0, peak_score=0.0, same_peak=True
+        )
+        self.assertEqual(decision.verdict, "accept")
+        self.assertEqual(decision.hard_regressions, ())
+        self.assertEqual(len(calls), 5)
+        self.assertTrue(all(len(peaks[rule]) == 4 for rule in BAL5_R2_RULE_IDS))
+
+    def test_staged_accept_completes_distinct_peak_evidence(self) -> None:
+        (_, peaks, decision, _), calls = self._staged_gate(
+            incumbent_score=1.0, peak_score=1.0
+        )
+        self.assertEqual(decision.verdict, "accept")
+        self.assertEqual(decision.peak_evidence_status, "complete")
+        self.assertEqual(set(decision.versus_peak), set(BAL5_R2_RULE_IDS))
+        self.assertEqual(len(calls), 10)
+        self.assertTrue(all(len(peaks[rule]) == 4 for rule in BAL5_R2_RULE_IDS))
+
+    def test_staged_restart_after_interrupted_peak_replays_same_openings(self) -> None:
+        openings = {
+            rule: tuple(SimpleNamespace(opening_id=f"{rule}-{pair}", seed=index * 100 + pair)
+                        for pair in range(2))
+            for index, rule in enumerate(BAL5_R2_RULE_IDS)
+        }
+        calls = []
+        fail_once = [True]
+
+        def evaluate(rule_id, rows, opponent_model_id):
+            calls.append((rule_id, opponent_model_id, tuple(row.opening_id for row in rows)))
+            if opponent_model_id == "peak" and fail_once[0]:
+                fail_once[0] = False
+                raise RuntimeError("interrupted")
+            return [GateGameResult(row.opening_id, row.seed, role, 1.0)
+                    for row in rows for role in (True, False)]
+
+        kwargs = dict(
+            gate=GateConfig(initial_opening_pairs=2, pair_increment=2,
+                            max_opening_pairs=2, bootstrap_samples=100,
+                            multirule_evaluation_mode="incumbent_first"),
+            run_seed=19, incumbent_model_id="incumbent",
+            peak_model_ids={rule: "peak" for rule in BAL5_R2_RULE_IDS},
+            evaluate_pairs=evaluate,
+        )
+        with self.assertRaisesRegex(RuntimeError, "interrupted"):
+            run_multirule_sequential_gate(openings, **kwargs)
+        first_attempt = tuple(calls)
+        current, peaks, decision, _ = run_multirule_sequential_gate(openings, **kwargs)
+        self.assertEqual(decision.verdict, "accept")
+        self.assertEqual(first_attempt[:5], tuple(calls[len(first_attempt):len(first_attempt) + 5]))
+        self.assertTrue(all(len(current[rule]) == len(peaks[rule]) == 4
+                            for rule in BAL5_R2_RULE_IDS))
+
+    def test_staged_mode_changes_semantic_hash_and_default_preserves_hash(self) -> None:
+        from dataclasses import replace
+
+        single_rule = load_config(Path(__file__).resolve().parents[1] /
+                                  "training/v3/configs/smoke_cpu.json")
+        config = replace(
+            single_rule,
+            selfplay=replace(
+                single_rule.selfplay,
+                multi_rule_ids=BAL5_R2_RULE_IDS,
+                rule_registry_hash=BAL5_R2_RULE_REGISTRY.registry_hash,
+            ),
+        )
+        self.assertEqual(config_hash(config), config_hash(replace(
+            config, gate=replace(config.gate, multirule_evaluation_mode="complete")
+        )))
+        staged = replace(
+            config, gate=replace(config.gate, multirule_evaluation_mode="incumbent_first")
+        )
+        self.assertNotEqual(config_hash(config), config_hash(staged))
+        with self.assertRaisesRegex(ValueError, "requires five-rule"):
+            replace(single_rule, gate=staged.gate)
+
     def test_sequential_gate_extends_equal_rule_pairs_and_reuses_incumbent_peak(self) -> None:
         openings = {
             rule: tuple(

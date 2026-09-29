@@ -33,6 +33,63 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class FormalRunnerTests(unittest.TestCase):
+    def test_staged_multirule_gate_commits_explicit_peak_status(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            base = self._config(root / "stage3")
+            source = root / "accepted_candidate.pt"
+            model = build_model(base.model)
+            torch.save(
+                {
+                    "format": "connect4-v3-model",
+                    "format_version": 1,
+                    "model_config": model_config_dict(base.model),
+                    "model_state": model.state_dict(),
+                    "metadata": {
+                        "candidate_model_id": "candidate-g000001-s00000001-d00000001",
+                        "config_hash": "a" * 64,
+                    },
+                },
+                source,
+            )
+            config = replace(
+                base,
+                run=replace(
+                    base.run,
+                    warm_start_checkpoint=str(source),
+                    warm_start_checkpoint_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
+                    warm_start_mode="accepted_artifact_fresh_optimizer_replay_v1",
+                ),
+                selfplay=replace(
+                    base.selfplay,
+                    multi_rule_ids=BAL5_R2_RULE_IDS,
+                    rule_registry_hash=BAL5_R2_RULE_REGISTRY.registry_hash,
+                    search_schedule=(replace(
+                        base.selfplay.search_schedule[0],
+                        games=10, full_search_sims=2, fast_search_sims=1,
+                    ),),
+                ),
+                gate=replace(
+                    base.gate,
+                    candidate_train_positions=8,
+                    multirule_evaluation_mode="incumbent_first",
+                ),
+            )
+            run_formal(config, max_train_positions=8, max_generations=1)
+            layout = RunLayout.from_root(root / "stage3")
+            commit_path = layout.generation_commits / "g000000.json"
+            commit = json.loads(commit_path.read_text(encoding="utf-8"))
+            gate = json.loads((layout.root / commit["gate_path"]).read_text(encoding="utf-8"))
+            self.assertEqual(gate["multirule_evaluation_mode"], "incumbent_first")
+            self.assertIn(gate["peak_evidence_status"], ("complete", "not_evaluated"))
+            if gate["peak_evidence_status"] == "not_evaluated":
+                self.assertEqual(gate["verdict"], "reject")
+                self.assertIsNone(gate["peak_games_by_rule"])
+                self.assertIsNone(gate["hard_regressions"])
+            else:
+                self.assertEqual(set(gate["peak_games_by_rule"]), set(BAL5_R2_RULE_IDS))
+            _validate_generation_commit(layout, commit_path, expected_hash=commit["config_hash"])
+
     def test_multirule_cpu_generation_preserves_producer_and_peak_lineage(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

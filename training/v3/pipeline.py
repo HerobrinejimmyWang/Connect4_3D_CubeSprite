@@ -275,8 +275,36 @@ def _validate_generation_commit(
                     raise ValueError("multi-rule gate candidate differs from commit")
                 if set(gate_payload.get("games_by_rule", {})) != set(BAL5_R2_RULE_IDS):
                     raise ValueError("multi-rule gate is missing rule evidence")
-                if set(gate_payload.get("peak_games_by_rule", {})) != set(BAL5_R2_RULE_IDS):
-                    raise ValueError("multi-rule gate is missing peak evidence")
+                peak_status = gate_payload.get("peak_evidence_status", "complete")
+                if peak_status == "not_evaluated":
+                    if (
+                        gate_payload.get("multirule_evaluation_mode") != "incumbent_first"
+                        or gate_payload.get("verdict") != "reject"
+                        or gate_payload.get("peak_games_by_rule") is not None
+                        or gate_payload.get("versus_peak") is not None
+                        or gate_payload.get("hard_regressions") is not None
+                    ):
+                        raise ValueError("multi-rule skipped peak evidence is inconsistent")
+                elif peak_status == "complete":
+                    if set(gate_payload.get("peak_games_by_rule") or {}) != set(BAL5_R2_RULE_IDS):
+                        raise ValueError("multi-rule gate is missing peak evidence")
+                    if gate_payload.get("verdict") == "accept":
+                        pair_count = gate_payload.get("opening_pairs_per_rule")
+                        if not isinstance(pair_count, int) or pair_count < 1:
+                            raise ValueError("accepted multi-rule gate has invalid pair count")
+                        for rule_id in BAL5_R2_RULE_IDS:
+                            current = gate_payload["games_by_rule"][rule_id]
+                            peak = gate_payload["peak_games_by_rule"][rule_id]
+                            if len(current) != 2 * pair_count or len(peak) != len(current):
+                                raise ValueError("accepted multi-rule gate has incomplete peak games")
+                            current_keys = {(row["opening_id"], row["seed"], row["candidate_is_first"])
+                                            for row in current}
+                            peak_keys = {(row["opening_id"], row["seed"], row["candidate_is_first"])
+                                         for row in peak}
+                            if len(current_keys) != 2 * pair_count or current_keys != peak_keys:
+                                raise ValueError("accepted multi-rule peak openings differ")
+                else:
+                    raise ValueError("multi-rule gate has an invalid peak evidence status")
                 opening_index = _run_artifact_path(layout, gate_payload.get("opening_manifest"))
                 index = json.loads(opening_index.read_text(encoding="utf-8"))
                 if set(index.get("rules", {})) != set(BAL5_R2_RULE_IDS):

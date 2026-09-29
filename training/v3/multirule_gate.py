@@ -30,32 +30,44 @@ class MultiRuleGateSummary:
     macro_ci: tuple[float, float]
     confidence: float
     per_rule: Mapping[str, GateSummary]
-    versus_peak: Mapping[str, GateSummary]
-    hard_regressions: tuple[str, ...]
+    versus_peak: Mapping[str, GateSummary] | None
+    hard_regressions: tuple[str, ...] | None
     opening_pairs_per_rule: int
     regression_tolerance: float
+    peak_evidence_status: str = "complete"
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "schema": "connect4-v3-bal5-r2-multirule-gate-v1",
+        result = {
+            "schema": (
+                "connect4-v3-bal5-r2-multirule-gate-v1"
+                if self.peak_evidence_status == "complete"
+                else "connect4-v3-bal5-r2-multirule-gate-v2"
+            ),
             "verdict": self.verdict,
             "reason": self.reason,
             "macro_point_score": self.macro_point_score,
             "macro_ci": list(self.macro_ci),
             "confidence": self.confidence,
             "per_rule": {key: value.to_dict() for key, value in self.per_rule.items()},
-            "versus_peak": {
-                key: value.to_dict() for key, value in self.versus_peak.items()
-            },
-            "hard_regressions": list(self.hard_regressions),
+            "versus_peak": (
+                None
+                if self.versus_peak is None
+                else {key: value.to_dict() for key, value in self.versus_peak.items()}
+            ),
+            "hard_regressions": (
+                None if self.hard_regressions is None else list(self.hard_regressions)
+            ),
             "opening_pairs_per_rule": self.opening_pairs_per_rule,
             "regression_tolerance": self.regression_tolerance,
         }
+        if self.peak_evidence_status != "complete":
+            result["peak_evidence_status"] = self.peak_evidence_status
+        return result
 
 
 def summarize_multirule_gate(
     incumbent_results: Mapping[str, Iterable[object]],
-    peak_results: Mapping[str, Iterable[object]],
+    peak_results: Mapping[str, Iterable[object]] | None,
     *,
     bootstrap_samples: int,
     confidence: float = 0.95,
@@ -65,8 +77,10 @@ def summarize_multirule_gate(
     """Bootstrap opening pairs within each rule and average five rule means."""
 
     expected = set(BAL5_R2_RULE_IDS)
-    if set(incumbent_results) != expected or set(peak_results) != expected:
-        raise ValueError("multi-rule gate needs incumbent and peak evidence for all five rules")
+    if set(incumbent_results) != expected or (
+        peak_results is not None and set(peak_results) != expected
+    ):
+        raise ValueError("multi-rule gate needs evidence for all five rules")
     if bootstrap_samples < 1 or not 0.5 < confidence < 1.0:
         raise ValueError("invalid multi-rule gate bootstrap settings")
     if not 0.0 <= regression_tolerance <= 0.5:
@@ -83,15 +97,21 @@ def summarize_multirule_gate(
             confidence=confidence,
             bootstrap_seed=bootstrap_seed + 2 * index,
         )
-        peak = summarize_paired_results(
-            peak_results[rule_id],
-            bootstrap_samples=bootstrap_samples,
-            confidence=confidence,
-            bootstrap_seed=bootstrap_seed + 2 * index + 1,
+        peak = (
+            None
+            if peak_results is None
+            else summarize_paired_results(
+                peak_results[rule_id],
+                bootstrap_samples=bootstrap_samples,
+                confidence=confidence,
+                bootstrap_seed=bootstrap_seed + 2 * index + 1,
+            )
         )
         current_keys = {(pair.opening_id, pair.seed) for pair in current.pairs}
-        peak_keys = {(pair.opening_id, pair.seed) for pair in peak.pairs}
-        if current_keys != peak_keys:
+        peak_keys = (
+            None if peak is None else {(pair.opening_id, pair.seed) for pair in peak.pairs}
+        )
+        if peak_keys is not None and current_keys != peak_keys:
             raise ValueError(f"rule {rule_id!r} peak evidence must use identical openings")
         opening_ids = {opening_id for opening_id, _seed in current_keys}
         if seen_opening_ids & opening_ids:
@@ -99,7 +119,8 @@ def summarize_multirule_gate(
         seen_opening_ids.update(opening_ids)
         pair_counts.add(len(current.pairs))
         by_rule[rule_id] = current
-        by_peak[rule_id] = peak
+        if peak is not None:
+            by_peak[rule_id] = peak
     if len(pair_counts) != 1:
         raise ValueError("each rule must contribute the same number of opening pairs")
 
@@ -116,17 +137,22 @@ def summarize_multirule_gate(
     macro_samples = np.mean(np.stack(sample_means, axis=0), axis=0)
     tail = (1.0 - confidence) / 2.0
     lower, upper = np.quantile(macro_samples, (tail, 1.0 - tail))
-    hard_regressions = tuple(
-        rule_id
-        for rule_id in BAL5_R2_RULE_IDS
-        if by_peak[rule_id].overall.point_score < 0.5 - regression_tolerance
+    hard_regressions = (
+        None if peak_results is None else tuple(
+            rule_id
+            for rule_id in BAL5_R2_RULE_IDS
+            if by_peak[rule_id].overall.point_score < 0.5 - regression_tolerance
+        )
     )
     if hard_regressions:
         verdict = "reject"
         reason = "at least one rule exceeds the frozen regression tolerance versus its peak"
     elif float(lower) > 0.5:
-        verdict = "accept"
-        reason = "equal-rule macro confidence lower bound exceeds 50%"
+        verdict = "accept" if peak_results is not None else "peak_pending"
+        reason = (
+            "equal-rule macro confidence lower bound exceeds 50%"
+            if peak_results is not None else "macro improvement established; peak evidence pending"
+        )
     elif float(upper) < 0.5:
         verdict = "reject"
         reason = "equal-rule macro confidence upper bound is below 50%"
@@ -140,10 +166,11 @@ def summarize_multirule_gate(
         macro_ci=(float(lower), float(upper)),
         confidence=float(confidence),
         per_rule=by_rule,
-        versus_peak=by_peak,
+        versus_peak=by_peak if peak_results is not None else None,
         hard_regressions=hard_regressions,
         opening_pairs_per_rule=pair_counts.pop(),
         regression_tolerance=float(regression_tolerance),
+        peak_evidence_status="complete" if peak_results is not None else "not_evaluated",
     )
 
 
@@ -184,21 +211,45 @@ def run_multirule_sequential_gate(
             if len(candidate) != expected_games:
                 raise RuntimeError("candidate-incumbent gate returned incomplete paired evidence")
             incumbent_results[rule_id].extend(candidate)
-            if peak_model_ids[rule_id] == incumbent_model_id:
-                peak_results[rule_id].extend(candidate)
-            else:
-                peak = list(evaluate_pairs(rule_id, openings, peak_model_ids[rule_id]))
-                if len(peak) != expected_games:
-                    raise RuntimeError("candidate-peak gate returned incomplete paired evidence")
-                peak_results[rule_id].extend(peak)
+            if gate.multirule_evaluation_mode == "complete":
+                if peak_model_ids[rule_id] == incumbent_model_id:
+                    peak_results[rule_id].extend(candidate)
+                else:
+                    peak = list(evaluate_pairs(rule_id, openings, peak_model_ids[rule_id]))
+                    if len(peak) != expected_games:
+                        raise RuntimeError("candidate-peak gate returned incomplete paired evidence")
+                    peak_results[rule_id].extend(peak)
         summary = summarize_multirule_gate(
             incumbent_results,
-            peak_results,
+            peak_results if gate.multirule_evaluation_mode == "complete" else None,
             bootstrap_samples=gate.bootstrap_samples,
             confidence=gate.decision_confidence(),
             bootstrap_seed=run_seed + 2701,
             regression_tolerance=regression_tolerance,
         )
+        if summary.verdict == "peak_pending":
+            for rule_id in BAL5_R2_RULE_IDS:
+                if peak_model_ids[rule_id] == incumbent_model_id:
+                    peak_results[rule_id].extend(incumbent_results[rule_id])
+                else:
+                    peak = list(
+                        evaluate_pairs(
+                            rule_id,
+                            openings_by_rule[rule_id][:target_pairs],
+                            peak_model_ids[rule_id],
+                        )
+                    )
+                    if len(peak) != 2 * target_pairs:
+                        raise RuntimeError("candidate-peak gate returned incomplete paired evidence")
+                    peak_results[rule_id].extend(peak)
+            summary = summarize_multirule_gate(
+                incumbent_results,
+                peak_results,
+                bootstrap_samples=gate.bootstrap_samples,
+                confidence=gate.decision_confidence(),
+                bootstrap_seed=run_seed + 2701,
+                regression_tolerance=regression_tolerance,
+            )
         looks.append({"pairs_per_rule": target_pairs, **summary.to_dict()})
         if summary.verdict != "inconclusive":
             break
