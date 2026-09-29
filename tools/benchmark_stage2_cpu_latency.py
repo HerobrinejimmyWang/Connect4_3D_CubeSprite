@@ -33,7 +33,8 @@ if str(ROOT / "desktop_app" / "backend") not in sys.path:
 
 from connect4_core import GameRules  # noqa: E402
 from cubesprite_backend.search import NumpyMCTS, find_forced_tactical_action  # noqa: E402
-from training.v3.config import ModelConfig, model_config_dict  # noqa: E402
+from training.v3.config import ModelConfig, V3Config, model_config_dict  # noqa: E402
+from training.v3.pipeline import lineage_config_hash  # noqa: E402
 from training.v3.model import (  # noqa: E402
     LegacyPolicyValueAdapter,
     TorchPredictor,
@@ -103,7 +104,7 @@ class ClassicContextPredictor:
 
 
 def load_model(
-    config_path: Path, model_path: Path
+    config_path: Path, model_path: Path, *, artifact_kind: str = "offline"
 ) -> tuple[LegacyPolicyValueAdapter, dict[str, Any], dict[str, str]]:
     config_bytes = config_path.read_bytes()
     config_raw = json.loads(config_bytes.decode("utf-8"))
@@ -128,21 +129,33 @@ def load_model(
     if not isinstance(model_state, Mapping):
         raise ValueError(f"Stage 2 artifact is missing model_state: {model_path}")
     metadata = payload.get("metadata")
-    if not isinstance(metadata, Mapping) or metadata.get("lineage") != "v3_stage2_offline":
-        raise ValueError("latency benchmark accepts only V3 Stage 2 offline artifacts")
-    identity_fields = {
-        "train_regime": "train_regime",
-        "seed": "seed",
-        "target_positions": "train_positions",
-    }
-    for config_field, artifact_field in identity_fields.items():
-        if config_field not in config_raw:
-            raise ValueError(f"Stage 2 benchmark config is missing {config_field}")
-        if metadata.get(artifact_field) != config_raw[config_field]:
-            raise ValueError(
-                f"artifact {artifact_field} does not match config {config_field}: "
-                f"artifact={metadata.get(artifact_field)!r}, config={config_raw[config_field]!r}"
-            )
+    if not isinstance(metadata, Mapping):
+        raise ValueError("Stage 2 artifact is missing metadata")
+    if artifact_kind == "offline":
+        if metadata.get("lineage") != "v3_stage2_offline":
+            raise ValueError("latency benchmark expected a V3 Stage 2 offline artifact")
+        identity_fields = {
+            "train_regime": "train_regime",
+            "seed": "seed",
+            "target_positions": "train_positions",
+        }
+        for config_field, artifact_field in identity_fields.items():
+            if config_field not in config_raw:
+                raise ValueError(f"Stage 2 benchmark config is missing {config_field}")
+            if metadata.get(artifact_field) != config_raw[config_field]:
+                raise ValueError(
+                    f"artifact {artifact_field} does not match config {config_field}: "
+                    f"artifact={metadata.get(artifact_field)!r}, config={config_raw[config_field]!r}"
+                )
+    elif artifact_kind == "formal_v3_snapshot":
+        if (metadata.get("source_kind") != "formal_v3_checkpoint"
+                or metadata.get("evaluation_only") is not True
+                or metadata.get("train_positions_consumed") != 2_000_000
+                or metadata.get("source_checkpoint_config_hash") !=
+                lineage_config_hash(V3Config.from_dict(config_raw))):
+            raise ValueError("formal V3 snapshot/config identity or 2M child boundary mismatch")
+    else:
+        raise ValueError(f"unsupported Stage 2 artifact kind: {artifact_kind}")
 
     model = build_model(model_config)
     model.load_state_dict(model_state, strict=True)
@@ -176,6 +189,7 @@ def run_one(
     *,
     repeats: int = 3,
     idle_s: float = 0.0,
+    artifact_kind: str = "offline",
 ) -> dict[str, Any]:
     if simulations < 1:
         raise ValueError("simulations must be positive")
@@ -183,7 +197,8 @@ def run_one(
         raise ValueError("repeats must be positive")
     if idle_s < 0:
         raise ValueError("idle_s must be non-negative")
-    predictor, config, evidence = load_model(config_path, model_path)
+    predictor, config, evidence = load_model(config_path, model_path,
+                                             artifact_kind=artifact_kind)
     game = GameRules()
     predictor.predict(game.get_canonical_form(game.get_init_board(), 1))
     records: list[dict[str, Any]] = []
@@ -230,6 +245,7 @@ def run_one(
             "created_at_utc": datetime.now(timezone.utc).isoformat(),
             "runtime": "native-stage2-pytorch-numpymcts-cpu",
             "model_id": model_id,
+            "artifact_kind": artifact_kind,
             "architecture": config["model"]["architecture"],
             "train_regime": config.get("train_regime"),
             "config_sha256": evidence["config_sha256"],
