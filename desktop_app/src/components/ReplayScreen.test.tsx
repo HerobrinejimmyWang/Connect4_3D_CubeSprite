@@ -50,6 +50,22 @@ afterEach(() => {
 });
 
 describe("ReplayScreen", () => {
+  it("advances across a v2 forced pass using authoritative turn frames", async () => {
+    const user = userEvent.setup();
+    const opened = replayOpen();
+    opened.replay.protocol_version = 2;
+    opened.replay.turn_count = 2;
+    opened.replay.turns = [
+      { ply: 1, kind: "place", player: 1, column: 0, action: 0, layer: 0, row: 0, col: 0 },
+      { ply: 2, kind: "forced_pass", player: -1 },
+    ];
+    opened.frames[2] = { ...opened.frames[1], current_player: 1, move_count: 2, replay_step: 2 };
+    renderReplay({ replay: opened });
+    await user.click(screen.getByRole("button", { name: translations.zh.replay.next }));
+    await user.click(screen.getByRole("button", { name: translations.zh.replay.next }));
+    expect(screen.getByText(`蓝方 ${translations.zh.replay.forcedPass}`)).toBeVisible();
+    expect(screen.getByText("/2")).toBeVisible();
+  });
   it("plays the authoritative frames from step zero and keeps the board read-only", async () => {
     const user = userEvent.setup();
     const onContinue = vi.fn();

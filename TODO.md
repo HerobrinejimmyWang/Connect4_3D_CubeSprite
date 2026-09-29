@@ -19,11 +19,21 @@ Something I wish I can done in future...
 
 ### APP side (maybe v0.2.0)
 
-[ ] Replay: update to V2 edition
-[ ] Multi-rules: add the rules choices into app
+[x] Replay: update to V2 edition (Windows v0.2.0-alpha.1)
+[x] Multi-rules: add the rules choices into app (Windows v0.2.0-alpha.1)
 [ ] AI intelligence: default intelligence selection; more detailed AI settings
 [ ] Opening Library: using the CubeSprite V4 models to build up the opening library to speed up the AI response in the opening stage and provide an insight in tutorial mode
 [ ] Tutorial Mode (may reconstruct the replay mode)
 
 [ ] Hint: Reconstruct! provide top-k advice in real time with much more mcts sims
-[ ] Game board: can access the detailed rules and AI settings during the game  
+[x] Game board: can access the detailed rules and AI settings during the game (Windows v0.2.0-alpha.1)
+
+#### Windows v0.2.0-alpha.1 scope
+
+- [x] V4 Flash (Preview1) registry entry and default model; preserve 256 simulations / temperature 0.4 defaults.
+- [x] Five Stage 3 rules, model compatibility routing, forbidden-move UI, and automatic forced passes.
+- [x] Seven named intelligence placeholders: 16–1024 simulations / temperature 0.5; Advance opens detailed AI settings.
+- [x] Replay v2 save/import/playback/continuation; training sample interoperability.
+- [x] In-game Instructions and AI Settings return to the existing game; reject incompatible models during a live game.
+- [x] Remove visible app versions; update Instructions without Quick start.
+- [ ] Final effort names and future detailed intelligence design (follow-up scope).

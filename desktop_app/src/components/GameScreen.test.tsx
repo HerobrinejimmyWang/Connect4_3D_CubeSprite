@@ -66,10 +66,20 @@ function renderGame(overrides: Partial<React.ComponentProps<typeof GameScreen>> 
     onWinRate: noop,
     onSaveReplay: noop,
     onExit: noop,
+    onInstructions: noop,
+    onAiSettings: noop,
     ...overrides,
   };
   return render(<GameScreen {...props} />);
 }
+
+it("shows placed stones rather than turn count after a forced pass", () => {
+  const state = emptyState({ move_count: 2 });
+  state.board[0][0][0] = 1;
+  renderGame({ state });
+  const count = screen.getByText(translations.zh.game.totalMoves).parentElement!;
+  expect(count).toHaveTextContent("1/150");
+});
 
 it("trusts backend can_undo after a PvAI human move even before the AI responds", () => {
   renderGame({

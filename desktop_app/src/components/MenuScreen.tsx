@@ -1,5 +1,7 @@
+import type { CSSProperties } from "react";
+
 import type { Copy } from "../i18n";
-import type { MenuPanel, Player, ReplaySummary } from "../types";
+import type { MenuPanel, Player, ReplaySummary, RuleId } from "../types";
 import { ReplayLibraryPanel } from "./ReplayLibraryPanel";
 
 interface Props {
@@ -24,22 +26,37 @@ interface Props {
   onAiSettings: () => void;
   onSettings: () => void;
   onInstructions: () => void;
+  ruleId: RuleId;
+  onRuleChange: (ruleId: RuleId) => void;
+  intelligence: number;
+  onIntelligenceChange: (index: number) => void;
 }
+
+const RULE_IDS: RuleId[] = ["classic", "p1_vertical_ignored", "p1_vertical_forbidden", "p1_layer0_ignored", "p1_vertical_and_layer0_ignored"];
+const SIMS = [16, 32, 64, 128, 256, 512, 1024];
 
 export function MenuScreen(props: Props) {
   const { copy: t } = props;
   return (
-    <main className="menu-screen">
+    <main className={`menu-screen ${props.activePanel ? "panel-open" : ""}`}>
       <section className="brand-panel">
         <div className="cube-mark" aria-hidden="true">
           <i /><i /><i /><i />
         </div>
         <h1>Connect4 3D <span>CubeSprite</span></h1>
-        <small>{t.version}</small>
       </section>
 
       <section className={`menu-actions ${props.activePanel ? "menu-panel-open" : ""}`} aria-label="Main menu">
         <div className="primary-menu">
+          <fieldset className="rule-selector">
+            <legend>{t.menu.ruleSelection}</legend>
+            <div className="rule-selector-options">
+              {RULE_IDS.map((id, index) => <label key={id} title={t.menu.rules[index]} className={props.ruleId === id ? "selected" : ""}>
+                <input type="radio" name="game-rule" value={id} checked={props.ruleId === id} disabled={props.busy} onChange={() => props.onRuleChange(id)} />
+                <span>{t.menu.ruleShort[index]}</span>
+              </label>)}
+            </div>
+          </fieldset>
           <button className="menu-card red-accent" aria-label={t.menu.pvp} disabled={props.busy} onClick={props.onPvp}>
             <span className="menu-icon">●●</span>
             <span><strong>{t.menu.pvp}</strong><small>{t.menu.pvpDetail}</small></span>
@@ -62,6 +79,15 @@ export function MenuScreen(props: Props) {
             <button aria-label={t.menu.settings} disabled={props.busy} onClick={props.onSettings}><span aria-hidden="true">⚙</span>{t.menu.settings}</button>
             <button aria-label={t.menu.instructions} disabled={props.busy} onClick={props.onInstructions}><span aria-hidden="true">?</span>{t.menu.instructions}</button>
           </div>
+          <section className="intelligence-box" aria-label={t.menu.intelligence}>
+            <div className="intelligence-heading"><strong>{t.menu.intelligence}: {t.menu.effortNames[props.intelligence]}</strong><button onClick={props.onAiSettings} disabled={props.busy}>{t.menu.advance}</button></div>
+            <div className="intelligence-slider" style={{ "--effort-progress": `${props.intelligence / (SIMS.length - 1) * 100}%` } as CSSProperties}>
+              <div className="intelligence-rail" aria-hidden="true">
+                <div className="intelligence-ticks">{SIMS.map((sim, index) => <span className={index <= props.intelligence ? "active" : ""} key={sim} />)}</div>
+              </div>
+              <input type="range" min="0" max="6" step="1" value={props.intelligence} onChange={(event) => props.onIntelligenceChange(Number(event.target.value))} aria-label={t.menu.intelligence} aria-valuetext={`${t.menu.effortNames[props.intelligence]}, ${SIMS[props.intelligence]} MCTS`} disabled={props.busy} />
+            </div>
+          </section>
         </div>
 
         {props.activePanel === "side" && <aside className="side-picker">

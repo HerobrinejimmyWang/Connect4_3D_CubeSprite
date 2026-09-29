@@ -1,0 +1,158 @@
+{
+  "format": "cubesprite.replay",
+  "protocol_version": 2,
+  "id": "2e5a5c2e793be677a1c7f09e25082c0e",
+  "name": "V3 g000076 game 00012206 (warmstart-offline-f2aafc0078ce0399)",
+  "saved_at": "2026-09-05T17:16:12Z",
+  "rules": {
+    "format": "connect4-3d-gravity",
+    "version": 1,
+    "board_layers": 6,
+    "board_size": 5,
+    "connect_n": 4,
+    "gravity": "layer_ascending",
+    "starting_player": 1
+  },
+  "rule_id": "classic",
+  "rule_version": 1,
+  "participants": [
+    {
+      "seat": "FIRST",
+      "player": 1,
+      "controller_type": "model",
+      "controller_id": "warmstart-offline-f2aafc0078ce0399",
+      "display_name": "warmstart-offline-f2aafc0078ce0399",
+      "model_id": "warmstart-offline-f2aafc0078ce0399",
+      "lineage_hash": null,
+      "artifact_sha256": null
+    },
+    {
+      "seat": "SECOND",
+      "player": -1,
+      "controller_type": "model",
+      "controller_id": "warmstart-offline-f2aafc0078ce0399",
+      "display_name": "warmstart-offline-f2aafc0078ce0399",
+      "model_id": "warmstart-offline-f2aafc0078ce0399",
+      "lineage_hash": null,
+      "artifact_sha256": null
+    }
+  ],
+  "turns": [
+    {
+      "ply": 1,
+      "kind": "place",
+      "player": 1,
+      "column": 13,
+      "action": 13,
+      "layer": 0,
+      "row": 2,
+      "col": 3
+    },
+    {
+      "ply": 2,
+      "kind": "place",
+      "player": -1,
+      "column": 12,
+      "action": 12,
+      "layer": 0,
+      "row": 2,
+      "col": 2
+    },
+    {
+      "ply": 3,
+      "kind": "place",
+      "player": 1,
+      "column": 7,
+      "action": 7,
+      "layer": 0,
+      "row": 1,
+      "col": 2
+    },
+    {
+      "ply": 4,
+      "kind": "place",
+      "player": -1,
+      "column": 8,
+      "action": 8,
+      "layer": 0,
+      "row": 1,
+      "col": 3
+    },
+    {
+      "ply": 5,
+      "kind": "place",
+      "player": 1,
+      "column": 16,
+      "action": 16,
+      "layer": 0,
+      "row": 3,
+      "col": 1
+    },
+    {
+      "ply": 6,
+      "kind": "place",
+      "player": -1,
+      "column": 19,
+      "action": 19,
+      "layer": 0,
+      "row": 3,
+      "col": 4
+    },
+    {
+      "ply": 7,
+      "kind": "place",
+      "player": 1,
+      "column": 11,
+      "action": 11,
+      "layer": 0,
+      "row": 2,
+      "col": 1
+    },
+    {
+      "ply": 8,
+      "kind": "place",
+      "player": -1,
+      "column": 24,
+      "action": 24,
+      "layer": 0,
+      "row": 4,
+      "col": 4
+    },
+    {
+      "ply": 9,
+      "kind": "place",
+      "player": 1,
+      "column": 6,
+      "action": 6,
+      "layer": 0,
+      "row": 1,
+      "col": 1
+    },
+    {
+      "ply": 10,
+      "kind": "place",
+      "player": -1,
+      "column": 7,
+      "action": 32,
+      "layer": 1,
+      "row": 1,
+      "col": 2
+    },
+    {
+      "ply": 11,
+      "kind": "place",
+      "player": 1,
+      "column": 21,
+      "action": 21,
+      "layer": 0,
+      "row": 4,
+      "col": 1
+    }
+  ],
+  "turn_count": 11,
+  "placement_count": 11,
+  "status": "won",
+  "winner": 1,
+  "fingerprint": "5a62176323e258449ba111e48972cc0e4def2a4aac8863c23dfdd644a01c8c60",
+  "participant_provenance_hash": "2e8235a604fa3558ec2f53207d231bc4c3c55d2de1982bd608ca21f14d54e441"
+}

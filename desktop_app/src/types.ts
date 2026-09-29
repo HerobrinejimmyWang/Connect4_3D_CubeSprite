@@ -5,6 +5,7 @@ export type AutoplayInterval = 2000 | 1000 | 500 | 250;
 export type TacticalHintDelay = "off" | 0 | 5000;
 export type Player = 1 | -1;
 export type GameMode = "pvp" | "pvai";
+export type RuleId = "classic" | "p1_vertical_ignored" | "p1_vertical_forbidden" | "p1_layer0_ignored" | "p1_vertical_and_layer0_ignored";
 export type GameStateMode = GameMode | "replay";
 export type AiRole = "combat" | "hint" | "winRate";
 export type BoardViewMode = "2d" | "3d";
@@ -33,6 +34,7 @@ export interface Move {
 }
 
 export interface GameState {
+  rule_id?: RuleId;
   session_id: string;
   revision: number;
   mode: GameStateMode;
@@ -53,6 +55,7 @@ export interface GameState {
 }
 
 export interface ModelInfo {
+  supported_rule_ids?: RuleId[];
   id: string;
   display_name: string;
   model_path: string | null;
@@ -113,6 +116,8 @@ export interface ReplaySummary {
   name: string;
   saved_at: string;
   move_count: number;
+  turn_count?: number;
+  rule_id?: RuleId;
   status: ReplayStatus;
   winner: Player | 0 | null;
   fingerprint: string;
@@ -122,6 +127,10 @@ export interface ReplayMove extends Move {
   ply: number;
   player: Player;
 }
+
+export type ReplayTurn =
+  | (ReplayMove & { kind: "place"; column: number })
+  | { ply: number; kind: "forced_pass"; player: Player };
 
 export interface ReplayDocument extends ReplaySummary {
   format: string;
@@ -135,7 +144,9 @@ export interface ReplayDocument extends ReplaySummary {
     gravity: "layer_ascending";
     starting_player: 1;
   };
-  moves: ReplayMove[];
+  rule_version?: number;
+  turns?: ReplayTurn[];
+  moves?: ReplayMove[];
 }
 
 export interface ReplayFrame extends GameState {

@@ -16,6 +16,14 @@ import onnxruntime as ort
 PRODUCT_BOARD_LAYERS = 6
 PRODUCT_BOARD_SIZE = 5
 PRODUCT_ACTION_DIM = PRODUCT_BOARD_LAYERS * PRODUCT_BOARD_SIZE * PRODUCT_BOARD_SIZE
+V4_FLASH_MODEL_ID = "cubesprite_v4_flash_preview1"
+V4_RULE_IDS = (
+    "classic",
+    "p1_vertical_ignored",
+    "p1_vertical_forbidden",
+    "p1_layer0_ignored",
+    "p1_vertical_and_layer0_ignored",
+)
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -42,6 +50,10 @@ class ModelSpec:
     defaults: dict[str, Any]
     description: dict[str, str]
     placeholder: bool = False
+
+    @property
+    def supported_rule_ids(self) -> tuple[str, ...]:
+        return V4_RULE_IDS if self.id == V4_FLASH_MODEL_ID else ("classic",)
 
     @property
     def default_mcts_sims(self) -> int:
@@ -75,6 +87,10 @@ class ModelSpec:
             raise ModelRegistryError(f"Model {spec.id} has unsupported board_size={spec.board_size}.")
         if spec.architecture in {"modern-v22", "gravity_resnet_v1", "v3-stage1-adapted"}:
             expected = (6, 2, 150)
+        elif spec.architecture == "v3-role-rule-v1":
+            expected = (6, 1, 150)
+            if spec.id != V4_FLASH_MODEL_ID:
+                raise ModelRegistryError("The role-rule architecture requires the V4 Flash model id.")
         elif spec.architecture == "legacy-v21-adapted-6-layer":
             expected = (8, 1, 200)
         elif spec.placeholder:
@@ -88,7 +104,7 @@ class ModelSpec:
             raise ModelRegistryError(f"Model {spec.id} requires zh/en descriptions.")
         if not isinstance(spec.defaults, dict) or set(spec.defaults) != {"mcts_sims", "temperature"}:
             raise ModelRegistryError(f"Model {spec.id} requires mcts_sims and temperature defaults.")
-        if spec.default_mcts_sims not in {32, 64, 128, 256, 512, 1024}:
+        if spec.default_mcts_sims not in {16, 32, 64, 128, 256, 512, 1024}:
             raise ModelRegistryError(f"Model {spec.id} has an unsupported default MCTS count.")
         if not 0.0 <= float(spec.default_temperature) <= 2.0:
             raise ModelRegistryError(f"Model {spec.id} has an invalid default temperature.")
@@ -142,6 +158,7 @@ class ModelRegistry:
                     "default_mcts_sims": spec.default_mcts_sims,
                     "default_temperature": spec.default_temperature,
                     "description": dict(spec.description),
+                    "supported_rule_ids": list(spec.supported_rule_ids),
                     "placeholder": spec.placeholder,
                     "available": reason is None,
                     "unavailable_reason": reason,
@@ -203,10 +220,20 @@ class OnnxPredictor:
         self.session = ort.InferenceSession(str(path), sess_options=options, providers=["CPUExecutionProvider"])
         inputs = self.session.get_inputs()
         outputs = self.session.get_outputs()
-        if len(inputs) != 1 or len(outputs) != 2:
-            raise ValueError("Expected exactly one ONNX input and two outputs (policy, value).")
-        self.input_name = inputs[0].name
-        self._validate_static_shape(inputs[0].shape)
+        expected_inputs = 3 if spec.architecture == "v3-role-rule-v1" else 1
+        if len(inputs) != expected_inputs or len(outputs) != 2:
+            raise ValueError(f"Expected {expected_inputs} ONNX input(s) and two outputs (policy, value).")
+        input_by_name = {item.name: item for item in inputs}
+        if spec.architecture == "v3-role-rule-v1":
+            if set(input_by_name) != {"board", "role_to_play", "rule_features"}:
+                raise ValueError("Role-rule ONNX must expose board, role_to_play, and rule_features inputs.")
+            self._validate_shape(input_by_name["board"].shape, [None, 6, 5, 5])
+            self._validate_shape(input_by_name["role_to_play"].shape, [None, 2])
+            self._validate_shape(input_by_name["rule_features"].shape, [None, 32])
+            self.input_name = "board"
+        else:
+            self.input_name = inputs[0].name
+            self._validate_static_shape(inputs[0].shape)
         policy_output = next((item for item in outputs if self._last_static_dim(item.shape) == spec.action_dim), None)
         value_output = next((item for item in outputs if self._last_static_dim(item.shape) == 1), None)
         if policy_output is None or value_output is None or policy_output.name == value_output.name:
@@ -230,11 +257,30 @@ class OnnxPredictor:
                 f"expected {self.spec.artifact_sha256}, found {actual}."
             )
 
-    def predict(self, canonical_board: np.ndarray) -> tuple[np.ndarray, float]:
-        encoded = self._encode(canonical_board)
+    def predict(
+        self,
+        canonical_board: np.ndarray,
+        *,
+        rule_features: np.ndarray | None = None,
+        first_player: int | None = None,
+    ) -> tuple[np.ndarray, float]:
+        if self.spec.architecture == "v3-role-rule-v1":
+            if first_player not in (-1, 1):
+                raise ValueError("V4 Flash requires first_player=+1 or -1 for the side to move.")
+            rules = np.asarray(rule_features, dtype=np.float32)
+            if rules.shape != (32,) or not np.all(np.isfinite(rules)):
+                raise ValueError("V4 Flash requires 32 finite rule features.")
+            role = np.array([[1.0, 0.0] if first_player == 1 else [0.0, 1.0]], dtype=np.float32)
+            feeds = {
+                "board": self._encode_canonical(canonical_board),
+                "role_to_play": role,
+                "rule_features": rules[None, :],
+            }
+        else:
+            feeds = {self.input_name: self._encode(canonical_board)}
         with self._run_lock:
             policy_output, value_output = self.session.run(
-                [self.policy_output_name, self.value_output_name], {self.input_name: encoded}
+                [self.policy_output_name, self.value_output_name], feeds
             )
         policy_raw = np.asarray(policy_output, dtype=np.float64).reshape(-1)
         if policy_raw.size != self.spec.action_dim:
@@ -270,8 +316,20 @@ class OnnxPredictor:
         channels = np.stack((board > 0, board < 0), axis=0).astype(np.float32)
         return channels[np.newaxis, ...]
 
+    @staticmethod
+    def _encode_canonical(board: np.ndarray) -> np.ndarray:
+        board = np.asarray(board, dtype=np.int8)
+        expected = (PRODUCT_BOARD_LAYERS, PRODUCT_BOARD_SIZE, PRODUCT_BOARD_SIZE)
+        if board.shape != expected or not np.all(np.isin(board, (-1, 0, 1))):
+            raise ValueError("Canonical board must be [6,5,5] with -1, 0, or +1 cells.")
+        return board.astype(np.float32, copy=False)[None, ...]
+
     def _validate_static_shape(self, shape: list[Any]) -> None:
         expected = [None, self.spec.input_channels, self.spec.board_layers, self.spec.board_size, self.spec.board_size]
+        self._validate_shape(shape, expected)
+
+    @staticmethod
+    def _validate_shape(shape: list[Any], expected: list[int | None]) -> None:
         if len(shape) != len(expected):
             raise ValueError(f"ONNX input rank {len(shape)} does not match expected rank 5.")
         for actual, wanted in zip(shape, expected):

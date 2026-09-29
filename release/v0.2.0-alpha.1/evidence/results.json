@@ -1,0 +1,1423 @@
+{
+  "passed": true,
+  "executable": "D:\\cc\\tmp\\cubesprite-alpha1-ui-installed\\cubesprite.exe",
+  "checks": [
+    {
+      "check": "Installed app boots with V4 first and no visible app version"
+    },
+    {
+      "check": "Responsive menu 1536x792",
+      "metrics": {
+        "viewport": {
+          "width": 1536,
+          "height": 792
+        },
+        "documentSize": {
+          "width": 1536,
+          "height": 792
+        },
+        "boxes": {
+          ".menu-screen": {
+            "left": 58,
+            "top": 0,
+            "right": 1478,
+            "bottom": 792
+          },
+          ".primary-menu": {
+            "left": 746.9125366210938,
+            "top": 119.0999984741211,
+            "right": 1401.2000732421875,
+            "bottom": 712.8999862670898
+          },
+          ".intelligence-box": {
+            "left": 746.9125366210938,
+            "top": 612.9000244140625,
+            "right": 1401.2000732421875,
+            "bottom": 712.9000244140625
+          }
+        }
+      }
+    },
+    {
+      "check": "Responsive side picker 1536x792",
+      "metrics": {
+        "viewport": {
+          "width": 1536,
+          "height": 792
+        },
+        "documentSize": {
+          "width": 1536,
+          "height": 792
+        },
+        "boxes": {
+          ".menu-screen": {
+            "left": 0,
+            "top": 0,
+            "right": 1536,
+            "bottom": 792
+          },
+          ".primary-menu": {
+            "left": 513.9125366210938,
+            "top": 144.10000610351562,
+            "right": 1002.737548828125,
+            "bottom": 687.8999938964844
+          },
+          ".side-picker": {
+            "left": 1022.7374877929688,
+            "top": 292.3000183105469,
+            "right": 1459.1999816894531,
+            "bottom": 539.7000274658203
+          }
+        }
+      }
+    },
+    {
+      "check": "Responsive replay picker 1536x792",
+      "metrics": {
+        "viewport": {
+          "width": 1536,
+          "height": 792
+        },
+        "documentSize": {
+          "width": 1536,
+          "height": 792
+        },
+        "boxes": {
+          ".menu-screen": {
+            "left": 0,
+            "top": 0,
+            "right": 1536,
+            "bottom": 792
+          },
+          ".primary-menu": {
+            "left": 513.9125366210938,
+            "top": 144.10000610351562,
+            "right": 1002.737548828125,
+            "bottom": 687.8999938964844
+          },
+          ".side-picker": {
+            "left": 1022.7374877929688,
+            "top": 133.5,
+            "right": 1459.1999816894531,
+            "bottom": 698.5
+          }
+        }
+      }
+    },
+    {
+      "check": "Responsive menu 1100x720",
+      "metrics": {
+        "viewport": {
+          "width": 1100,
+          "height": 720
+        },
+        "documentSize": {
+          "width": 1100,
+          "height": 720
+        },
+        "boxes": {
+          ".menu-screen": {
+            "left": 0,
+            "top": 0,
+            "right": 1100,
+            "bottom": 720
+          },
+          ".primary-menu": {
+            "left": 446.875,
+            "top": 108.0999984741211,
+            "right": 1050,
+            "bottom": 651.8999862670898
+          },
+          ".intelligence-box": {
+            "left": 446.875,
+            "top": 551.9000244140625,
+            "right": 1050,
+            "bottom": 651.9000244140625
+          }
+        }
+      }
+    },
+    {
+      "check": "Responsive side picker 1100x720",
+      "metrics": {
+        "viewport": {
+          "width": 1100,
+          "height": 720
+        },
+        "documentSize": {
+          "width": 1100,
+          "height": 720
+        },
+        "boxes": {
+          ".menu-screen": {
+            "left": 20,
+            "top": 0,
+            "right": 1080,
+            "bottom": 720
+          },
+          ".primary-menu": {
+            "left": 70,
+            "top": 108.0999984741211,
+            "right": 566.6000061035156,
+            "bottom": 651.8999862670898
+          },
+          ".side-picker": {
+            "left": 586.6000366210938,
+            "top": 256.3000183105469,
+            "right": 1030.0000305175781,
+            "bottom": 503.7000274658203
+          }
+        }
+      }
+    },
+    {
+      "check": "Responsive replay picker 1100x720",
+      "metrics": {
+        "viewport": {
+          "width": 1100,
+          "height": 720
+        },
+        "documentSize": {
+          "width": 1100,
+          "height": 720
+        },
+        "boxes": {
+          ".menu-screen": {
+            "left": 20,
+            "top": 0,
+            "right": 1080,
+            "bottom": 720
+          },
+          ".primary-menu": {
+            "left": 70,
+            "top": 108.0999984741211,
+            "right": 566.6000061035156,
+            "bottom": 651.8999862670898
+          },
+          ".side-picker": {
+            "left": 586.6000366210938,
+            "top": 97.5,
+            "right": 1030.0000305175781,
+            "bottom": 662.5
+          }
+        }
+      }
+    },
+    {
+      "check": "Responsive menu 1280x720",
+      "metrics": {
+        "viewport": {
+          "width": 1280,
+          "height": 720
+        },
+        "documentSize": {
+          "width": 1280,
+          "height": 720
+        },
+        "boxes": {
+          ".menu-screen": {
+            "left": 0,
+            "top": 0,
+            "right": 1280,
+            "bottom": 720
+          },
+          ".primary-menu": {
+            "left": 617.6000366210938,
+            "top": 108.0999984741211,
+            "right": 1216.0000610351562,
+            "bottom": 651.8999862670898
+          },
+          ".intelligence-box": {
+            "left": 617.6000366210938,
+            "top": 551.9000244140625,
+            "right": 1216.0000610351562,
+            "bottom": 651.9000244140625
+          }
+        }
+      }
+    },
+    {
+      "check": "Responsive side picker 1280x720",
+      "metrics": {
+        "viewport": {
+          "width": 1280,
+          "height": 720
+        },
+        "documentSize": {
+          "width": 1280,
+          "height": 720
+        },
+        "boxes": {
+          ".menu-screen": {
+            "left": 110,
+            "top": 0,
+            "right": 1170,
+            "bottom": 720
+          },
+          ".primary-menu": {
+            "left": 174,
+            "top": 108.0999984741211,
+            "right": 655.8000183105469,
+            "bottom": 651.8999862670898
+          },
+          ".side-picker": {
+            "left": 675.7999877929688,
+            "top": 256.3000183105469,
+            "right": 1106,
+            "bottom": 503.7000274658203
+          }
+        }
+      }
+    },
+    {
+      "check": "Responsive replay picker 1280x720",
+      "metrics": {
+        "viewport": {
+          "width": 1280,
+          "height": 720
+        },
+        "documentSize": {
+          "width": 1280,
+          "height": 720
+        },
+        "boxes": {
+          ".menu-screen": {
+            "left": 110,
+            "top": 0,
+            "right": 1170,
+            "bottom": 720
+          },
+          ".primary-menu": {
+            "left": 174,
+            "top": 108.0999984741211,
+            "right": 655.8000183105469,
+            "bottom": 651.8999862670898
+          },
+          ".side-picker": {
+            "left": 675.7999877929688,
+            "top": 97.5,
+            "right": 1106,
+            "bottom": 662.5
+          }
+        }
+      }
+    },
+    {
+      "check": "Responsive menu 1440x900",
+      "metrics": {
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "documentSize": {
+          "width": 1440,
+          "height": 900
+        },
+        "boxes": {
+          ".menu-screen": {
+            "left": 10,
+            "top": 0,
+            "right": 1430,
+            "bottom": 900
+          },
+          ".primary-menu": {
+            "left": 695.7999877929688,
+            "top": 185.60000610351562,
+            "right": 1358,
+            "bottom": 754.3999938964844
+          },
+          ".intelligence-box": {
+            "left": 695.7999877929688,
+            "top": 646.4000244140625,
+            "right": 1358,
+            "bottom": 754.4000244140625
+          }
+        }
+      }
+    },
+    {
+      "check": "Responsive side picker 1440x900",
+      "metrics": {
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "documentSize": {
+          "width": 1440,
+          "height": 900
+        },
+        "boxes": {
+          ".menu-screen": {
+            "left": 0,
+            "top": 0,
+            "right": 1440,
+            "bottom": 900
+          },
+          ".primary-menu": {
+            "left": 483.20001220703125,
+            "top": 161.60000610351562,
+            "right": 940.0750122070312,
+            "bottom": 778.3999938964844
+          },
+          ".side-picker": {
+            "left": 960.0750122070312,
+            "top": 346.3000183105469,
+            "right": 1368.0000305175781,
+            "bottom": 593.7000274658203
+          }
+        }
+      }
+    },
+    {
+      "check": "Responsive replay picker 1440x900",
+      "metrics": {
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "documentSize": {
+          "width": 1440,
+          "height": 900
+        },
+        "boxes": {
+          ".menu-screen": {
+            "left": 0,
+            "top": 0,
+            "right": 1440,
+            "bottom": 900
+          },
+          ".primary-menu": {
+            "left": 483.20001220703125,
+            "top": 161.60000610351562,
+            "right": 940.0750122070312,
+            "bottom": 778.3999938964844
+          },
+          ".side-picker": {
+            "left": 960.0750122070312,
+            "top": 187.5,
+            "right": 1368.0000305175781,
+            "bottom": 752.5
+          }
+        }
+      }
+    },
+    {
+      "check": "Responsive menu 1920x1080",
+      "metrics": {
+        "viewport": {
+          "width": 1920,
+          "height": 1080
+        },
+        "documentSize": {
+          "width": 1920,
+          "height": 1080
+        },
+        "boxes": {
+          ".menu-screen": {
+            "left": 250,
+            "top": 0,
+            "right": 1670,
+            "bottom": 1080
+          },
+          ".primary-menu": {
+            "left": 941,
+            "top": 251.60000610351562,
+            "right": 1590,
+            "bottom": 868.3999938964844
+          },
+          ".intelligence-box": {
+            "left": 941,
+            "top": 760.4000244140625,
+            "right": 1590,
+            "bottom": 868.4000244140625
+          }
+        }
+      }
+    },
+    {
+      "check": "Responsive side picker 1920x1080",
+      "metrics": {
+        "viewport": {
+          "width": 1920,
+          "height": 1080
+        },
+        "documentSize": {
+          "width": 1920,
+          "height": 1080
+        },
+        "boxes": {
+          ".menu-screen": {
+            "left": 130,
+            "top": 0,
+            "right": 1790,
+            "bottom": 1080
+          },
+          ".primary-menu": {
+            "left": 682.4000244140625,
+            "top": 251.60000610351562,
+            "right": 1214.7125244140625,
+            "bottom": 868.3999938964844
+          },
+          ".side-picker": {
+            "left": 1234.7125244140625,
+            "top": 436.3000183105469,
+            "right": 1710.0000305175781,
+            "bottom": 683.7000274658203
+          }
+        }
+      }
+    },
+    {
+      "check": "Responsive replay picker 1920x1080",
+      "metrics": {
+        "viewport": {
+          "width": 1920,
+          "height": 1080
+        },
+        "documentSize": {
+          "width": 1920,
+          "height": 1080
+        },
+        "boxes": {
+          ".menu-screen": {
+            "left": 130,
+            "top": 0,
+            "right": 1790,
+            "bottom": 1080
+          },
+          ".primary-menu": {
+            "left": 682.4000244140625,
+            "top": 251.60000610351562,
+            "right": 1214.7125244140625,
+            "bottom": 868.3999938964844
+          },
+          ".side-picker": {
+            "left": 1234.7125244140625,
+            "top": 277.5,
+            "right": 1710.0000305175781,
+            "bottom": 842.5
+          }
+        }
+      }
+    },
+    {
+      "check": "Responsive ai-settings 1536x792",
+      "metrics": {
+        "viewport": {
+          "width": 1536,
+          "height": 792
+        },
+        "documentSize": {
+          "width": 1536,
+          "height": 792
+        },
+        "boxes": {
+          ".page-shell": {
+            "left": 58,
+            "top": 0,
+            "right": 1478,
+            "bottom": 792
+          },
+          ".page-content": {
+            "left": 58,
+            "top": 163.40000915527344,
+            "right": 1478,
+            "bottom": 716.4000091552734
+          },
+          ".back-button": {
+            "left": 58,
+            "top": 732.4000244140625,
+            "right": 298.46250915527344,
+            "bottom": 776.0000267028809
+          }
+        }
+      }
+    },
+    {
+      "check": "Responsive ai-settings 1100x720",
+      "metrics": {
+        "viewport": {
+          "width": 1100,
+          "height": 720
+        },
+        "documentSize": {
+          "width": 1100,
+          "height": 720
+        },
+        "boxes": {
+          ".page-shell": {
+            "left": 41,
+            "top": 0,
+            "right": 1059,
+            "bottom": 720
+          },
+          ".page-content": {
+            "left": 41,
+            "top": 163.40000915527344,
+            "right": 1059,
+            "bottom": 644.4000091552734
+          },
+          ".back-button": {
+            "left": 41,
+            "top": 660.4000244140625,
+            "right": 281.46250915527344,
+            "bottom": 704.0000267028809
+          }
+        }
+      }
+    },
+    {
+      "check": "Responsive ai-settings 1280x720",
+      "metrics": {
+        "viewport": {
+          "width": 1280,
+          "height": 720
+        },
+        "documentSize": {
+          "width": 1280,
+          "height": 720
+        },
+        "boxes": {
+          ".page-shell": {
+            "left": 41,
+            "top": 0,
+            "right": 1239,
+            "bottom": 720
+          },
+          ".page-content": {
+            "left": 41,
+            "top": 163.40000915527344,
+            "right": 1239,
+            "bottom": 644.4000091552734
+          },
+          ".back-button": {
+            "left": 41,
+            "top": 660.4000244140625,
+            "right": 281.46250915527344,
+            "bottom": 704.0000267028809
+          }
+        }
+      }
+    },
+    {
+      "check": "Responsive ai-settings 1440x900",
+      "metrics": {
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "documentSize": {
+          "width": 1440,
+          "height": 900
+        },
+        "boxes": {
+          ".page-shell": {
+            "left": 41,
+            "top": 0,
+            "right": 1399,
+            "bottom": 900
+          },
+          ".page-content": {
+            "left": 41,
+            "top": 163.40000915527344,
+            "right": 1399,
+            "bottom": 824.4000091552734
+          },
+          ".back-button": {
+            "left": 41,
+            "top": 840.4000244140625,
+            "right": 281.46250915527344,
+            "bottom": 884.0000267028809
+          }
+        }
+      }
+    },
+    {
+      "check": "Responsive ai-settings 1920x1080",
+      "metrics": {
+        "viewport": {
+          "width": 1920,
+          "height": 1080
+        },
+        "documentSize": {
+          "width": 1920,
+          "height": 1080
+        },
+        "boxes": {
+          ".page-shell": {
+            "left": 250,
+            "top": 0,
+            "right": 1670,
+            "bottom": 1080
+          },
+          ".page-content": {
+            "left": 250,
+            "top": 163.40000915527344,
+            "right": 1670,
+            "bottom": 1004.4000091552734
+          },
+          ".back-button": {
+            "left": 250,
+            "top": 1020.4000244140625,
+            "right": 490.46250915527344,
+            "bottom": 1064.0000267028809
+          }
+        }
+      }
+    },
+    {
+      "check": "Responsive settings 1536x792",
+      "metrics": {
+        "viewport": {
+          "width": 1536,
+          "height": 792
+        },
+        "documentSize": {
+          "width": 1536,
+          "height": 792
+        },
+        "boxes": {
+          ".page-shell": {
+            "left": 278,
+            "top": 0,
+            "right": 1258,
+            "bottom": 792
+          },
+          ".page-content": {
+            "left": 278,
+            "top": 163.40000915527344,
+            "right": 1258,
+            "bottom": 716.4000091552734
+          },
+          ".back-button": {
+            "left": 278,
+            "top": 732.4000244140625,
+            "right": 518.4625091552734,
+            "bottom": 776.0000267028809
+          }
+        }
+      }
+    },
+    {
+      "check": "Responsive settings 1100x720",
+      "metrics": {
+        "viewport": {
+          "width": 1100,
+          "height": 720
+        },
+        "documentSize": {
+          "width": 1100,
+          "height": 720
+        },
+        "boxes": {
+          ".page-shell": {
+            "left": 60,
+            "top": 0,
+            "right": 1040,
+            "bottom": 720
+          },
+          ".page-content": {
+            "left": 60,
+            "top": 163.40000915527344,
+            "right": 1040,
+            "bottom": 644.4000091552734
+          },
+          ".back-button": {
+            "left": 60,
+            "top": 660.4000244140625,
+            "right": 300.46250915527344,
+            "bottom": 704.0000267028809
+          }
+        }
+      }
+    },
+    {
+      "check": "Responsive settings 1280x720",
+      "metrics": {
+        "viewport": {
+          "width": 1280,
+          "height": 720
+        },
+        "documentSize": {
+          "width": 1280,
+          "height": 720
+        },
+        "boxes": {
+          ".page-shell": {
+            "left": 150,
+            "top": 0,
+            "right": 1130,
+            "bottom": 720
+          },
+          ".page-content": {
+            "left": 150,
+            "top": 163.40000915527344,
+            "right": 1130,
+            "bottom": 644.4000091552734
+          },
+          ".back-button": {
+            "left": 150,
+            "top": 660.4000244140625,
+            "right": 390.46250915527344,
+            "bottom": 704.0000267028809
+          }
+        }
+      }
+    },
+    {
+      "check": "Responsive settings 1440x900",
+      "metrics": {
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "documentSize": {
+          "width": 1440,
+          "height": 900
+        },
+        "boxes": {
+          ".page-shell": {
+            "left": 230,
+            "top": 0,
+            "right": 1210,
+            "bottom": 900
+          },
+          ".page-content": {
+            "left": 230,
+            "top": 163.40000915527344,
+            "right": 1210,
+            "bottom": 824.4000091552734
+          },
+          ".back-button": {
+            "left": 230,
+            "top": 840.4000244140625,
+            "right": 470.46250915527344,
+            "bottom": 884.0000267028809
+          }
+        }
+      }
+    },
+    {
+      "check": "Responsive settings 1920x1080",
+      "metrics": {
+        "viewport": {
+          "width": 1920,
+          "height": 1080
+        },
+        "documentSize": {
+          "width": 1920,
+          "height": 1080
+        },
+        "boxes": {
+          ".page-shell": {
+            "left": 470,
+            "top": 0,
+            "right": 1450,
+            "bottom": 1080
+          },
+          ".page-content": {
+            "left": 470,
+            "top": 163.40000915527344,
+            "right": 1450,
+            "bottom": 1004.4000091552734
+          },
+          ".back-button": {
+            "left": 470,
+            "top": 1020.4000244140625,
+            "right": 710.4625091552734,
+            "bottom": 1064.0000267028809
+          }
+        }
+      }
+    },
+    {
+      "check": "Responsive instructions 1536x792",
+      "metrics": {
+        "viewport": {
+          "width": 1536,
+          "height": 792
+        },
+        "documentSize": {
+          "width": 1536,
+          "height": 792
+        },
+        "boxes": {
+          ".page-shell": {
+            "left": 58,
+            "top": 0,
+            "right": 1478,
+            "bottom": 792
+          },
+          ".page-content": {
+            "left": 58,
+            "top": 163.40000915527344,
+            "right": 1478,
+            "bottom": 716.4000091552734
+          },
+          ".back-button": {
+            "left": 58,
+            "top": 732.4000244140625,
+            "right": 298.46250915527344,
+            "bottom": 776.0000267028809
+          }
+        }
+      }
+    },
+    {
+      "check": "Responsive instructions 1100x720",
+      "metrics": {
+        "viewport": {
+          "width": 1100,
+          "height": 720
+        },
+        "documentSize": {
+          "width": 1100,
+          "height": 720
+        },
+        "boxes": {
+          ".page-shell": {
+            "left": 41,
+            "top": 0,
+            "right": 1059,
+            "bottom": 720
+          },
+          ".page-content": {
+            "left": 41,
+            "top": 163.40000915527344,
+            "right": 1059,
+            "bottom": 644.4000091552734
+          },
+          ".back-button": {
+            "left": 41,
+            "top": 660.4000244140625,
+            "right": 281.46250915527344,
+            "bottom": 704.0000267028809
+          }
+        }
+      }
+    },
+    {
+      "check": "Responsive instructions 1280x720",
+      "metrics": {
+        "viewport": {
+          "width": 1280,
+          "height": 720
+        },
+        "documentSize": {
+          "width": 1280,
+          "height": 720
+        },
+        "boxes": {
+          ".page-shell": {
+            "left": 41,
+            "top": 0,
+            "right": 1239,
+            "bottom": 720
+          },
+          ".page-content": {
+            "left": 41,
+            "top": 163.40000915527344,
+            "right": 1239,
+            "bottom": 644.4000091552734
+          },
+          ".back-button": {
+            "left": 41,
+            "top": 660.4000244140625,
+            "right": 281.46250915527344,
+            "bottom": 704.0000267028809
+          }
+        }
+      }
+    },
+    {
+      "check": "Responsive instructions 1440x900",
+      "metrics": {
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "documentSize": {
+          "width": 1440,
+          "height": 900
+        },
+        "boxes": {
+          ".page-shell": {
+            "left": 41,
+            "top": 0,
+            "right": 1399,
+            "bottom": 900
+          },
+          ".page-content": {
+            "left": 41,
+            "top": 163.40000915527344,
+            "right": 1399,
+            "bottom": 824.4000091552734
+          },
+          ".back-button": {
+            "left": 41,
+            "top": 840.4000244140625,
+            "right": 281.46250915527344,
+            "bottom": 884.0000267028809
+          }
+        }
+      }
+    },
+    {
+      "check": "Responsive instructions 1920x1080",
+      "metrics": {
+        "viewport": {
+          "width": 1920,
+          "height": 1080
+        },
+        "documentSize": {
+          "width": 1920,
+          "height": 1080
+        },
+        "boxes": {
+          ".page-shell": {
+            "left": 250,
+            "top": 0,
+            "right": 1670,
+            "bottom": 1080
+          },
+          ".page-content": {
+            "left": 250,
+            "top": 163.40000915527344,
+            "right": 1670,
+            "bottom": 1004.4000091552734
+          },
+          ".back-button": {
+            "left": 250,
+            "top": 1020.4000244140625,
+            "right": 490.46250915527344,
+            "bottom": 1064.0000267028809
+          }
+        }
+      }
+    },
+    {
+      "check": "Responsive menu restored 1440x900",
+      "metrics": {
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "documentSize": {
+          "width": 1440,
+          "height": 900
+        },
+        "boxes": {
+          ".menu-screen": {
+            "left": 10,
+            "top": 0,
+            "right": 1430,
+            "bottom": 900
+          },
+          ".primary-menu": {
+            "left": 695.7999877929688,
+            "top": 161.60000610351562,
+            "right": 1358,
+            "bottom": 778.3999938964844
+          }
+        }
+      }
+    },
+    {
+      "check": "Both model/rule selection orders show the compatibility banner and route correctly"
+    },
+    {
+      "check": "Seven intelligence presets map to 16–1024 simulations at temperature 0.5"
+    },
+    {
+      "check": "Responsive game 2D 1100x720",
+      "metrics": {
+        "viewport": {
+          "width": 1100,
+          "height": 720
+        },
+        "documentSize": {
+          "width": 1100,
+          "height": 720
+        },
+        "boxes": {
+          ".game-screen": {
+            "left": 0,
+            "top": 0,
+            "right": 1100,
+            "bottom": 720
+          },
+          ".game-topbar": {
+            "left": 23,
+            "top": 10,
+            "right": 1077,
+            "bottom": 84
+          },
+          ".game-workspace": {
+            "left": 23,
+            "top": 84,
+            "right": 1077,
+            "bottom": 650
+          },
+          ".board-area": {
+            "left": 70,
+            "top": 92.42500305175781,
+            "right": 1030,
+            "bottom": 641.5750274658203
+          },
+          ".game-functions": {
+            "left": 23,
+            "top": 650,
+            "right": 1077,
+            "bottom": 710
+          }
+        }
+      }
+    },
+    {
+      "check": "Readable board cells 1100x720",
+      "width": 38.36249542236328,
+      "height": 38.362510681152344
+    },
+    {
+      "check": "Responsive game 3D 1100x720",
+      "metrics": {
+        "viewport": {
+          "width": 1100,
+          "height": 720
+        },
+        "documentSize": {
+          "width": 1100,
+          "height": 720
+        },
+        "boxes": {
+          ".game-screen": {
+            "left": 0,
+            "top": 0,
+            "right": 1100,
+            "bottom": 720
+          },
+          ".game-topbar": {
+            "left": 23,
+            "top": 10,
+            "right": 1077,
+            "bottom": 84
+          },
+          ".game-workspace": {
+            "left": 23,
+            "top": 84,
+            "right": 1077,
+            "bottom": 650
+          },
+          ".game-functions": {
+            "left": 23,
+            "top": 650,
+            "right": 1077,
+            "bottom": 710
+          }
+        }
+      }
+    },
+    {
+      "check": "Responsive game 2D 1280x720",
+      "metrics": {
+        "viewport": {
+          "width": 1280,
+          "height": 720
+        },
+        "documentSize": {
+          "width": 1280,
+          "height": 720
+        },
+        "boxes": {
+          ".game-screen": {
+            "left": 0,
+            "top": 0,
+            "right": 1280,
+            "bottom": 720
+          },
+          ".game-topbar": {
+            "left": 43.51250076293945,
+            "top": 10,
+            "right": 1236.487476348877,
+            "bottom": 84
+          },
+          ".game-workspace": {
+            "left": 43.51250076293945,
+            "top": 84,
+            "right": 1236.487476348877,
+            "bottom": 650
+          },
+          ".board-area": {
+            "left": 160,
+            "top": 93.4124984741211,
+            "right": 1120,
+            "bottom": 640.5874862670898
+          },
+          ".game-functions": {
+            "left": 43.51250076293945,
+            "top": 650,
+            "right": 1236.487476348877,
+            "bottom": 710
+          }
+        }
+      }
+    },
+    {
+      "check": "Readable board cells 1280x720",
+      "width": 37.125,
+      "height": 37.125
+    },
+    {
+      "check": "Responsive game 3D 1280x720",
+      "metrics": {
+        "viewport": {
+          "width": 1280,
+          "height": 720
+        },
+        "documentSize": {
+          "width": 1280,
+          "height": 720
+        },
+        "boxes": {
+          ".game-screen": {
+            "left": 0,
+            "top": 0,
+            "right": 1280,
+            "bottom": 720
+          },
+          ".game-topbar": {
+            "left": 43.51250076293945,
+            "top": 10,
+            "right": 1236.487476348877,
+            "bottom": 84
+          },
+          ".game-workspace": {
+            "left": 43.51250076293945,
+            "top": 84,
+            "right": 1236.487476348877,
+            "bottom": 650
+          },
+          ".game-functions": {
+            "left": 43.51250076293945,
+            "top": 650,
+            "right": 1236.487476348877,
+            "bottom": 710
+          }
+        }
+      }
+    },
+    {
+      "check": "Responsive game 2D 1536x792",
+      "metrics": {
+        "viewport": {
+          "width": 1536,
+          "height": 792
+        },
+        "documentSize": {
+          "width": 1536,
+          "height": 792
+        },
+        "boxes": {
+          ".game-screen": {
+            "left": 0,
+            "top": 0,
+            "right": 1536,
+            "bottom": 792
+          },
+          ".game-topbar": {
+            "left": 52.212501525878906,
+            "top": 10,
+            "right": 1483.7875747680664,
+            "bottom": 84
+          },
+          ".game-workspace": {
+            "left": 52.212501525878906,
+            "top": 84,
+            "right": 1483.7875747680664,
+            "bottom": 722
+          },
+          ".board-area": {
+            "left": 216,
+            "top": 93.4375,
+            "right": 1320,
+            "bottom": 712.5625
+          },
+          ".game-functions": {
+            "left": 52.212501525878906,
+            "top": 722,
+            "right": 1483.7875747680664,
+            "bottom": 782
+          }
+        }
+      }
+    },
+    {
+      "check": "Readable board cells 1536x792",
+      "width": 43.40000915527344,
+      "height": 43.399993896484375
+    },
+    {
+      "check": "Responsive game 3D 1536x792",
+      "metrics": {
+        "viewport": {
+          "width": 1536,
+          "height": 792
+        },
+        "documentSize": {
+          "width": 1536,
+          "height": 792
+        },
+        "boxes": {
+          ".game-screen": {
+            "left": 0,
+            "top": 0,
+            "right": 1536,
+            "bottom": 792
+          },
+          ".game-topbar": {
+            "left": 52.212501525878906,
+            "top": 10,
+            "right": 1483.7875747680664,
+            "bottom": 84
+          },
+          ".game-workspace": {
+            "left": 52.212501525878906,
+            "top": 84,
+            "right": 1483.7875747680664,
+            "bottom": 722
+          },
+          ".game-functions": {
+            "left": 52.212501525878906,
+            "top": 722,
+            "right": 1483.7875747680664,
+            "bottom": 782
+          }
+        }
+      }
+    },
+    {
+      "check": "All five rules: legal UI moves, vertical wins/ignored lines, forbidden landing disabled"
+    },
+    {
+      "check": "First-floor line follows Classic versus ignored rules"
+    },
+    {
+      "check": "Instructions/AI Settings return to exact live state; incompatible switch rejected; save emits v2"
+    },
+    {
+      "check": "Bundled ONNX V4 plays a real AI opening under a nonclassic rule"
+    },
+    {
+      "check": "Responsive replay 1100x720",
+      "metrics": {
+        "viewport": {
+          "width": 1100,
+          "height": 720
+        },
+        "documentSize": {
+          "width": 1100,
+          "height": 720
+        },
+        "boxes": {
+          ".replay-screen": {
+            "left": 0,
+            "top": 0,
+            "right": 1100,
+            "bottom": 720
+          },
+          ".game-topbar": {
+            "left": 23,
+            "top": 10,
+            "right": 1077,
+            "bottom": 84
+          },
+          ".replay-workspace-shell": {
+            "left": 23,
+            "top": 84,
+            "right": 1077,
+            "bottom": 603.2000122070312
+          },
+          ".game-functions": {
+            "left": 23,
+            "top": 603.2000122070312,
+            "right": 1077,
+            "bottom": 710.0000152587891
+          }
+        }
+      }
+    },
+    {
+      "check": "Responsive continue dialog 1100x720",
+      "metrics": {
+        "viewport": {
+          "width": 1100,
+          "height": 720
+        },
+        "documentSize": {
+          "width": 1100,
+          "height": 720
+        },
+        "boxes": {
+          ".dialog-backdrop": {
+            "left": 0,
+            "top": 0,
+            "right": 1100,
+            "bottom": 720
+          },
+          ".continue-dialog": {
+            "left": 210,
+            "top": 207.5,
+            "right": 890,
+            "bottom": 512.5
+          },
+          ".continue-options": {
+            "left": 234.8000030517578,
+            "top": 351.70001220703125,
+            "right": 865.2000274658203,
+            "bottom": 487.70001220703125
+          }
+        }
+      }
+    },
+    {
+      "check": "Responsive replay picker Chinese 1440x900",
+      "metrics": {
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "documentSize": {
+          "width": 1440,
+          "height": 900
+        },
+        "boxes": {
+          ".menu-screen": {
+            "left": 0,
+            "top": 0,
+            "right": 1440,
+            "bottom": 900
+          },
+          ".primary-menu": {
+            "left": 483.20001220703125,
+            "top": 161.60000610351562,
+            "right": 940.0750122070312,
+            "bottom": 778.3999938964844
+          },
+          ".side-picker": {
+            "left": 960.0750122070312,
+            "top": 187.5,
+            "right": 1368.0000305175781,
+            "bottom": 752.5
+          }
+        }
+      }
+    },
+    {
+      "check": "Training sample imports, plays to terminal frame, and continues from selected position"
+    },
+    {
+      "check": "No browser page errors"
+    }
+  ],
+  "page_errors": []
+}

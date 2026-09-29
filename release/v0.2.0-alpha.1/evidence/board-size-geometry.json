@@ -1,0 +1,992 @@
+[
+  {
+    "name": "game-zh",
+    "width": 1100,
+    "height": 720,
+    "scrollWidth": 1100,
+    "scrollHeight": 720,
+    "boxes": [
+      {
+        "selector": ".board-area",
+        "x": 70,
+        "y": 92.265625,
+        "width": 960,
+        "height": 549.46875
+      },
+      {
+        "selector": ".game-functions",
+        "x": 23,
+        "y": 650,
+        "width": 1054,
+        "height": 60
+      }
+    ],
+    "cells": {
+      "count": 150,
+      "min_width": 38.296875,
+      "max_width": 38.296875,
+      "min_height": 38.296875,
+      "max_height": 38.296875
+    }
+  },
+  {
+    "name": "game-3d-zh",
+    "width": 1100,
+    "height": 720,
+    "scrollWidth": 1100,
+    "scrollHeight": 720,
+    "boxes": [
+      {
+        "selector": ".board-3d-stage",
+        "x": 23,
+        "y": 97,
+        "width": 794,
+        "height": 540
+      },
+      {
+        "selector": ".game-functions",
+        "x": 23,
+        "y": 650,
+        "width": 1054,
+        "height": 60
+      }
+    ]
+  },
+  {
+    "name": "replay-zh",
+    "width": 1100,
+    "height": 720,
+    "scrollWidth": 1100,
+    "scrollHeight": 720,
+    "boxes": [
+      {
+        "selector": ".board-area",
+        "x": 124,
+        "y": 92,
+        "width": 852,
+        "height": 495.5625
+      },
+      {
+        "selector": ".game-functions",
+        "x": 23,
+        "y": 603,
+        "width": 1054,
+        "height": 107
+      }
+    ]
+  },
+  {
+    "name": "replay-3d-zh",
+    "width": 1100,
+    "height": 720,
+    "scrollWidth": 1100,
+    "scrollHeight": 720,
+    "boxes": [
+      {
+        "selector": ".board-3d-stage",
+        "x": 23,
+        "y": 92,
+        "width": 794,
+        "height": 486
+      },
+      {
+        "selector": ".game-functions",
+        "x": 23,
+        "y": 603,
+        "width": 1054,
+        "height": 107
+      }
+    ]
+  },
+  {
+    "name": "game-en",
+    "width": 1100,
+    "height": 720,
+    "scrollWidth": 1100,
+    "scrollHeight": 720,
+    "boxes": [
+      {
+        "selector": ".board-area",
+        "x": 70,
+        "y": 92.265625,
+        "width": 960,
+        "height": 549.46875
+      },
+      {
+        "selector": ".game-functions",
+        "x": 23,
+        "y": 650,
+        "width": 1054,
+        "height": 60
+      }
+    ],
+    "cells": {
+      "count": 150,
+      "min_width": 38.296875,
+      "max_width": 38.296875,
+      "min_height": 38.296875,
+      "max_height": 38.296875
+    }
+  },
+  {
+    "name": "game-3d-en",
+    "width": 1100,
+    "height": 720,
+    "scrollWidth": 1100,
+    "scrollHeight": 720,
+    "boxes": [
+      {
+        "selector": ".board-3d-stage",
+        "x": 23,
+        "y": 97,
+        "width": 794,
+        "height": 540
+      },
+      {
+        "selector": ".game-functions",
+        "x": 23,
+        "y": 650,
+        "width": 1054,
+        "height": 60
+      }
+    ]
+  },
+  {
+    "name": "replay-en",
+    "width": 1100,
+    "height": 720,
+    "scrollWidth": 1100,
+    "scrollHeight": 720,
+    "boxes": [
+      {
+        "selector": ".board-area",
+        "x": 124,
+        "y": 92,
+        "width": 852,
+        "height": 495.5625
+      },
+      {
+        "selector": ".game-functions",
+        "x": 23,
+        "y": 603,
+        "width": 1054,
+        "height": 107
+      }
+    ]
+  },
+  {
+    "name": "replay-3d-en",
+    "width": 1100,
+    "height": 720,
+    "scrollWidth": 1100,
+    "scrollHeight": 720,
+    "boxes": [
+      {
+        "selector": ".board-3d-stage",
+        "x": 23,
+        "y": 92,
+        "width": 794,
+        "height": 486
+      },
+      {
+        "selector": ".game-functions",
+        "x": 23,
+        "y": 603,
+        "width": 1054,
+        "height": 107
+      }
+    ]
+  },
+  {
+    "name": "game-zh",
+    "width": 1280,
+    "height": 720,
+    "scrollWidth": 1280,
+    "scrollHeight": 720,
+    "boxes": [
+      {
+        "selector": ".board-area",
+        "x": 160,
+        "y": 93.265625,
+        "width": 960,
+        "height": 547.46875
+      },
+      {
+        "selector": ".game-functions",
+        "x": 43.515625,
+        "y": 650,
+        "width": 1192.96875,
+        "height": 60
+      }
+    ],
+    "cells": {
+      "count": 150,
+      "min_width": 37.046875,
+      "max_width": 37.046875,
+      "min_height": 37.046875,
+      "max_height": 37.046875
+    }
+  },
+  {
+    "name": "game-3d-zh",
+    "width": 1280,
+    "height": 720,
+    "scrollWidth": 1280,
+    "scrollHeight": 720,
+    "boxes": [
+      {
+        "selector": ".board-3d-stage",
+        "x": 43.515625,
+        "y": 97,
+        "width": 886.96875,
+        "height": 540
+      },
+      {
+        "selector": ".game-functions",
+        "x": 43.515625,
+        "y": 650,
+        "width": 1192.96875,
+        "height": 60
+      }
+    ]
+  },
+  {
+    "name": "replay-zh",
+    "width": 1280,
+    "height": 720,
+    "scrollWidth": 1280,
+    "scrollHeight": 720,
+    "boxes": [
+      {
+        "selector": ".board-area",
+        "x": 214,
+        "y": 92,
+        "width": 852,
+        "height": 493.5625
+      },
+      {
+        "selector": ".game-functions",
+        "x": 43.515625,
+        "y": 650,
+        "width": 1192.96875,
+        "height": 60
+      }
+    ]
+  },
+  {
+    "name": "replay-3d-zh",
+    "width": 1280,
+    "height": 720,
+    "scrollWidth": 1280,
+    "scrollHeight": 720,
+    "boxes": [
+      {
+        "selector": ".board-3d-stage",
+        "x": 43.515625,
+        "y": 92,
+        "width": 886.96875,
+        "height": 486
+      },
+      {
+        "selector": ".game-functions",
+        "x": 43.515625,
+        "y": 650,
+        "width": 1192.96875,
+        "height": 60
+      }
+    ]
+  },
+  {
+    "name": "game-en",
+    "width": 1280,
+    "height": 720,
+    "scrollWidth": 1280,
+    "scrollHeight": 720,
+    "boxes": [
+      {
+        "selector": ".board-area",
+        "x": 160,
+        "y": 93.265625,
+        "width": 960,
+        "height": 547.46875
+      },
+      {
+        "selector": ".game-functions",
+        "x": 43.515625,
+        "y": 650,
+        "width": 1192.96875,
+        "height": 60
+      }
+    ],
+    "cells": {
+      "count": 150,
+      "min_width": 37.046875,
+      "max_width": 37.046875,
+      "min_height": 37.046875,
+      "max_height": 37.046875
+    }
+  },
+  {
+    "name": "game-3d-en",
+    "width": 1280,
+    "height": 720,
+    "scrollWidth": 1280,
+    "scrollHeight": 720,
+    "boxes": [
+      {
+        "selector": ".board-3d-stage",
+        "x": 43.515625,
+        "y": 97,
+        "width": 886.96875,
+        "height": 540
+      },
+      {
+        "selector": ".game-functions",
+        "x": 43.515625,
+        "y": 650,
+        "width": 1192.96875,
+        "height": 60
+      }
+    ]
+  },
+  {
+    "name": "replay-en",
+    "width": 1280,
+    "height": 720,
+    "scrollWidth": 1280,
+    "scrollHeight": 720,
+    "boxes": [
+      {
+        "selector": ".board-area",
+        "x": 214,
+        "y": 92,
+        "width": 852,
+        "height": 493.5625
+      },
+      {
+        "selector": ".game-functions",
+        "x": 43.515625,
+        "y": 601,
+        "width": 1192.96875,
+        "height": 109
+      }
+    ]
+  },
+  {
+    "name": "replay-3d-en",
+    "width": 1280,
+    "height": 720,
+    "scrollWidth": 1280,
+    "scrollHeight": 720,
+    "boxes": [
+      {
+        "selector": ".board-3d-stage",
+        "x": 43.515625,
+        "y": 92,
+        "width": 886.96875,
+        "height": 486
+      },
+      {
+        "selector": ".game-functions",
+        "x": 43.515625,
+        "y": 601,
+        "width": 1192.96875,
+        "height": 109
+      }
+    ]
+  },
+  {
+    "name": "game-zh",
+    "width": 1536,
+    "height": 792,
+    "scrollWidth": 1536,
+    "scrollHeight": 792,
+    "boxes": [
+      {
+        "selector": ".board-area",
+        "x": 216,
+        "y": 93.234375,
+        "width": 1104,
+        "height": 619.53125
+      },
+      {
+        "selector": ".game-functions",
+        "x": 52.21875,
+        "y": 722,
+        "width": 1431.5625,
+        "height": 60
+      }
+    ],
+    "cells": {
+      "count": 150,
+      "min_width": 43.3125,
+      "max_width": 43.328125,
+      "min_height": 43.3125,
+      "max_height": 43.328125
+    }
+  },
+  {
+    "name": "game-3d-zh",
+    "width": 1536,
+    "height": 792,
+    "scrollWidth": 1536,
+    "scrollHeight": 792,
+    "boxes": [
+      {
+        "selector": ".board-3d-stage",
+        "x": 52.21875,
+        "y": 97,
+        "width": 1125.5625,
+        "height": 612
+      },
+      {
+        "selector": ".game-functions",
+        "x": 52.21875,
+        "y": 722,
+        "width": 1431.5625,
+        "height": 60
+      }
+    ]
+  },
+  {
+    "name": "replay-zh",
+    "width": 1536,
+    "height": 792,
+    "scrollWidth": 1536,
+    "scrollHeight": 792,
+    "boxes": [
+      {
+        "selector": ".board-area",
+        "x": 184,
+        "y": 93.234375,
+        "width": 1104,
+        "height": 619.53125
+      },
+      {
+        "selector": ".game-functions",
+        "x": 52.21875,
+        "y": 722,
+        "width": 1431.5625,
+        "height": 60
+      }
+    ]
+  },
+  {
+    "name": "replay-3d-zh",
+    "width": 1536,
+    "height": 792,
+    "scrollWidth": 1536,
+    "scrollHeight": 792,
+    "boxes": [
+      {
+        "selector": ".board-3d-stage",
+        "x": 52.21875,
+        "y": 97,
+        "width": 1061.5625,
+        "height": 612
+      },
+      {
+        "selector": ".game-functions",
+        "x": 52.21875,
+        "y": 722,
+        "width": 1431.5625,
+        "height": 60
+      }
+    ]
+  },
+  {
+    "name": "game-en",
+    "width": 1536,
+    "height": 792,
+    "scrollWidth": 1536,
+    "scrollHeight": 792,
+    "boxes": [
+      {
+        "selector": ".board-area",
+        "x": 216,
+        "y": 93.234375,
+        "width": 1104,
+        "height": 619.53125
+      },
+      {
+        "selector": ".game-functions",
+        "x": 52.21875,
+        "y": 722,
+        "width": 1431.5625,
+        "height": 60
+      }
+    ],
+    "cells": {
+      "count": 150,
+      "min_width": 43.3125,
+      "max_width": 43.328125,
+      "min_height": 43.3125,
+      "max_height": 43.328125
+    }
+  },
+  {
+    "name": "game-3d-en",
+    "width": 1536,
+    "height": 792,
+    "scrollWidth": 1536,
+    "scrollHeight": 792,
+    "boxes": [
+      {
+        "selector": ".board-3d-stage",
+        "x": 52.21875,
+        "y": 97,
+        "width": 1125.5625,
+        "height": 612
+      },
+      {
+        "selector": ".game-functions",
+        "x": 52.21875,
+        "y": 722,
+        "width": 1431.5625,
+        "height": 60
+      }
+    ]
+  },
+  {
+    "name": "replay-en",
+    "width": 1536,
+    "height": 792,
+    "scrollWidth": 1536,
+    "scrollHeight": 792,
+    "boxes": [
+      {
+        "selector": ".board-area",
+        "x": 184,
+        "y": 93.234375,
+        "width": 1104,
+        "height": 619.53125
+      },
+      {
+        "selector": ".game-functions",
+        "x": 52.21875,
+        "y": 722,
+        "width": 1431.5625,
+        "height": 60
+      }
+    ]
+  },
+  {
+    "name": "replay-3d-en",
+    "width": 1536,
+    "height": 792,
+    "scrollWidth": 1536,
+    "scrollHeight": 792,
+    "boxes": [
+      {
+        "selector": ".board-3d-stage",
+        "x": 52.21875,
+        "y": 97,
+        "width": 1061.5625,
+        "height": 612
+      },
+      {
+        "selector": ".game-functions",
+        "x": 52.21875,
+        "y": 722,
+        "width": 1431.5625,
+        "height": 60
+      }
+    ]
+  },
+  {
+    "name": "game-zh",
+    "width": 1440,
+    "height": 900,
+    "scrollWidth": 1440,
+    "scrollHeight": 900,
+    "boxes": [
+      {
+        "selector": ".board-area",
+        "x": 165,
+        "y": 145.703125,
+        "width": 1110,
+        "height": 622.59375
+      },
+      {
+        "selector": ".game-functions",
+        "x": 48.953125,
+        "y": 830,
+        "width": 1342.09375,
+        "height": 60
+      }
+    ],
+    "cells": {
+      "count": 150,
+      "min_width": 43.96875,
+      "max_width": 43.984375,
+      "min_height": 43.96875,
+      "max_height": 43.984375
+    }
+  },
+  {
+    "name": "game-3d-zh",
+    "width": 1440,
+    "height": 900,
+    "scrollWidth": 1440,
+    "scrollHeight": 900,
+    "boxes": [
+      {
+        "selector": ".board-3d-stage",
+        "x": 48.953125,
+        "y": 132,
+        "width": 1036.09375,
+        "height": 650
+      },
+      {
+        "selector": ".game-functions",
+        "x": 48.953125,
+        "y": 830,
+        "width": 1342.09375,
+        "height": 60
+      }
+    ]
+  },
+  {
+    "name": "replay-zh",
+    "width": 1440,
+    "height": 900,
+    "scrollWidth": 1440,
+    "scrollHeight": 900,
+    "boxes": [
+      {
+        "selector": ".board-area",
+        "x": 133,
+        "y": 145.703125,
+        "width": 1110,
+        "height": 622.59375
+      },
+      {
+        "selector": ".game-functions",
+        "x": 48.953125,
+        "y": 830,
+        "width": 1342.09375,
+        "height": 60
+      }
+    ]
+  },
+  {
+    "name": "replay-3d-zh",
+    "width": 1440,
+    "height": 900,
+    "scrollWidth": 1440,
+    "scrollHeight": 900,
+    "boxes": [
+      {
+        "selector": ".board-3d-stage",
+        "x": 48.953125,
+        "y": 132,
+        "width": 972.09375,
+        "height": 650
+      },
+      {
+        "selector": ".game-functions",
+        "x": 48.953125,
+        "y": 830,
+        "width": 1342.09375,
+        "height": 60
+      }
+    ]
+  },
+  {
+    "name": "game-en",
+    "width": 1440,
+    "height": 900,
+    "scrollWidth": 1440,
+    "scrollHeight": 900,
+    "boxes": [
+      {
+        "selector": ".board-area",
+        "x": 165,
+        "y": 145.703125,
+        "width": 1110,
+        "height": 622.59375
+      },
+      {
+        "selector": ".game-functions",
+        "x": 48.953125,
+        "y": 830,
+        "width": 1342.09375,
+        "height": 60
+      }
+    ],
+    "cells": {
+      "count": 150,
+      "min_width": 43.96875,
+      "max_width": 43.984375,
+      "min_height": 43.96875,
+      "max_height": 43.984375
+    }
+  },
+  {
+    "name": "game-3d-en",
+    "width": 1440,
+    "height": 900,
+    "scrollWidth": 1440,
+    "scrollHeight": 900,
+    "boxes": [
+      {
+        "selector": ".board-3d-stage",
+        "x": 48.953125,
+        "y": 132,
+        "width": 1036.09375,
+        "height": 650
+      },
+      {
+        "selector": ".game-functions",
+        "x": 48.953125,
+        "y": 830,
+        "width": 1342.09375,
+        "height": 60
+      }
+    ]
+  },
+  {
+    "name": "replay-en",
+    "width": 1440,
+    "height": 900,
+    "scrollWidth": 1440,
+    "scrollHeight": 900,
+    "boxes": [
+      {
+        "selector": ".board-area",
+        "x": 133,
+        "y": 145.703125,
+        "width": 1110,
+        "height": 622.59375
+      },
+      {
+        "selector": ".game-functions",
+        "x": 48.953125,
+        "y": 830,
+        "width": 1342.09375,
+        "height": 60
+      }
+    ]
+  },
+  {
+    "name": "replay-3d-en",
+    "width": 1440,
+    "height": 900,
+    "scrollWidth": 1440,
+    "scrollHeight": 900,
+    "boxes": [
+      {
+        "selector": ".board-3d-stage",
+        "x": 48.953125,
+        "y": 132,
+        "width": 972.09375,
+        "height": 650
+      },
+      {
+        "selector": ".game-functions",
+        "x": 48.953125,
+        "y": 830,
+        "width": 1342.09375,
+        "height": 60
+      }
+    ]
+  },
+  {
+    "name": "game-zh",
+    "width": 1920,
+    "height": 1080,
+    "scrollWidth": 1920,
+    "scrollHeight": 1080,
+    "boxes": [
+      {
+        "selector": ".board-area",
+        "x": 405,
+        "y": 235.765625,
+        "width": 1110,
+        "height": 622.46875
+      },
+      {
+        "selector": ".game-functions",
+        "x": 58,
+        "y": 1010,
+        "width": 1804,
+        "height": 60
+      }
+    ],
+    "cells": {
+      "count": 150,
+      "min_width": 43.546875,
+      "max_width": 43.546875,
+      "min_height": 43.546875,
+      "max_height": 43.546875
+    }
+  },
+  {
+    "name": "game-3d-zh",
+    "width": 1920,
+    "height": 1080,
+    "scrollWidth": 1920,
+    "scrollHeight": 1080,
+    "boxes": [
+      {
+        "selector": ".board-3d-stage",
+        "x": 210,
+        "y": 222,
+        "width": 1194,
+        "height": 650
+      },
+      {
+        "selector": ".game-functions",
+        "x": 58,
+        "y": 1010,
+        "width": 1804,
+        "height": 60
+      }
+    ]
+  },
+  {
+    "name": "replay-zh",
+    "width": 1920,
+    "height": 1080,
+    "scrollWidth": 1920,
+    "scrollHeight": 1080,
+    "boxes": [
+      {
+        "selector": ".board-area",
+        "x": 373,
+        "y": 235.765625,
+        "width": 1110,
+        "height": 622.46875
+      },
+      {
+        "selector": ".game-functions",
+        "x": 58,
+        "y": 1010,
+        "width": 1804,
+        "height": 60
+      }
+    ]
+  },
+  {
+    "name": "replay-3d-zh",
+    "width": 1920,
+    "height": 1080,
+    "scrollWidth": 1920,
+    "scrollHeight": 1080,
+    "boxes": [
+      {
+        "selector": ".board-3d-stage",
+        "x": 58,
+        "y": 222,
+        "width": 1434,
+        "height": 650
+      },
+      {
+        "selector": ".game-functions",
+        "x": 58,
+        "y": 1010,
+        "width": 1804,
+        "height": 60
+      }
+    ]
+  },
+  {
+    "name": "game-en",
+    "width": 1920,
+    "height": 1080,
+    "scrollWidth": 1920,
+    "scrollHeight": 1080,
+    "boxes": [
+      {
+        "selector": ".board-area",
+        "x": 405,
+        "y": 235.765625,
+        "width": 1110,
+        "height": 622.46875
+      },
+      {
+        "selector": ".game-functions",
+        "x": 58,
+        "y": 1010,
+        "width": 1804,
+        "height": 60
+      }
+    ],
+    "cells": {
+      "count": 150,
+      "min_width": 43.546875,
+      "max_width": 43.546875,
+      "min_height": 43.546875,
+      "max_height": 43.546875
+    }
+  },
+  {
+    "name": "game-3d-en",
+    "width": 1920,
+    "height": 1080,
+    "scrollWidth": 1920,
+    "scrollHeight": 1080,
+    "boxes": [
+      {
+        "selector": ".board-3d-stage",
+        "x": 210,
+        "y": 222,
+        "width": 1194,
+        "height": 650
+      },
+      {
+        "selector": ".game-functions",
+        "x": 58,
+        "y": 1010,
+        "width": 1804,
+        "height": 60
+      }
+    ]
+  },
+  {
+    "name": "replay-en",
+    "width": 1920,
+    "height": 1080,
+    "scrollWidth": 1920,
+    "scrollHeight": 1080,
+    "boxes": [
+      {
+        "selector": ".board-area",
+        "x": 373,
+        "y": 235.765625,
+        "width": 1110,
+        "height": 622.46875
+      },
+      {
+        "selector": ".game-functions",
+        "x": 58,
+        "y": 1010,
+        "width": 1804,
+        "height": 60
+      }
+    ]
+  },
+  {
+    "name": "replay-3d-en",
+    "width": 1920,
+    "height": 1080,
+    "scrollWidth": 1920,
+    "scrollHeight": 1080,
+    "boxes": [
+      {
+        "selector": ".board-3d-stage",
+        "x": 58,
+        "y": 222,
+        "width": 1434,
+        "height": 650
+      },
+      {
+        "selector": ".game-functions",
+        "x": 58,
+        "y": 1010,
+        "width": 1804,
+        "height": 60
+      }
+    ]
+  }
+]

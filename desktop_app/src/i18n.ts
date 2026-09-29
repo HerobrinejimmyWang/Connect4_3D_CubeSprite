@@ -2,7 +2,6 @@ import type { Language } from "./types";
 
 export interface Copy {
   appName: string;
-  version: string;
   loading: string;
   loadingDetail: string;
   retry: string;
@@ -22,9 +21,19 @@ export interface Copy {
     blueSecond: string;
     blueSecondDetail: string;
     cancel: string;
+    ruleSelection: string;
+    rules: string[];
+    ruleShort: string[];
+    intelligence: string;
+    effortNames: string[];
+    advance: string;
+    unsupportedModel: string;
+    autoRoutedModel: string;
+    unsupportedActiveGame: string;
   };
   common: {
     back: string;
+    backPrevious: string;
     unavailable: string;
     close: string;
   };
@@ -70,8 +79,6 @@ export interface Copy {
     rules: string[];
     controlsTitle: string;
     controls: string[];
-    quickTitle: string;
-    quick: string[];
   };
   game: {
     currentPlayer: string;
@@ -173,6 +180,7 @@ export interface Copy {
     fileTooLarge: string;
     invalidUtf8: string;
     progress: string;
+    forcedPass: string;
     nowPlaying: string;
     previous: string;
     next: string;
@@ -219,7 +227,6 @@ export interface Copy {
 export const translations: Record<Language, Copy> = {
   zh: {
     appName: "Connect4 3D CubeSprite",
-    version: "版本 0.1.1",
     loading: "正在唤醒 CubeSprite",
     loadingDetail: "正在启动本地规则与 AI 引擎…",
     retry: "重试",
@@ -239,8 +246,17 @@ export const translations: Record<Language, Copy> = {
       blueSecond: "蓝方 · 后手",
       blueSecondDetail: "你执蓝棋，AI 会自动先行",
       cancel: "取消",
+      ruleSelection: "游戏规则",
+      rules: ["经典规则", "先手同重力柱不计胜利", "先手同重力柱连四位置禁手", "先手在第一层不计胜利", "先手在第一层及同重力柱不计胜利"],
+      ruleShort: ["经典", "竖直不计", "竖直禁手", "首层不计", "双重不计"],
+      intelligence: "AI 智能度",
+      effortNames: ["入门", "轻快", "均衡", "专注", "深入", "大师", "极限"],
+      advance: "高级设置",
+      unsupportedModel: "所选模型不支持修改游戏规则，已自动切换为经典规则。",
+      autoRoutedModel: "所选模型不支持修改游戏规则，已自动切换为 CubeSprite V4 Flash (Preview1)。",
+      unsupportedActiveGame: "所选模型不支持本局游戏规则，已保留当前模型和规则。",
     },
-    common: { back: "返回主菜单", unavailable: "暂不可用", close: "关闭" },
+    common: { back: "返回主菜单", backPrevious: "返回", unavailable: "暂不可用", close: "关闭" },
     ai: {
       title: "AI 设置",
       subtitle: "三种任务可独立选择模型和搜索参数，修改会立刻应用。",
@@ -283,19 +299,17 @@ export const translations: Record<Language, Copy> = {
       rules: [
         "棋盘由 F1 至 F6 六层组成，每层是 5 × 5 方格；红方先手，双方轮流落子。",
         "棋子受重力约束：同一行列位置必须从 F1 开始逐层堆叠，深色空格表示当前合法落点。",
-        "率先在任意方向连成四子即获胜，包括同层直线、跨层直线和空间对角线；棋盘填满仍无人连四则为平局。",
+        "经典规则：率先在任意方向连成四子即获胜，包括同层直线、跨层直线和空间对角线；棋盘填满仍无人连四则为平局。",
+        "先手同重力柱不计胜利：红方沿同一重力柱连成四子时，该竖直连线不算胜利；其他方向照常计胜。",
+        "先手同重力柱连四位置禁手：红方不能落在会形成自身竖直连四的位置，棋盘仅标出实际合法落点。若红方无合法落点，自动跳过该回合。",
+        "先手在第一层不计胜利：红方完全位于 F1 的连四不算胜利；其他连线照常计胜。",
+        "先手在第一层不计胜利 + 先手同重力柱不计胜利：以上两种不计胜利条件同时适用于红方。",
       ],
       controlsTitle: "操作说明",
       controls: [
         "点击合法格落子。绿色预览表示鼠标当前指向的合法位置，黄色外圈表示上一步。",
         "悔棋在双人模式撤销一步；在人机模式会一起撤销最近的人类与 AI 回合。重新开始会保留当前模式和阵营。",
         "获取提示会用闪烁黄圈标出建议位置；胜率会以红蓝比例条展示本地 AI 的估计。",
-      ],
-      quickTitle: "迅速上手",
-      quick: [
-        "先观察每个小棋盘左上角的 F 层号，再寻找深色合法格。",
-        "不要只盯住单层：竖直跨层和空间斜线同样能形成连四。",
-        "黄色获胜棋子会标出终局路线；你可以立即重新开始或返回主菜单调整 AI。",
       ],
     },
     game: {
@@ -390,7 +404,7 @@ export const translations: Record<Language, Copy> = {
       deleteConfirm: "确定删除“{name}”吗？此操作无法撤销。",
       export: "导出",
       exported: "已导出回放：{name}",
-      import: "Import 导入回放",
+      import: "导入回放",
       importing: "正在导入…",
       saved: "已保存回放：{name}",
       imported: "已导入回放：{name}",
@@ -398,6 +412,7 @@ export const translations: Record<Language, Copy> = {
       fileTooLarge: "回放文件不能超过 512 KiB。",
       invalidUtf8: "回放文件必须是严格有效的 UTF-8 文本。",
       progress: "回放进度",
+      forcedPass: "无合法落点，自动跳过",
       nowPlaying: "当前回放",
       previous: "上一步",
       next: "下一步",
@@ -437,7 +452,6 @@ export const translations: Record<Language, Copy> = {
   },
   en: {
     appName: "Connect4 3D CubeSprite",
-    version: "Version 0.1.1",
     loading: "Waking CubeSprite",
     loadingDetail: "Starting the local rules and AI engine…",
     retry: "Retry",
@@ -457,8 +471,17 @@ export const translations: Record<Language, Copy> = {
       blueSecond: "Blue · Second",
       blueSecondDetail: "Play blue while the AI opens",
       cancel: "Cancel",
+      ruleSelection: "Game rules",
+      rules: ["Classic", "First player's vertical fours ignored", "First player's vertical fours forbidden", "First player's floor-one fours ignored", "First player's vertical and floor-one fours ignored"],
+      ruleShort: ["Classic", "Vertical ignored", "Vertical forbidden", "F1 ignored", "Both ignored"],
+      intelligence: "AI Intelligence",
+      effortNames: ["Starter", "Swift", "Balanced", "Focused", "Deep", "Master", "Maximum"],
+      advance: "Advance",
+      unsupportedModel: "This model does not support modified game rules. Classic was selected automatically.",
+      autoRoutedModel: "This model does not support modified game rules. CubeSprite V4 Flash (Preview1) was selected automatically.",
+      unsupportedActiveGame: "This model does not support the current game rules. The current model and rules were kept.",
     },
-    common: { back: "Back to main menu", unavailable: "Unavailable", close: "Close" },
+    common: { back: "Back to main menu", backPrevious: "Back", unavailable: "Unavailable", close: "Close" },
     ai: {
       title: "AI Settings",
       subtitle: "Choose models and search parameters independently for all three roles. Changes apply instantly.",
@@ -501,19 +524,17 @@ export const translations: Record<Language, Copy> = {
       rules: [
         "The board has six floors, F1–F6, each containing a 5 × 5 grid. Red moves first and players alternate turns.",
         "Gravity applies: pieces in one row/column stack upward from F1. Dark empty cells are the currently legal moves.",
-        "The first player to connect four in any direction wins—within a floor, between floors, or on a spatial diagonal. A full board without four is a draw.",
+        "Classic: The first player to connect four in any direction wins—within a floor, between floors, or on a spatial diagonal. A full board without four is a draw.",
+        "Vertical ignored: a vertical four by the first player does not win; all other directions still count.",
+        "Vertical forbidden: the first player cannot place a piece that forms their own vertical four. Only legal landing cells are shown. If none are legal, the turn passes automatically.",
+        "F1 ignored: a four entirely on the first floor does not win for the first player; other lines still count.",
+        "Vertical and F1 ignored: both of the above ignored-win conditions apply to the first player.",
       ],
       controlsTitle: "Controls",
       controls: [
         "Click a legal cell to move. A green preview marks the hovered legal move; a yellow ring marks the latest move.",
         "Undo removes one move in PvP, or the latest human-and-AI pair in PvAI. Restart keeps the current mode and side.",
         "Get Hint shows a blinking gold suggestion. Win Rate displays the local AI estimate as a red/blue bar.",
-      ],
-      quickTitle: "Quick start",
-      quick: [
-        "Check the F-number on each board, then look for the darker legal cells.",
-        "Think beyond one floor: vertical stacks and spatial diagonals can both connect four.",
-        "Gold winning pieces reveal the final line. Restart immediately, or exit and tune the AI settings.",
       ],
     },
     game: {
@@ -616,6 +637,7 @@ export const translations: Record<Language, Copy> = {
       fileTooLarge: "Replay files must not exceed 512 KiB.",
       invalidUtf8: "Replay files must contain strictly valid UTF-8 text.",
       progress: "Replay progress",
+      forcedPass: "had no legal move and passed",
       nowPlaying: "Now playing",
       previous: "Previous",
       next: "Next",

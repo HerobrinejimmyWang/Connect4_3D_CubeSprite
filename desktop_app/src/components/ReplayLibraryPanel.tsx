@@ -54,7 +54,7 @@ export function ReplayLibraryPanel(props: Props) {
           <article className="replay-list-item" key={replay.id}>
             <div className="replay-list-copy">
               <strong title={replay.name}>{replay.name}</strong>
-              <small>{replay.move_count} {t.replay.steps} · {replayStatus(t, replay)}</small>
+              <small>{replay.turn_count ?? replay.move_count} {t.replay.steps} · {replayStatus(t, replay)}</small>
               <time dateTime={replay.saved_at}>{savedTime(replay.saved_at)}</time>
             </div>
             <div className="replay-list-actions">

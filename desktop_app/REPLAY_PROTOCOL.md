@@ -1,8 +1,7 @@
 # CubeSprite 回放协议
 
 CubeSprite 回放文件使用 UTF-8 JSON，建议扩展名为 `.c4replay.json`。导入器按
-`protocol_version` 做严格的 exact-key 分派：V1 保持原样可读；新增的规则与
-参与者感知生产端应写 V2。
+`protocol_version` 做严格校验。v0.2.0 alpha.1 仅导入和写出 V2；V1 文件不再受支持。
 
 ## V2 顶层结构
 
@@ -30,8 +29,9 @@ V2 顶层字段固定为：
 ```
 
 `rules` 沿用 V1 的固定棋盘几何描述。`rule_id` 是稳定的规则标识，当前注册表
-包含 `classic`、`p1_vertical_ignored`、`p1_vertical_forbidden` 和
-`p1_layer0_ignored`；`rule_version` 必须与可执行规则注册表一致。
+包含 `classic`、`p1_vertical_ignored`、`p1_vertical_forbidden`、
+`p1_layer0_ignored` 和 `p1_vertical_and_layer0_ignored`；`rule_version`
+必须与可执行规则注册表一致。
 
 ## 对局双方
 
@@ -94,8 +94,12 @@ turns 的紧凑 JSON 计算 SHA-256。它覆盖稳定的棋局语义，不覆盖
 model ID、lineage hash 与 artifact hash，并故意排除 `display_name`。因此显示名可
 本地化或修改，而稳定身份的变化必须重新计算 provenance hash。
 
-## V1 与分析旁车兼容
+## 分析旁车
 
-V1 顶层和 move 的原 exact-key 校验路径保持不变，不会在读取时静默升级为 V2。
 胜率分析仍单独保存在 `replay_analysis`，通过 replay ID 与 gameplay fingerprint
 关联；重新计算和原子写入规则不变。
+
+桌面端的新回放保存在应用数据目录的 `replays/` 下，均为 V2；导入训练侧 V2
+样例后保留其原始规则、回合和参与者身份，续玩也继承回放规则。分析旁车仍使用
+独立的分析协议版本 1，与回放协议版本 2 分开管理。生成的回放属于桌面端对局
+谱系，需经规则引擎与指纹验证；安装包不内置用户回放。

@@ -209,6 +209,7 @@ class ServiceStateTests(unittest.TestCase):
     def test_tactical_hint_reports_immediate_win_without_model_search(self) -> None:
         state = self.service.handle("game.new", {"mode": "pvp", "human_player": 1})
         self.service.board[0, 4, 2:5] = 1
+        self.service._state = self.service.engine.state_from_board(self.service.board, player_to_move=1)
         action = self.service.game.coords_to_action(0, 4, 1)
         self.assertEqual(
             find_forced_tactical_action(self.service.game, self.service.board, 1),

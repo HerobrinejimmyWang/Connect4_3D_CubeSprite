@@ -1,7 +1,25 @@
 {
     "manifest_version":  1,
-    "product_version":  "0.1.1",
+    "product_version":  "0.2.0-alpha.1",
     "models":  [
+                   {
+                       "id":  "cubesprite_v4_flash_preview1",
+                       "display_name":  "CubeSprite V4 Flash (Preview1)",
+                       "model_path":  "models/cubesprite_v4_flash_preview1.onnx",
+                       "architecture":  "v3-role-rule-v1",
+                       "board_layers":  6,
+                       "board_size":  5,
+                       "input_channels":  1,
+                       "action_dim":  150,
+                       "artifact_sha256":  "bbc60a63a72a4ad908006b094c5d7c7a238e204a2a6d857b5cdbfaf09d5e4344",
+                       "source_iteration":  32,
+                       "defaults":  { "mcts_sims":  256, "temperature":  0.4 },
+                       "description":  {
+                                           "zh":  "支持五种规则的 V4 Flash 预览模型，Stage 3 第 32 代终点快照。",
+                                           "en":  "V4 Flash preview supporting five rules; Stage 3 generation 32 terminal snapshot."
+                                       },
+                       "placeholder":  false
+                   },
                    {
                        "id":  "cubesprite_v3",
                        "display_name":  "CubeSprite V3",

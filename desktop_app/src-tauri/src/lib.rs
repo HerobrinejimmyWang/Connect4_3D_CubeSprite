@@ -76,10 +76,22 @@ fn resource_directory(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn application_data_directory(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let directory = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| format!("Unable to locate the application data directory: {error}"))?;
+    // Allow native end-to-end tests to use an isolated data directory, including
+    // on hosts where the user's Known Folder is outside the writable workspace.
+    // Normal launches continue to use the platform's application data folder.
+    let directory = match std::env::var_os("CUBESPRITE_DATA_DIR") {
+        Some(value) => {
+            let directory = PathBuf::from(value);
+            if !directory.is_absolute() {
+                return Err("CUBESPRITE_DATA_DIR must be an absolute path".to_owned());
+            }
+            directory
+        }
+        None => app
+            .path()
+            .app_data_dir()
+            .map_err(|error| format!("Unable to locate the application data directory: {error}"))?,
+    };
     fs::create_dir_all(&directory)
         .map_err(|error| format!("Unable to prepare the application data directory: {error}"))?;
     Ok(directory)

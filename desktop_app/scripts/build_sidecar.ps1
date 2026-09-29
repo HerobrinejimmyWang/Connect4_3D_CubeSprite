@@ -45,6 +45,10 @@ New-Item -ItemType Directory -Force -Path $WorkDirectory | Out-Null
     --specpath $WorkDirectory `
     (Join-Path $PSScriptRoot "sidecar_entry.py")
 
+if ($LASTEXITCODE -ne 0) {
+    throw "PyInstaller failed with exit code $LASTEXITCODE; an older sidecar must not be packaged."
+}
+
 $Executable = Join-Path $OutputDirectory $ExecutableName
 if (-not (Test-Path -LiteralPath $Executable -PathType Leaf)) {
     throw "PyInstaller did not produce the expected sidecar: $Executable"

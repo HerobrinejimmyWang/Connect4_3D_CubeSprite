@@ -15,7 +15,7 @@ import numpy as np
 
 from connect4_core import GameRules
 from connect4_core.rules import (
-    DEFAULT_RULE_REGISTRY,
+    BAL5_R2_RULE_REGISTRY,
     MAX_TURNS,
     GameOutcome,
     RuleEngine,
@@ -30,14 +30,14 @@ else:  # pragma: no cover - exercised by non-Windows development environments.
 
 
 REPLAY_FORMAT = "cubesprite.replay"
-REPLAY_PROTOCOL_VERSION = 1
+REPLAY_PROTOCOL_VERSION = 2
 REPLAY_PROTOCOL_V2 = 2
 RULES_FORMAT = "connect4-3d-gravity"
 RULES_VERSION = 1
 ANALYSIS_FORMAT = "cubesprite.win-rate-analysis"
 ANALYSIS_PROTOCOL_VERSION = 1
 ANALYSIS_GENERATION_FORMAT = "cubesprite.analysis-generation"
-ANALYSIS_MCTS_OPTIONS = {32, 64, 128, 256, 512, 1024}
+ANALYSIS_MCTS_OPTIONS = {16, 32, 64, 128, 256, 512, 1024}
 MAX_REPLAY_BYTES = 512 * 1024
 MAX_REPLAY_NAME_LENGTH = 120
 REPLAY_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
@@ -76,12 +76,11 @@ class ReplayStore:
         replays.sort(key=lambda item: (item[0], item[1]["id"]), reverse=True)
         return [summary for _, summary in replays]
 
-    def save_history(self, history: list[dict[str, Any]], name: Any = None) -> dict[str, Any]:
+    def save_history(self, history: list[dict[str, Any]], name: Any = None, *, rule_id: str = "classic", participants: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         replay_id = uuid.uuid4().hex
         replay_name = _normalize_name(name, fallback=_default_replay_name(len(history)))
         saved_at = _utc_now()
-        moves = [_normalize_internal_move(move, index, self.game) for index, move in enumerate(history)]
-        replay = self._build_document(replay_id, replay_name, saved_at, moves)
+        replay = self._build_document(replay_id, replay_name, saved_at, history, rule_id, participants)
         path = self._replay_path(replay_id)
         with self._exclusive_store_lock():
             self._write_json_atomic(path, replay)
@@ -314,8 +313,37 @@ class ReplayStore:
         replay_id: str,
         name: str,
         saved_at: str,
-        moves: list[dict[str, int]],
+        moves: list[dict[str, Any]],
+        rule_id: str,
+        participants: list[dict[str, Any]] | None,
     ) -> dict[str, Any]:
+        spec = BAL5_R2_RULE_REGISTRY.get(rule_id)
+        engine = RuleEngine(spec, registry=BAL5_R2_RULE_REGISTRY)
+        state = engine.initial_state()
+        turns = []
+        for index, move in enumerate(moves):
+            player = state.player_to_move
+            if player != move["player"]:
+                raise ReplayStoreError("INVALID_REPLAY", "History player order is invalid.")
+            if move.get("kind") == "forced_pass":
+                turn = {"ply": index + 1, "kind": "forced_pass", "player": player}
+                action = TurnAction.forced_pass()
+            else:
+                action_number = int(move["action"])
+                layer, row, col = self.game.action_to_coords(action_number)
+                column = row * 5 + col
+                turn = {"ply": index + 1, "kind": "place", "player": player, "column": column, "action": action_number, "layer": layer, "row": row, "col": col}
+                action = TurnAction.place(column)
+                if engine.legacy_action_for_column(state, column) != action_number:
+                    raise ReplayStoreError("INVALID_REPLAY_MOVE", "History action does not match gravity.")
+            state = engine.step(state, action)
+            turns.append(turn)
+        if participants is None:
+            participants = [
+                {"seat": seat, "player": player, "controller_type": "human", "controller_id": None, "display_name": name, "model_id": None, "lineage_hash": None, "artifact_sha256": None}
+                for seat, player in (("FIRST", 1), ("SECOND", -1))
+            ]
+        status, winner = _v2_outcome_summary(state.outcome)
         replay = {
             "format": REPLAY_FORMAT,
             "protocol_version": REPLAY_PROTOCOL_VERSION,
@@ -323,11 +351,17 @@ class ReplayStore:
             "name": name,
             "saved_at": saved_at,
             "rules": _rules_document(self.game),
-            "moves": moves,
+            "rule_id": rule_id,
+            "rule_version": spec.rule_version,
+            "participants": participants,
+            "turns": turns,
+            "turn_count": len(turns),
+            "placement_count": state.placement_count,
+            "status": status,
+            "winner": winner,
         }
-        state = _replay_terminal_state(moves, self.game)
-        replay.update(state)
         replay["fingerprint"] = replay_fingerprint(replay)
+        replay["participant_provenance_hash"] = participant_provenance_hash(replay)
         return validate_replay(replay, self.game)
 
     def _replay_path(self, replay_id: str) -> Path:
@@ -389,9 +423,9 @@ def validate_replay(payload: Any, game: GameRules) -> dict[str, Any]:
 
     if not isinstance(payload, dict):
         raise ReplayStoreError("INVALID_REPLAY", "Replay document must be a JSON object.")
-    if payload.get("protocol_version") == REPLAY_PROTOCOL_V2:
-        return _validate_replay_v2(payload, game)
-    return _validate_replay_v1(payload, game)
+    if payload.get("protocol_version") != REPLAY_PROTOCOL_V2:
+        raise ReplayStoreError("UNSUPPORTED_REPLAY_PROTOCOL", "Only CubeSprite replay protocol v2 is supported.")
+    return _validate_replay_v2(payload, game)
 
 
 def _validate_replay_v1(payload: Any, game: GameRules) -> dict[str, Any]:
@@ -446,7 +480,7 @@ def _validate_replay_v1(payload: Any, game: GameRules) -> dict[str, Any]:
 
     normalized = {
         "format": REPLAY_FORMAT,
-        "protocol_version": REPLAY_PROTOCOL_VERSION,
+        "protocol_version": 1,
         "id": replay_id,
         "name": name,
         "saved_at": saved_at,
@@ -499,7 +533,7 @@ def _validate_replay_v2(payload: dict[str, Any], game: GameRules) -> dict[str, A
     if not isinstance(rule_id, str) or not rule_id:
         raise ReplayStoreError("UNSUPPORTED_REPLAY_RULES", "rule_id must be a registered rule.")
     try:
-        rule_spec = DEFAULT_RULE_REGISTRY.get(rule_id)
+        rule_spec = BAL5_R2_RULE_REGISTRY.get(rule_id)
     except (KeyError, TypeError) as exc:
         raise ReplayStoreError(
             "UNSUPPORTED_REPLAY_RULES",
@@ -519,7 +553,7 @@ def _validate_replay_v2(payload: dict[str, Any], game: GameRules) -> dict[str, A
             f"turns must contain at most {MAX_TURNS} entries.",
         )
 
-    engine = RuleEngine(rule_spec)
+    engine = RuleEngine(rule_spec, registry=BAL5_R2_RULE_REGISTRY)
     state = engine.initial_state()
     normalized_turns: list[dict[str, Any]] = []
     for index, raw_turn in enumerate(turns):
@@ -705,6 +739,9 @@ def replay_summary(replay: dict[str, Any]) -> dict[str, Any]:
         "id": replay["id"],
         "name": replay["name"],
         "saved_at": replay["saved_at"],
+        "rule_id": replay["rule_id"],
+        "turn_count": replay["turn_count"],
+        "placement_count": replay["placement_count"],
         "move_count": _replay_step_count(replay),
         "status": replay["status"],
         "winner": replay["winner"],
@@ -805,10 +842,10 @@ def build_replay_frames(replay: dict[str, Any], game: GameRules) -> list[dict[st
 
 
 def _build_replay_frames_v2(replay: dict[str, Any], game: GameRules) -> list[dict[str, Any]]:
-    engine = RuleEngine(replay["rule_id"])
+    engine = RuleEngine(replay["rule_id"], registry=BAL5_R2_RULE_REGISTRY)
     state = engine.initial_state()
     frames = [
-        _frame_snapshot(replay, 0, state.board, 1, "playing", None, None, [], game)
+        _frame_snapshot(replay, 0, state.board, 1, "playing", None, None, [], game, state=state, engine=engine)
     ]
     for step, turn in enumerate(replay["turns"], start=1):
         acting_player = state.player_to_move
@@ -827,7 +864,7 @@ def _build_replay_frames_v2(replay: dict[str, Any], game: GameRules) -> list[dic
             else state.player_to_move
         )
         winning_line = (
-            find_winning_line(state.board, acting_player, game.connect_n)
+            find_winning_line(state.board, acting_player, game.connect_n, rule_id=replay["rule_id"])
             if status == "won"
             else []
         )
@@ -842,13 +879,16 @@ def _build_replay_frames_v2(replay: dict[str, Any], game: GameRules) -> list[dic
                 deepcopy(turn),
                 winning_line,
                 game,
+                state=state,
+                engine=engine,
             )
         )
     return frames
 
 
-def find_winning_line(board: np.ndarray, player: int, connect_n: int = 4) -> list[dict[str, int]]:
+def find_winning_line(board: np.ndarray, player: int, connect_n: int = 4, *, rule_id: str = "classic") -> list[dict[str, int]]:
     board = np.asarray(board, dtype=np.int8)
+    spec = BAL5_R2_RULE_REGISTRY.get(rule_id)
     directions = [
         (dz, dy, dx)
         for dz in (0, 1)
@@ -862,6 +902,10 @@ def find_winning_line(board: np.ndarray, player: int, connect_n: int = 4) -> lis
     for layer, row, col in np.argwhere(board == int(player)):
         layer, row, col = int(layer), int(row), int(col)
         for dz, dy, dx in directions:
+            if player == 1 and (dz, dy, dx) == (1, 0, 0) and spec.p1_vertical_mode.value != "normal":
+                continue
+            if player == 1 and dz == 0 and layer == 0 and spec.p1_layer0_mode.value == "ignored":
+                continue
             previous = (layer - dz, row - dy, col - dx)
             if _inside(previous, shape) and board[previous] == player:
                 continue
@@ -885,16 +929,21 @@ def _frame_snapshot(
     last_move: dict[str, Any] | None,
     winning_line: list[dict[str, int]],
     game: GameRules,
+    *,
+    state=None,
+    engine=None,
 ) -> dict[str, Any]:
     legal_moves = []
     if status == "playing":
-        for action in np.flatnonzero(game.get_valid_moves(board) > 0):
+        actions = (engine.legacy_action_for_column(state, int(column)) for column in np.flatnonzero(engine.legal_column_mask(state))) if engine is not None else np.flatnonzero(game.get_valid_moves(board) > 0)
+        for action in actions:
             layer, row, col = game.action_to_coords(int(action))
             legal_moves.append({"action": int(action), "layer": layer, "row": row, "col": col})
     return {
         "session_id": f"replay:{replay['id']}",
         "revision": step,
         "mode": "replay",
+        "rule_id": replay.get("rule_id", "classic"),
         "human_player": 1,
         "board": np.asarray(board, dtype=np.int8).astype(int).tolist(),
         "current_player": int(current_player),
