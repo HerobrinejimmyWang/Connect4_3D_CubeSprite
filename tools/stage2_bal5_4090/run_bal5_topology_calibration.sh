@@ -21,18 +21,34 @@ PROFILE=${1:?profile required: 4090|3080ti}
 STAMP=${2:?timestamp required, e.g. 20260921T1300Z}
 
 REPO=/root/bal5_calibration/repo
-RUN=$REPO/training/runs/stage2/bal5/r1/runs/bal5_r1_winning_no_tail_warm_fp32lr1e4_seed271828
-CKPT=$RUN/checkpoints/g000057-s00013959.pt
-CKPT_SHA=b6d1e6b5f9351d9110b09041be75557119e8910ef2c740bc393992b15ed7263a
-GEN=57
+RUN_ROOT=$REPO/training/runs/stage2/bal5/r1/runs
 PY=/root/miniconda3/bin/python
 ROOT=/root/bal5_calibration/$STAMP
 
+# Per-profile target. Calibration must use the checkpoint the run ACTUALLY paused
+# at, so the run's own architecture/state is what gets measured. Both machines
+# still verify a SHA-256 before any GPU work.
 case "$PROFILE" in
-  4090)   DEVICES="cuda:0";        SWEEP="20 24 28 32 36 40 48"; CONFIRM_GAMES=256; CONFIRM_REPS=3 ;;
-  3080ti) DEVICES="cuda:0,cuda:1"; SWEEP="32 40 48 56 64 72";    CONFIRM_GAMES=256; CONFIRM_REPS=3 ;;
+  4090)
+    DEVICES="cuda:0"
+    SWEEP="20 24 28 32 36 40 48"
+    RUN=$RUN_ROOT/bal5_r1_winning_no_tail_warm_fp32lr1e4_seed271828
+    CKPT=$RUN/checkpoints/g000072-s00017611.pt
+    CKPT_SHA=22ed45ccd1257f3f18f7f0f9183755a0158b0bf2c54e672d174642bb1b1b791a
+    GEN=72
+    ;;
+  3080ti)
+    DEVICES="cuda:0,cuda:1"
+    SWEEP="32 40 48 56 64 72"
+    RUN=$RUN_ROOT/bal5_r1_winning_serial_attn2_warm_fp32lr1e4_seed271828
+    CKPT=$RUN/checkpoints/g000032-s00007875.pt
+    CKPT_SHA=c30ae51e3f08561dca220328e061c6df2618500d622c81c178abb651e46a1961
+    GEN=32
+    ;;
   *) echo "unknown profile: $PROFILE" >&2; exit 2 ;;
 esac
+CONFIRM_GAMES=256
+CONFIRM_REPS=3
 
 mkdir -p "$ROOT" || exit 2
 if [[ -e "$ROOT/SUCCESS" || -e "$ROOT/FAILED" ]]; then
@@ -51,9 +67,43 @@ log() { printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 
 ########################################
 log "profile=$PROFILE devices=$DEVICES stamp=$STAMP"
-log "waiting for the GPU(s) to be idle (the 5M resume must finish first)"
+
+# Cross-machine gate. The requester's rule is that calibration starts only after
+# the winning-no-tail 5M resume reaches its terminal boundary, verification
+# completes, and the GPU is idle. That resume runs on exactly ONE host, so:
+#   * locally: wait for our own training process to disappear
+#   * remotely: if a peer host runs the resume, wait for its terminal MARKER
+#     rather than for its process to vanish (a vanished process without the
+#     marker means it stopped for a human, which must block calibration).
+# A peer that is not reachable over ssh is treated as "no peer": only the host
+# that actually runs the resume needs this gate, and the other host does not
+# have that ssh alias configured.
+PEER_HOST=exp_260921
+peer_state() {
+  ssh -o BatchMode=yes -o ConnectTimeout=15 "$PEER_HOST" \
+    'if [ -e /root/bal5_4090_resume/TRAINING_COMPLETE ]; then echo DONE;
+     elif [ -e /root/bal5_4090_resume/NEEDS_ATTENTION ]; then echo ATTENTION;
+     elif pgrep -f "training\.v3 run" >/dev/null; then echo RUNNING;
+     else echo UNKNOWN; fi' 2>/dev/null
+}
+
+log "waiting for a peer-host resume to finish, if one exists"
+while true; do
+  STATE=$(peer_state)
+  if [[ -z "$STATE" ]]; then
+    log "  no reachable peer resume host; skipping the cross-machine gate"
+    break
+  fi
+  case "$STATE" in
+    DONE)        log "  peer resume reported complete"; break ;;
+    ATTENTION)   fail "peer resume stopped and needs attention; refusing to calibrate" ;;
+    *)           log "  peer resume state=$STATE; waiting 120s"; sleep 120 ;;
+  esac
+done
+
+log "waiting for the local GPU(s) to be idle"
 while pgrep -f 'training\.v3 run' >/dev/null; do
-  log "  resume still running; waiting 120s"
+  log "  local resume still running; waiting 120s"
   sleep 120
 done
 while pgrep -f 'validate_bal5_gate_single_gpu' >/dev/null; do
@@ -67,9 +117,26 @@ log "=== precondition verification ==="
 [[ -f "$CKPT" ]] || fail "checkpoint missing: $CKPT"
 ACTUAL_SHA=$(sha256sum "$CKPT" | cut -d' ' -f1)
 [[ "$ACTUAL_SHA" == "$CKPT_SHA" ]] || fail "checkpoint SHA256 mismatch: $ACTUAL_SHA != $CKPT_SHA"
-[[ -f "$RUN/manifests/generations/g000057.json" ]] || fail "g57 generation manifest missing"
-[[ "$(basename "$(find "$RUN/manifests/generations" -maxdepth 1 -name 'g*.json' | sort | tail -n1)")" == "g000057.json" ]] \
-  || fail "latest generation is not g57"
+[[ -f "$RUN/manifests/generations/g$(printf '%06d' "$GEN").json" ]] || fail "g$GEN generation manifest missing"
+# The paused manifest must record the generation we intend to measure, and the
+# run must sit on a safe boundary (no in-flight coordinator).
+/root/miniconda3/bin/python - "$RUN/run_manifest.json" "$GEN" <<'PY' || fail "paused manifest is not at the expected safe boundary"
+import json, sys
+manifest = json.load(open(sys.argv[1]))
+expected = int(sys.argv[2])
+loop = manifest.get("formal_loop_state", {})
+status = manifest.get("status")
+reason = str(manifest.get("stop_reason") or "")
+next_generation = int(loop.get("next_generation", -1))
+ok = (
+    status == "stopped_at_safe_boundary"
+    and reason.startswith("drained_after_signal_")
+    and next_generation == expected + 1
+)
+print("status=%s stop_reason=%s next_generation=%s expected_next=%s" % (
+    status, reason, next_generation, expected + 1))
+sys.exit(0 if ok else 1)
+PY
 
 CFG_SHA=$(sha256sum "$RUN/resolved_config.json" | cut -d' ' -f1)
 GIT_COMMIT=$(git -C "$REPO" rev-parse HEAD 2>/dev/null || echo unknown)
@@ -106,6 +173,7 @@ cat "$ROOT/tool_hashes.txt"
 log "=== phase 1: self-play 64-game sweep ==="
 for ACTORS in $SWEEP; do
   OUT=$ROOT/sweep/actors_$ACTORS
+  mkdir -p "$ROOT/sweep"
   [[ -e "$OUT" ]] && fail "sweep output already exists: $OUT"
   log "--- sweep actors=$ACTORS games=64"
   set +e
@@ -156,6 +224,7 @@ if [[ "$BEST_ACTORS" == "$LAST" ]]; then
   EXTRA=$(( LAST + 8 ))
   log "best point is at the boundary; extending once to actors=$EXTRA"
   OUT=$ROOT/sweep/actors_$EXTRA
+  mkdir -p "$ROOT/sweep"
   if [[ ! -e "$OUT" ]]; then
     set +e
     "$PY" -B "$REPO/tools/benchmark_bal5_topology_point.py" \
@@ -249,6 +318,7 @@ PYEOF
 log "=== phase 3: learner, $CONFIRM_REPS x 256 steps FP32 batch 256 ==="
 for REP in $(seq 1 $CONFIRM_REPS); do
   OUT=$ROOT/learner/rep_$REP
+  mkdir -p "$ROOT/learner"
   [[ -e "$OUT" ]] && fail "learner output already exists: $OUT"
   DEV=${DEVICES%%,*}
   log "--- learner rep=$REP device=$DEV"
