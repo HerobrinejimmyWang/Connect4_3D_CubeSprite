@@ -20,7 +20,7 @@ interface Props {
 
 export function ReplayScreen(props: Props) {
   const { copy: t, replay } = props;
-  const maxSteps = replay.replay.move_count;
+  const maxSteps = replay.frames.length - 1;
   const [cursor, setCursor] = useState(0);
   const [autoplay, setAutoplay] = useState(false);
   const [viewMode, setViewMode] = useState<BoardViewMode>("2d");
@@ -64,6 +64,7 @@ export function ReplayScreen(props: Props) {
   }, [autoplay, cursor, maxSteps, props.autoplayIntervalMs]);
 
   const frame = replay.frames[Math.min(cursor, replay.frames.length - 1)];
+  const currentTurn = cursor > 0 ? replay.replay.turns?.[cursor - 1] : undefined;
   const finished = frame.status !== "playing";
   const statusText = finished
     ? frame.winner === 1 ? t.game.redWins : frame.winner === -1 ? t.game.blueWins : t.game.draw
@@ -108,7 +109,7 @@ export function ReplayScreen(props: Props) {
             <small>{finished ? t.game.result : t.game.currentPlayer}</small>
             <strong className={statusClass}><i />{statusText}</strong>
           </div>
-          <div className="move-count"><small>{t.replay.progress}</small><strong>{cursor}<span>/{maxSteps}</span></strong></div>
+          <div className="move-count"><small>{t.replay.progress}</small><strong>{cursor}<span>/{maxSteps}</span></strong>{currentTurn?.kind === "forced_pass" && <small className="replay-pass-label">{currentTurn.player === 1 ? t.game.red : t.game.blue} {t.replay.forcedPass}</small>}</div>
           <div className="replay-name" title={replay.replay.name}>
             <small>{t.replay.nowPlaying}</small>
             <strong>{replay.replay.name}</strong>

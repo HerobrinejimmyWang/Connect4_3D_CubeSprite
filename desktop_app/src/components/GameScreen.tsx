@@ -24,11 +24,18 @@ interface Props {
   onWinRate: () => void;
   onSaveReplay: () => void;
   onExit: () => void;
+  onInstructions: () => void;
+  onAiSettings: () => void;
+  viewMode?: BoardViewMode;
+  onViewModeChange?: (mode: BoardViewMode) => void;
 }
 
 export function GameScreen(props: Props) {
   const { copy: t, state } = props;
-  const [viewMode, setViewMode] = useState<BoardViewMode>("2d");
+  const placedCount = state.board.reduce((total, layer) => total + layer.reduce((layerTotal, row) => layerTotal + row.filter((cell) => cell !== 0).length, 0), 0);
+  const [localViewMode, setLocalViewMode] = useState<BoardViewMode>("2d");
+  const viewMode = props.viewMode ?? localViewMode;
+  const setViewMode = props.onViewModeChange ?? setLocalViewMode;
   const finished = state.status !== "playing";
   const aiTurn = state.mode === "pvai" && state.current_player !== state.human_player;
   const moveLocked = props.mutationBusy || props.combatThinking || finished || aiTurn;
@@ -61,7 +68,7 @@ export function GameScreen(props: Props) {
             <small>{finished ? t.game.result : t.game.currentPlayer}</small>
             <strong className={statusClass}><i />{statusText}</strong>
           </div>
-          <div className="move-count"><small>{t.game.totalMoves}</small><strong>{state.move_count}<span>/150</span></strong></div>
+          <div className="move-count"><small>{t.game.totalMoves}</small><strong>{placedCount}<span>/150</span></strong></div>
           <div className={`thinking-state ${thinkingText ? "visible" : ""}`} aria-live="polite">
             {thinkingText && <><span className="thinking-dots"><i /><i /><i /></span>{thinkingText}</>}
           </div>
@@ -93,6 +100,8 @@ export function GameScreen(props: Props) {
           <button aria-label={t.game.winRate} className={props.winRateThinking ? "working" : ""} disabled={finished || props.winRateThinking || props.combatThinking} onClick={props.onWinRate}><span aria-hidden="true">▰</span>{t.game.winRate}</button>
         </div>
         <div className="function-group edge-functions">
+          <button aria-label={t.menu.instructions} onClick={props.onInstructions}><span aria-hidden="true">?</span>{t.menu.instructions}</button>
+          <button aria-label={t.menu.aiSettings} onClick={props.onAiSettings}><span aria-hidden="true">⌁</span>{t.menu.aiSettings}</button>
           {props.replayEnabled !== false && (
             <button
               aria-label={t.game.saveReplay}
@@ -106,7 +115,7 @@ export function GameScreen(props: Props) {
           <button
             aria-label={viewMode === "2d" ? t.game.switch3d : t.game.switch2d}
             className="view-toggle-button"
-            onClick={() => setViewMode((mode) => mode === "2d" ? "3d" : "2d")}
+            onClick={() => setViewMode(viewMode === "2d" ? "3d" : "2d")}
           >
             <span aria-hidden="true">◇</span>{viewMode === "2d" ? t.game.switch3d : t.game.switch2d}
           </button>

@@ -15,6 +15,7 @@ import type {
   AiSettings,
   AutoplayInterval,
   BackendApi,
+  BoardViewMode,
   GameMode,
   GameState,
   HintResult,
@@ -30,6 +31,7 @@ import type {
   ReplayHintResult,
   ReplayOpenResult,
   ReplaySummary,
+  RuleId,
   Screen,
   TacticalHintDelay,
   WinRateAnalysis,
@@ -41,6 +43,8 @@ const DEFAULT_AI: AiSettings = {
   hint: { model_id: "v2.2_balance", mcts_sims: 256, temperature: 0.4 },
   winRate: { model_id: "v2.2_balance", mcts_sims: 256, temperature: 0.4 },
 };
+const FLASH_MODEL_ID = "cubesprite_v4_flash_preview1";
+const INTELLIGENCE_SIMS = [16, 32, 64, 128, 256, 512, 1024];
 
 function analysisKey(state: GameState, config: AiConfig): string {
   return `${state.session_id}:${state.revision}:${config.model_id}:${config.mcts_sims}:${config.temperature.toFixed(1)}`;
@@ -48,6 +52,10 @@ function analysisKey(state: GameState, config: AiConfig): string {
 
 function isStaleError(error: unknown): boolean {
   return error instanceof BackendRequestError && (error.code === "STALE_REVISION" || error.code === "STALE_SESSION");
+}
+
+function isLiveGameContext(screen: Screen): boolean {
+  return screen === "game" || screen === "ai-settings" || screen === "instructions";
 }
 
 function readFileBytes(file: File): Promise<ArrayBuffer> {
@@ -96,7 +104,9 @@ export function App({ backend = appBackend }: AppProps) {
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [initError, setInitError] = useState("");
   const [models, setModels] = useState<ModelInfo[]>([]);
-  const [mctsOptions, setMctsOptions] = useState([32, 64, 128, 256, 512, 1024]);
+  const [mctsOptions, setMctsOptions] = useState(INTELLIGENCE_SIMS);
+  const [ruleId, setRuleId] = useState<RuleId>("classic");
+  const subpageReturn = useRef<"menu" | "game">("menu");
   const [replayEnabled, setReplayEnabled] = useState(true);
   const [aiSettings, setAiSettings] = useState<AiSettings>(DEFAULT_AI);
   const [forcedTactics, setForcedTactics] = useState(true);
@@ -105,6 +115,7 @@ export function App({ backend = appBackend }: AppProps) {
   const [autoplayIntervalMs, setAutoplayIntervalMs] = useState<AutoplayInterval>(1000);
   const [activeMenuPanel, setActiveMenuPanel] = useState<MenuPanel>(null);
   const [game, setGame] = useState<GameState | null>(null);
+  const [boardViewMode, setBoardViewMode] = useState<BoardViewMode>("2d");
   const gameRef = useRef<GameState | null>(null);
   const [menuBusy, setMenuBusy] = useState(false);
   const gameStartBusy = useRef(false);
@@ -172,20 +183,20 @@ export function App({ backend = appBackend }: AppProps) {
     backend.start().then((result: InitializationResult) => {
       if (cancelled) return;
       setModels(result.models);
-      setMctsOptions(result.mcts_options);
+      setMctsOptions([...new Set([16, ...result.mcts_options])].sort((a, b) => a - b));
       const supportsReplay = result.capabilities?.replay ?? true;
       setReplayEnabled(supportsReplay);
       if (!supportsReplay) setActiveMenuPanel(null);
-      const preferred = result.models.find((model) => model.id === "v2.2_balance" && model.available)
+      const preferred = result.models.find((model) => model.id === FLASH_MODEL_ID && model.available)
+        ?? result.models.find((model) => model.id === "v2.2_balance" && model.available)
         ?? result.models.find((model) => model.available);
       if (preferred) {
         setAiSettings((current) => Object.fromEntries(
           (Object.keys(current) as AiRole[]).map((role) => {
-            const selected = result.models.find((model) => model.id === current[role].model_id);
-            return [role, selected?.available ? current[role] : {
+            return [role, {
               model_id: preferred.id,
-              mcts_sims: preferred.default_mcts_sims,
-              temperature: preferred.default_temperature,
+              mcts_sims: current[role].mcts_sims,
+              temperature: current[role].temperature,
             }];
           }),
         ) as AiSettings);
@@ -222,15 +233,23 @@ export function App({ backend = appBackend }: AppProps) {
   const runCombatAi = useCallback(async (position: GameState) => {
     if (position.mode !== "pvai" || position.status !== "playing" || position.current_player === position.human_player) return;
     const token = ++combatToken.current;
+    const sessionId = position.session_id;
     setCombatThinking(true);
     try {
-      const next = await backend.request<GameState>("game.ai_move", {
-        session_id: position.session_id,
-        expected_revision: position.revision,
-        ai: aiSettings.combat,
-        forced_tactics: forcedTactics,
-      });
-      if (token === combatToken.current && screenRef.current === "game") commitState(next);
+      let current = position;
+      while (current.mode === "pvai" && current.status === "playing" && current.current_player !== current.human_player) {
+        if (token !== combatToken.current || gameRef.current?.session_id !== sessionId || !isLiveGameContext(screenRef.current)) break;
+        const next = await backend.request<GameState>("game.ai_move", {
+          session_id: current.session_id,
+          expected_revision: current.revision,
+          ai: aiSettings.combat,
+          forced_tactics: forcedTactics,
+        });
+        if (token !== combatToken.current || gameRef.current?.session_id !== sessionId || !isLiveGameContext(screenRef.current)) break;
+        if (next.revision <= current.revision) throw new Error("AI turn did not advance the game revision.");
+        commitState(next);
+        current = next;
+      }
     } catch (error) {
       if (token === combatToken.current) reportError(error);
     } finally {
@@ -247,9 +266,10 @@ export function App({ backend = appBackend }: AppProps) {
     setMenuBusy(true);
     combatToken.current += 1;
     try {
-      const next = await backend.request<GameState>("game.new", { mode, human_player: humanPlayer });
+      const next = await backend.request<GameState>("game.new", { mode, human_player: humanPlayer, rule_id: ruleId, ai: aiSettings.combat });
       if (token !== gameStartToken.current || screenRef.current !== "menu") return;
       commitState(next);
+      setBoardViewMode("2d");
       setActiveMenuPanel(null);
       navigate("game");
       await runCombatAi(next);
@@ -261,7 +281,7 @@ export function App({ backend = appBackend }: AppProps) {
         setMenuBusy(false);
       }
     }
-  }, [backend, commitState, navigate, reportError, runCombatAi]);
+  }, [aiSettings.combat, backend, commitState, navigate, reportError, ruleId, runCombatAi]);
 
   const upsertReplay = useCallback((replay: ReplaySummary) => {
     setReplays((current) => [replay, ...current.filter((item) => item.id !== replay.id)]);
@@ -457,6 +477,7 @@ export function App({ backend = appBackend }: AppProps) {
         step,
         mode,
         human_player: humanPlayer,
+        ai: aiSettings.combat,
       });
       if (
         token !== replayContinueToken.current
@@ -472,7 +493,7 @@ export function App({ backend = appBackend }: AppProps) {
     } finally {
       if (token === replayContinueToken.current) setReplayContinueBusy(false);
     }
-  }, [backend, commitReplay, commitState, navigate, replayContinueBusy, reportError, runCombatAi]);
+  }, [aiSettings.combat, backend, commitReplay, commitState, navigate, replayContinueBusy, reportError, runCombatAi]);
 
   const exitReplay = useCallback(() => {
     replayOpenToken.current += 1;
@@ -665,13 +686,57 @@ export function App({ backend = appBackend }: AppProps) {
   }, [navigate]);
 
   const updateAi = useCallback((role: AiRole, next: AiConfig) => {
+    const selectedModel = models.find((model) => model.id === next.model_id);
+    const activeRule = subpageReturn.current === "game" ? gameRef.current?.rule_id ?? ruleId : ruleId;
+    const supportsRule = selectedModel?.supported_rule_ids?.includes(activeRule) ?? next.model_id === FLASH_MODEL_ID;
+    if (activeRule !== "classic" && !supportsRule && subpageReturn.current === "game") {
+      showToast(translations[language].menu.unsupportedActiveGame);
+      return;
+    }
+    if (ruleId !== "classic" && !supportsRule) {
+      setRuleId("classic");
+      showToast(translations[language].menu.unsupportedModel);
+    }
     setAiSettings((current) => ({ ...current, [role]: next }));
     if (role === "winRate") {
       winRateToken.current += 1;
       setWinRate(null);
       setWinRateThinking(false);
     }
-  }, []);
+  }, [language, models, ruleId, showToast]);
+
+  const changeRule = useCallback((next: RuleId) => {
+    if (next !== "classic") {
+      const combat = models.find((model) => model.id === aiSettings.combat.model_id);
+      if (!(combat?.supported_rule_ids?.includes(next) ?? combat?.id === FLASH_MODEL_ID)) {
+        const flash = models.find((model) => model.id === FLASH_MODEL_ID && model.available);
+        if (flash) {
+          setAiSettings((current) => Object.fromEntries((Object.keys(current) as AiRole[]).map((role) => [role, { ...current[role], model_id: FLASH_MODEL_ID }])) as AiSettings);
+          showToast(translations[language].menu.autoRoutedModel);
+        } else {
+          showToast(translations[language].errors.modelUnavailable);
+          return;
+        }
+      }
+    }
+    setRuleId(next);
+  }, [aiSettings.combat.model_id, language, models, showToast]);
+
+  const changeIntelligence = useCallback((index: number) => {
+    const sims = INTELLIGENCE_SIMS[index];
+    if (sims === undefined) return;
+    const flash = models.find((model) => model.id === FLASH_MODEL_ID && model.available);
+    if (!flash) { showToast(translations[language].errors.modelUnavailable); return; }
+    setAiSettings((current) => Object.fromEntries((Object.keys(current) as AiRole[]).map((role) => [role, { model_id: FLASH_MODEL_ID, mcts_sims: sims, temperature: 0.5 }])) as AiSettings);
+    winRateToken.current += 1;
+    setWinRate(null);
+  }, [language, models, showToast]);
+
+  const openSubpage = useCallback((target: "ai-settings" | "instructions", from: "menu" | "game") => {
+    subpageReturn.current = from;
+    navigate(target);
+  }, [navigate]);
+  const backFromSubpage = useCallback(() => navigate(subpageReturn.current), [navigate]);
 
   const currentHintKey = game ? analysisKey(game, aiSettings.hint) : "";
   const hintThinking = hintPending.has(currentHintKey);
@@ -694,6 +759,10 @@ export function App({ backend = appBackend }: AppProps) {
         <MenuScreen
           copy={t}
           activePanel={activeMenuPanel}
+          ruleId={ruleId}
+          onRuleChange={changeRule}
+          intelligence={Math.max(0, INTELLIGENCE_SIMS.indexOf(aiSettings.combat.mcts_sims))}
+          onIntelligenceChange={changeIntelligence}
           busy={menuBusy}
           replayEnabled={replayEnabled}
           replays={replays}
@@ -710,9 +779,9 @@ export function App({ backend = appBackend }: AppProps) {
           onDeleteReplay={(replay) => void deleteReplay(replay)}
           onExportReplay={(replay) => void exportReplay(replay)}
           onImportReplay={(file) => void importReplay(file)}
-          onAiSettings={() => navigate("ai-settings")}
+          onAiSettings={() => openSubpage("ai-settings", "menu")}
           onSettings={() => navigate("settings")}
-          onInstructions={() => navigate("instructions")}
+          onInstructions={() => openSubpage("instructions", "menu")}
         />
       );
     }
@@ -726,7 +795,8 @@ export function App({ backend = appBackend }: AppProps) {
           forcedTactics={forcedTactics}
           onChange={updateAi}
           onForcedTacticsChange={setForcedTactics}
-          onBack={() => navigate("menu")}
+          onBack={backFromSubpage}
+          backLabel={subpageReturn.current === "game" ? t.common.backPrevious : undefined}
         />
       );
     }
@@ -745,15 +815,15 @@ export function App({ backend = appBackend }: AppProps) {
         />
       );
     }
-    if (screen === "instructions") return <InstructionsScreen copy={t} onBack={() => navigate("menu")} />;
+    if (screen === "instructions") return <InstructionsScreen copy={t} onBack={backFromSubpage} backLabel={subpageReturn.current === "game" ? t.common.backPrevious : undefined} />;
     if (screen === "game" && game) {
-      return <GameScreen copy={t} state={game} combatThinking={combatThinking} hintThinking={hintThinking} winRateThinking={winRateThinking} saveReplayThinking={saveReplayThinking} replayEnabled={replayEnabled} mobileLayout={!replayEnabled} mutationBusy={mutationBusy} hint={visibleHint} hintPreloaded={preloadHint && hintPreloaded} winRate={winRate} onMove={(move) => void handleMove(move)} onUndo={() => void mutateGame("game.undo", false)} onRestart={() => void mutateGame("game.restart", true)} onHint={requestVisibleHint} onWinRate={() => void requestWinRate()} onSaveReplay={() => void saveReplay()} onExit={exitGame} />;
+      return <GameScreen copy={t} state={game} viewMode={boardViewMode} onViewModeChange={setBoardViewMode} combatThinking={combatThinking} hintThinking={hintThinking} winRateThinking={winRateThinking} saveReplayThinking={saveReplayThinking} replayEnabled={replayEnabled} mobileLayout={!replayEnabled} mutationBusy={mutationBusy} hint={visibleHint} hintPreloaded={preloadHint && hintPreloaded} winRate={winRate} onMove={(move) => void handleMove(move)} onUndo={() => void mutateGame("game.undo", false)} onRestart={() => void mutateGame("game.restart", true)} onHint={requestVisibleHint} onWinRate={() => void requestWinRate()} onSaveReplay={() => void saveReplay()} onExit={exitGame} onInstructions={() => openSubpage("instructions", "game")} onAiSettings={() => openSubpage("ai-settings", "game")} />;
     }
     if (screen === "replay" && activeReplay) {
       return <ReplayScreen key={activeReplay.replay.id} copy={t} replay={activeReplay} autoplayIntervalMs={autoplayIntervalMs} analysisThinking={replayAnalysisThinking} continueBusy={replayContinueBusy} onHint={requestReplayHint} onAnalyze={() => void analyzeReplay()} onContinue={(step, mode, humanPlayer) => void continueReplay(step, mode, humanPlayer)} onExit={exitReplay} />;
     }
     return null;
-  }, [activeMenuPanel, activeReplay, aiSettings, analyzeReplay, autoplayIntervalMs, closeMenuPanel, combatThinking, continueReplay, deleteReplay, exitGame, exitReplay, exportReplay, forcedTactics, game, handleMove, hintPreloaded, hintThinking, importReplay, initError, menuBusy, mctsOptions, models, mutateGame, mutationBusy, navigate, openPvaiPanel, openReplay, openReplayPanel, preloadHint, replayAnalysisThinking, replayContinueBusy, replayDeleteBusyId, replayEnabled, replayExportBusyId, replayImportBusy, replayListBusy, replays, requestReplayHint, requestVisibleHint, requestWinRate, saveReplay, saveReplayThinking, screen, startGame, t, tacticalHintDelay, updateAi, visibleHint, winRate, winRateThinking]);
+  }, [activeMenuPanel, activeReplay, aiSettings, analyzeReplay, autoplayIntervalMs, backFromSubpage, boardViewMode, changeIntelligence, changeRule, closeMenuPanel, combatThinking, continueReplay, deleteReplay, exitGame, exitReplay, exportReplay, forcedTactics, game, handleMove, hintPreloaded, hintThinking, importReplay, initError, menuBusy, mctsOptions, models, mutateGame, mutationBusy, navigate, openPvaiPanel, openReplay, openReplayPanel, openSubpage, preloadHint, replayAnalysisThinking, replayContinueBusy, replayDeleteBusyId, replayEnabled, replayExportBusyId, replayImportBusy, replayListBusy, replays, requestReplayHint, requestVisibleHint, requestWinRate, ruleId, saveReplay, saveReplayThinking, screen, startGame, t, tacticalHintDelay, updateAi, visibleHint, winRate, winRateThinking]);
 
   return (
     <div className="app-frame">

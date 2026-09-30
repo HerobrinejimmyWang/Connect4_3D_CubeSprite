@@ -28,6 +28,7 @@ training/runs/
 # Local product references and generated desktop build artifacts
 tmp_built_app/
 desktop_app/node_modules/
+.pnpm-store/
 desktop_app/dist/
 desktop_app/coverage/
 desktop_app/.playwright-cli/

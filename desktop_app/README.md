@@ -1,6 +1,6 @@
 # Connect4 3D CubeSprite
 
-CubeSprite `0.1.1` 是固定 `6 × 5 × 5、连四` 规则的离线 Windows 桌面游戏。发布包包含 Tauri 2 应用、React 界面、冻结的 Python sidecar、ONNX Runtime 和可用模型；最终用户无需安装 Python、Conda、Node.js 或 Rust。
+CubeSprite `0.2.0-alpha.1` 是 `6 × 5 × 5、连四` 的离线 Windows 桌面游戏，支持 Classic 和 Stage 3 的四种先手限制规则。发布包包含 Tauri 2 应用、React 界面、冻结的 Python sidecar、ONNX Runtime 和可用模型；最终用户无需安装 Python、Conda、Node.js 或 Rust。版本保留在发布元数据和后端，不在 App 页面显示。
 
 ## 架构边界
 
@@ -14,6 +14,7 @@ CubeSprite `0.1.1` 是固定 `6 × 5 × 5、连四` 规则的离线 Windows 桌�
 
 | 模型 | 状态 | 推理适配 |
 |---|---|---|
+| CubeSprite V4 Flash (Preview1) | 首选、默认 | V3 原生 Stage 3 终端快照；显式棋盘、绝对行棋身份和 32 维规则输入；支持全部五种规则 |
 | CubeSprite V3 | 旗舰版 | `iter_0240` 重力感知残差网络，原生 `2 × 6 × 5 × 5` 输入、150 动作 |
 | CubeSprite V3 mini | mini 版 | `iter_0260` 轻量重力感知残差网络，原生 `2 × 6 × 5 × 5` 输入、150 动作 |
 | v2.2 Balance | 可用 | 原生 `2 × 6 × 5 × 5` 输入、150 动作 |
@@ -26,6 +27,16 @@ ONNX 发布资源使用 Git LFS。首次检出后运行 `git lfs pull`。注册�
 checkpoint 重新生成，脚本只读 `tmp_built_app/`，并在临时文件通过 ONNX
 checker、ONNX Runtime 和 PyTorch 数值比对后原子替换目标文件。
 
+V4 Preview1 单独通过 `python desktop_app/scripts/export_v4_flash.py` 从仓库根目录
+`terminal_snapshot.pt` 导出。脚本核验源 SHA-256，严格加载其 V3 架构，并验证
+五种规则 × 双方行棋身份的 ONNX/PyTorch 一致性；不转换或续训 Legacy 权重。
+默认仍为 256 次搜索、temperature 0.4。主菜单智能度滑条的七档明确应用
+16/32/64/128/256/512/1024 次搜索和 temperature 0.5，Advance 打开详细设置。
+
+菜单中先选规则再选旧模型会回到 Classic；先选旧模型再选新规则会切到 V4。
+已开始的新规则棋局中，切换到不支持规则的模型会被拒绝，保留棋局并显示红色提示。
+游戏内 Instructions 和 AI Settings 的 Back 返回当前棋局。
+
 ## 对局回放
 
 对局界面可以把当前步数之前的完整棋局保存到本机。主菜单“回放模式”支持
@@ -35,6 +46,9 @@ checker、ONNX Runtime 和 PyTorch 数值比对后原子替换目标文件。
 回放与胜率分析是两个独立文件：可分享的回放只包含规则版本、落子序列和
 终局状态；分析旁车文件记录模型文件哈希、MCTS 配置、执行时间和逐步胜率。
 详细格式见 [REPLAY_PROTOCOL.md](REPLAY_PROTOCOL.md)。
+
+保存和导入使用回放协议 v2，包含规则身份、参与者来源及 placement/forced-pass
+回合序列。v1 不再支持。训练侧 v2 样例可以逐步播放，并从未终局位置继续。
 
 ## Conda 构建环境
 
@@ -89,6 +103,16 @@ python -m compileall connect4_core training arena distillation train_features te
 响应包含同一请求 ID；所有棋局修改和分析都携带 `session_id + revision`，从而丢弃 Undo、Restart、Exit 或设置变化后的过期 AI 结果。stdout 只输出 JSONL 协议，诊断信息写入 stderr。
 
 ## 生成物策略
+
+Windows 实机端到端测试脚本为 `scripts/e2e_windows.py`，连接测试进程专用的
+WebView2 调试端口并使用真实安装后的 Tauri/JSONL/ONNX 链路，无模拟后端。
+例：`python desktop_app/scripts/e2e_windows.py --exe <installed-cubesprite.exe> --sample <training-v2.json> --output <evidence-directory>`。
+仅测试环境需要 Playwright。脚本为测试进程设置独立的 WebView2 数据目录，并将
+`CUBESPRITE_DATA_DIR` 设置为证据目录下的绝对路径 `app-data/`，隔离真实后端的回放库。
+该环境变量只接受绝对路径；未设置时，正常启动仍使用 Windows Known Folders。
+成功测试会清理本次新建的测试回放并保留证据副本。
+测试覆盖五种桌面尺寸下的菜单/选择窗口、设置页和说明页边界，以及最小窗口的
+游戏/回放/续局弹窗、滑条键盘七档、中英文切换和真实对局回放流程。
 
 - Git 跟踪：源代码、锁文件、图标、manifest、Git LFS ONNX 模型。
 - Git 忽略：`node_modules/`、前端 `dist/`、Rust `target/`、PyInstaller 临时目录、冻结 sidecar exe 和安装包。

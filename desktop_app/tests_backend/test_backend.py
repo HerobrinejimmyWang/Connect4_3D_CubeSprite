@@ -39,7 +39,7 @@ class UniformPredictor:
         self.entered = None
         self.release = None
 
-    def predict(self, board):
+    def predict(self, board, **_kwargs):
         if self.entered is not None:
             self.entered.set()
             self.release.wait(timeout=5)
@@ -52,8 +52,9 @@ class FakeModels:
         self.requested = []
 
     def get(self, model_id):
-        if model_id in {"cubesprite_v3", "cubesprite_v3_mini", "v2.2_balance", "v3_b6c128", "v3_b8c192", "v3_b10c256"}:
-            return SimpleNamespace(id=model_id, display_name=model_id, placeholder=False)
+        if model_id in {"cubesprite_v4_flash_preview1", "cubesprite_v3", "cubesprite_v3_mini", "v2.2_balance", "v3_b6c128", "v3_b8c192", "v3_b10c256"}:
+            supported_rule_ids = ("classic", "p1_vertical_ignored", "p1_vertical_forbidden", "p1_layer0_ignored", "p1_vertical_and_layer0_ignored") if model_id == "cubesprite_v4_flash_preview1" else ("classic",)
+            return SimpleNamespace(id=model_id, display_name=model_id, placeholder=False, supported_rule_ids=supported_rule_ids, artifact_sha256="0" * 64)
         raise ModelUnavailableError(f"Unknown model id: {model_id}")
 
     def predictor(self, model_id):
@@ -90,15 +91,18 @@ class ManifestAndAdapterTests(unittest.TestCase):
     def test_authoritative_manifest_has_stage1_models_and_bilingual_entries(self):
         models = ModelRegistry(RESOURCE_DIR).list_models()
         self.assertEqual([item["id"] for item in models], [
-            "cubesprite_v3", "cubesprite_v3_mini", "v2.2_balance", "v3_b6c128", "v3_b8c192", "v3_b10c256"
+            "cubesprite_v4_flash_preview1", "cubesprite_v3", "cubesprite_v3_mini", "v2.2_balance", "v3_b6c128", "v3_b8c192", "v3_b10c256"
         ])
         self.assertTrue(models[0]["available"])
         self.assertTrue(models[1]["available"])
-        self.assertEqual(models[0]["architecture"], "gravity_resnet_v1")
+        self.assertEqual(models[0]["architecture"], "v3-role-rule-v1")
+        self.assertTrue(set(models[0]["supported_rule_ids"]) >= {"classic", "p1_vertical_and_layer0_ignored"})
         self.assertEqual(models[1]["architecture"], "gravity_resnet_v1")
-        self.assertTrue(all(item["architecture"] == "v3-stage1-adapted" for item in models[3:]))
-        self.assertTrue(all((item["board_layers"], item["action_dim"]) == (6, 150) for item in models[3:]))
+        self.assertEqual(models[2]["architecture"], "gravity_resnet_v1")
+        self.assertTrue(all(item["architecture"] == "v3-stage1-adapted" for item in models[4:]))
+        self.assertTrue(all((item["board_layers"], item["action_dim"]) == (6, 150) for item in models[4:]))
         expected_identities = {
+            "cubesprite_v4_flash_preview1": ("bbc60a63a72a4ad908006b094c5d7c7a238e204a2a6d857b5cdbfaf09d5e4344", 32),
             "cubesprite_v3": (
                 "61f4619d4b46daba149667697fcc9ffbf28171cef9b03d1b659a07395403814e",
                 240,
@@ -356,7 +360,7 @@ class ServiceStateTests(unittest.TestCase):
         settings = result["settings"]
         self.assertTrue(settings["preload_hint"])
         self.assertEqual(settings["roles"]["combat"]["model_id"], "v3_b6c128")
-        self.assertEqual(settings["roles"]["hint"]["model_id"], "v2.2_balance")
+        self.assertEqual(settings["roles"]["hint"]["model_id"], "cubesprite_v4_flash_preview1")
         result = self.service.handle("settings.set_preload_hint", {**token(result["state"]), "enabled": False})
         self.assertFalse(result["settings"]["preload_hint"])
         state = self.service.handle("game.new", {"mode": "pvp"})

@@ -1,0 +1,1 @@
+{"build":{"beforeBuildCommand":"npm run build"},"bundle":{"useLocalToolsDir":true}}

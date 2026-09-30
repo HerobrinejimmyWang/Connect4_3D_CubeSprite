@@ -1,10 +1,10 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
 
 import { App } from "./App";
-import { emptyState, FakeBackend, replayAnalysis, replayOpen } from "./test/fixtures";
-import type { GameState, ReplayOpenResult, WinRateAnalysis } from "./types";
+import { emptyState, FakeBackend, initialization, replayAnalysis, replayOpen } from "./test/fixtures";
+import type { GameState, ReplayOpenResult, RuleId, WinRateAnalysis } from "./types";
 
 class DeferredAiBackend extends FakeBackend {
   resolveAi: (() => void) | null = null;
@@ -29,6 +29,38 @@ class DeferredAiBackend extends FakeBackend {
         resolve(this.state as T);
       };
     });
+  }
+}
+
+class FlashBackend extends FakeBackend {
+  override async start() {
+    return {
+      ...initialization,
+      models: [{
+        ...initialization.models[0],
+        id: "cubesprite_v4_flash_preview1",
+        display_name: "CubeSprite V4 Flash (Preview1)",
+        supported_rule_ids: ["classic", "p1_vertical_ignored", "p1_vertical_forbidden", "p1_layer0_ignored", "p1_vertical_and_layer0_ignored"] as RuleId[],
+      }, ...initialization.models],
+    };
+  }
+}
+
+class ForcedPassAiBackend extends FlashBackend {
+  aiTurns = 0;
+
+  override async request<T>(command: string, params: Record<string, unknown> = {}): Promise<T> {
+    if (command !== "game.ai_move") return super.request<T>(command, params);
+    this.calls.push({ command, params });
+    this.aiTurns += 1;
+    this.state = emptyState({
+      ...this.state,
+      revision: this.state.revision + 1,
+      move_count: this.state.move_count + 1,
+      current_player: this.aiTurns === 1 ? 1 : -1,
+      last_move: { action: this.aiTurns - 1, layer: 0, row: 0, col: this.aiTurns - 1, player: 1 },
+    });
+    return this.state as T;
   }
 }
 
@@ -106,6 +138,92 @@ class DeferredNewGameBackend extends FakeBackend {
 }
 
 describe("CubeSprite app shell", () => {
+  it("keeps requesting AI turns when a forbidden-rule forced pass leaves AI to move again", async () => {
+    const user = userEvent.setup();
+    const backend = new ForcedPassAiBackend();
+    render(<App backend={backend} />);
+    await user.click(await screen.findByRole("radio", { name: "竖直禁手" }));
+    await user.click(screen.getByRole("button", { name: "玩家 vs AI" }));
+    await user.click(screen.getByRole("button", { name: /蓝方 · 后手/ }));
+    await waitFor(() => expect(backend.aiTurns).toBe(2));
+    const aiCalls = backend.calls.filter((call) => call.command === "game.ai_move");
+    expect(aiCalls.map((call) => call.params.expected_revision)).toEqual([2, 3]);
+    expect(await screen.findByText("蓝方", { selector: ".turn-state strong" })).toBeVisible();
+  });
+  it("starts with Flash at unchanged AI parameters and sends the chosen rule to a new game", async () => {
+    const user = userEvent.setup();
+    const backend = new FlashBackend();
+    render(<App backend={backend} />);
+    await user.click(await screen.findByRole("radio", { name: "竖直禁手" }));
+    await user.click(screen.getByRole("button", { name: "玩家 vs AI" }));
+    await user.click(screen.getByRole("button", { name: /蓝方 · 后手/ }));
+    await waitFor(() => expect(backend.calls.some((call) => call.command === "game.ai_move")).toBe(true));
+    expect(backend.calls.find((call) => call.command === "game.new")?.params.rule_id).toBe("p1_vertical_forbidden");
+    expect(backend.calls.find((call) => call.command === "game.new")?.params.ai).toMatchObject({ model_id: "cubesprite_v4_flash_preview1", mcts_sims: 256, temperature: 0.4 });
+    expect(backend.calls.find((call) => call.command === "game.ai_move")?.params.ai).toMatchObject({ model_id: "cubesprite_v4_flash_preview1", mcts_sims: 256, temperature: 0.4 });
+  });
+
+  it("routes a nonclassic rule to Flash after selecting a legacy model and maps the first slider stop to 16 searches", async () => {
+    const user = userEvent.setup();
+    const backend = new FlashBackend();
+    render(<App backend={backend} />);
+    await user.click(await screen.findByRole("button", { name: "AI 设置" }));
+    const combat = screen.getAllByRole("article")[0];
+    await user.click(within(combat).getByRole("radio", { name: "v2.2_balance" }));
+    await user.click(screen.getByRole("button", { name: "返回主菜单" }));
+    await user.click(screen.getByRole("radio", { name: "竖直不计" }));
+    expect(document.querySelector(".toast")).toHaveTextContent("CubeSprite V4 Flash (Preview1)");
+    fireEvent.change(screen.getByRole("slider", { name: "AI 智能度" }), { target: { value: "0" } });
+    expect(document.querySelectorAll(".intelligence-slider .intelligence-ticks span.active")).toHaveLength(1);
+    expect(document.querySelector(".intelligence-slider")).toHaveStyle({ "--effort-progress": "0%" });
+    await user.click(screen.getByRole("button", { name: "玩家 vs AI" }));
+    await user.click(screen.getByRole("button", { name: /蓝方 · 后手/ }));
+    await waitFor(() => expect(backend.calls.some((call) => call.command === "game.ai_move")).toBe(true));
+    expect(backend.calls.find((call) => call.command === "game.ai_move")?.params.ai).toMatchObject({ model_id: "cubesprite_v4_flash_preview1", mcts_sims: 16, temperature: 0.5 });
+  });
+
+  it("switches the menu rule back to Classic when an incompatible model is selected later", async () => {
+    const user = userEvent.setup();
+    render(<App backend={new FlashBackend()} />);
+    await user.click(await screen.findByRole("radio", { name: "首层不计" }));
+    await user.click(screen.getByRole("button", { name: "AI 设置" }));
+    await user.click(within(screen.getAllByRole("article")[0]).getByRole("radio", { name: "v2.2_balance" }));
+    expect(document.querySelector(".toast")).toHaveTextContent("经典规则");
+    await user.click(screen.getByRole("button", { name: "返回主菜单" }));
+    expect(screen.getByRole("radio", { name: "经典" })).toBeChecked();
+  });
+
+  it("rejects incompatible AI models while a nonclassic game is active", async () => {
+    const user = userEvent.setup();
+    const backend = new FlashBackend();
+    render(<App backend={backend} />);
+    await user.click(await screen.findByRole("radio", { name: "竖直不计" }));
+    await user.click(screen.getByRole("button", { name: "玩家 vs 玩家" }));
+    await user.click(screen.getByRole("button", { name: "AI 设置" }));
+    const combat = screen.getAllByRole("article")[0];
+    await user.click(within(combat).getByRole("radio", { name: "v2.2_balance" }));
+    expect(document.querySelector(".toast")).toHaveTextContent("已保留当前模型和规则");
+    expect(within(combat).getByRole("radio", { name: "CubeSprite V4 Flash (Preview1)" })).toBeChecked();
+    await user.click(screen.getByRole("button", { name: "返回" }));
+    expect(backend.calls.find((call) => call.command === "game.new")?.params.rule_id).toBe("p1_vertical_ignored");
+  });
+
+  it("returns from game instructions and AI settings to the same live board", async () => {
+    const user = userEvent.setup();
+    const backend = new FlashBackend();
+    render(<App backend={backend} />);
+    await user.click(await screen.findByRole("button", { name: "玩家 vs 玩家" }));
+    await user.click(screen.getByRole("button", { name: "F1, 1, 1: 合法落点" }));
+    expect(await screen.findByText("1", { selector: ".move-count strong" })).toBeVisible();
+    const session = backend.state.session_id;
+    await user.click(screen.getByRole("button", { name: "游戏说明" }));
+    await user.click(screen.getByRole("button", { name: "返回" }));
+    expect(screen.getByText("1", { selector: ".move-count strong" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "AI 设置" }));
+    await user.click(screen.getByRole("button", { name: "返回" }));
+    expect(backend.state.session_id).toBe(session);
+    expect(backend.calls.filter((call) => call.command === "game.new")).toHaveLength(1);
+  });
   it("loads the menu and switches all copy instantly", async () => {
     const user = userEvent.setup();
     render(<App backend={new FakeBackend()} />);
@@ -123,7 +241,8 @@ describe("CubeSprite app shell", () => {
     expect(screen.getByText(/six floors, F1–F6/i)).toBeVisible();
     const instructions = screen.getByRole("region", { name: "Instructions" });
     expect(instructions).toHaveClass("instruction-list");
-    expect(within(instructions).getAllByRole("listitem")).toHaveLength(9);
+    expect(within(instructions).getAllByRole("listitem")).toHaveLength(10);
+    expect(within(instructions).queryByText("Quick start")).not.toBeInTheDocument();
     expect(document.querySelectorAll(".instruction-card")).toHaveLength(0);
   });
 
@@ -511,6 +630,7 @@ describe("CubeSprite app shell", () => {
       step: 1,
       mode: "pvai",
       human_player: -1,
+      ai: { model_id: "v2.2_balance", mcts_sims: 256, temperature: 0.4 },
     });
     await waitFor(() => expect(backend.calls.some((call) => call.command === "game.ai_move")).toBe(true));
     expect(await screen.findByText("PVAI")).toBeVisible();

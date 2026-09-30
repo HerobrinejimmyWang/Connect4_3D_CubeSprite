@@ -206,7 +206,7 @@ class ReplayServiceTests(unittest.TestCase):
     def install_fake_search(self, value: float) -> list[tuple[int, dict]]:
         calls: list[tuple[int, dict]] = []
 
-        def fake_search(board: np.ndarray, player: int, ai: dict) -> SearchResult:
+        def fake_search(board: np.ndarray, player: int, ai: dict, **_kwargs) -> SearchResult:
             calls.append((player, dict(ai)))
             action = int(np.flatnonzero(self.service.game.get_valid_moves(board) > 0)[0])
             policy = np.zeros(self.service.game.get_action_size(), dtype=float)
@@ -282,7 +282,7 @@ class ReplayServiceTests(unittest.TestCase):
 
         self.assertEqual(
             set(summary),
-            {"id", "name", "saved_at", "move_count", "status", "winner", "fingerprint"},
+            {"id", "name", "saved_at", "rule_id", "turn_count", "placement_count", "move_count", "status", "winner", "fingerprint"},
         )
         self.assertEqual(summary["move_count"], 2)
         self.assertEqual(self.service.handle("replay.list", {})["replays"], [summary])
@@ -291,8 +291,8 @@ class ReplayServiceTests(unittest.TestCase):
         self.assertEqual(set(opened), {"replay", "frames", "analysis"})
         self.assertIsNone(opened["analysis"])
         self.assertEqual(len(opened["frames"]), 3)
-        self.assertEqual(opened["replay"]["moves"][0]["ply"], 1)
-        self.assertEqual(opened["replay"]["moves"][1]["player"], -1)
+        self.assertEqual(opened["replay"]["turns"][0]["ply"], 1)
+        self.assertEqual(opened["replay"]["turns"][1]["player"], -1)
         self.assertNotIn("ai", opened["replay"])
         self.assertNotIn("mode", opened["replay"])
 
@@ -430,12 +430,12 @@ class ReplayServiceTests(unittest.TestCase):
         replay_path = self.data_dir / "replays" / f"{summary['id']}.c4replay.json"
         payload = json.loads(replay_path.read_text(encoding="utf-8"))
         payload["id"] = "1" * 32
-        payload["moves"][0]["col"] = 4
+        payload["turns"][0]["col"] = 4
         with self.assertRaises(ServiceError) as raised:
             self.service.handle("replay.import", {"content": json.dumps(payload)})
         self.assertEqual(raised.exception.code, "INVALID_REPLAY")
 
-        payload["moves"][0]["col"] = 0
+        payload["turns"][0]["col"] = 0
         payload["fingerprint"] = "0" * 64
         with self.assertRaises(ServiceError) as raised:
             self.service.handle("replay.import", {"content": json.dumps(payload)})
@@ -528,6 +528,22 @@ class ReplayServiceTests(unittest.TestCase):
         self.assertEqual(frames[152]["status"], "draw")
         self.assertEqual(frames[152]["winner"], 0)
 
+    def test_continue_before_required_pass_completes_live_turns(self) -> None:
+        payload = self.v2_forced_pass_payload()
+        summary = self.service.handle("replay.import", {"content": json.dumps(payload)})["replay"]
+        continued = self.service.handle(
+            "replay.continue",
+            self.replay_ref(summary) | {"step": 150, "mode": "pvp"},
+        )
+        self.assertEqual(continued["rule_id"], RULE2.rule_id)
+        self.assertEqual(continued["status"], "draw")
+        self.assertEqual(continued["move_count"], 152)
+        self.assertEqual(continued["legal_moves"], [])
+        saved = self.save(continued, "Continued forced passes")
+        replay = self.service.handle("replay.open", self.replay_ref(saved))["replay"]
+        self.assertEqual(replay["participants"], payload["participants"])
+        self.assertEqual(replay["participant_provenance_hash"], payload["participant_provenance_hash"])
+
     def test_v2_gameplay_tamper_requires_a_new_game_fingerprint(self) -> None:
         payload = self.v2_payload()
         payload["turns"][1].update({"column": 6, "action": 6, "row": 1, "col": 1})
@@ -568,8 +584,9 @@ class ReplayServiceTests(unittest.TestCase):
 
         second_payload = json.loads(first_content)
         second_payload["name"] = "Conflicting race source"
-        second_payload["moves"][0].update(
+        second_payload["turns"][0].update(
             {
+                "column": 5,
                 "action": self.service.game.coords_to_action(0, 1, 0),
                 "layer": 0,
                 "row": 1,
@@ -812,7 +829,7 @@ class ReplayServiceTests(unittest.TestCase):
         first_search_entered = threading.Event()
         release_first_search = threading.Event()
 
-        def controlled_search(board: np.ndarray, player: int, ai: dict) -> SearchResult:
+        def controlled_search(board: np.ndarray, player: int, ai: dict, **_kwargs) -> SearchResult:
             if ai["mcts_sims"] == 32:
                 first_search_entered.set()
                 if not release_first_search.wait(timeout=5):
@@ -865,13 +882,13 @@ class ReplayServiceTests(unittest.TestCase):
             policy[action] = 1.0
             return SearchResult(action=action, policy=policy.tolist(), value=value)
 
-        def older_search(board: np.ndarray, _player: int, _ai: dict) -> SearchResult:
+        def older_search(board: np.ndarray, _player: int, _ai: dict, **_kwargs) -> SearchResult:
             older_search_entered.set()
             if not release_older_search.wait(timeout=5):
                 raise AssertionError("Timed out waiting to release the older cross-instance analysis.")
             return result_for(self.service, board, 0.2)
 
-        def newer_search(board: np.ndarray, _player: int, _ai: dict) -> SearchResult:
+        def newer_search(board: np.ndarray, _player: int, _ai: dict, **_kwargs) -> SearchResult:
             return result_for(newer_service, board, -0.4)
 
         self.service._search = older_search

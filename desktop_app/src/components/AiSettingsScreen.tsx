@@ -15,6 +15,7 @@ interface Props {
   onChange: (role: AiRole, next: AiConfig) => void;
   onForcedTacticsChange: (enabled: boolean) => void;
   onBack: () => void;
+  backLabel?: string;
 }
 
 function TemperatureControl({ value, onChange }: { value: number; onChange: (value: number) => void }) {
@@ -62,6 +63,7 @@ export function AiSettingsScreen({
   onChange,
   onForcedTacticsChange,
   onBack,
+  backLabel,
 }: Props) {
   const roleNames: Record<AiRole, [string, string]> = {
     combat: [t.ai.combat, t.ai.combatDetail],
@@ -70,7 +72,7 @@ export function AiSettingsScreen({
   };
 
   return (
-    <PageShell copy={t} title={t.ai.title} subtitle={t.ai.subtitle} onBack={onBack} wide>
+    <PageShell copy={t} title={t.ai.title} subtitle={t.ai.subtitle} onBack={onBack} backLabel={backLabel} wide>
       <div className="ai-columns">
         {ROLE_ORDER.map((role, roleIndex) => {
           const config = settings[role];

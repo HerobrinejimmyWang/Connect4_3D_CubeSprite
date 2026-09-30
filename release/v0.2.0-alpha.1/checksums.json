@@ -1,0 +1,73 @@
+{
+  "version": "0.2.0-alpha.1",
+  "installed_matches_build_except_tauri_nsis_marker": true,
+  "executable_difference": "Only the three-byte Tauri bundle marker changes UNK to NSS inside NSIS, verified by exact byte comparison after normalization.",
+  "installed_models_verified": 7,
+  "files": {
+    "builds\\01\\CubeSprite_0.2.0-alpha.1_x64-setup.exe": {
+      "sha256": "561d67d77f5bd60317c3bee961ce963e16396c6a4bf3ebd304936f65c8680126",
+      "bytes": 424015990
+    },
+    "builds\\02\\CubeSprite_0.2.0-alpha.1_x64-setup.exe": {
+      "sha256": "0b61808145396e3b015a4b662f5280fc7477c984a8e57240b6c9bbdf3194e6c7",
+      "bytes": 424019147
+    },
+    "builds\\03\\CubeSprite_0.2.0-alpha.1_x64-setup.exe": {
+      "sha256": "5a9179b0e45b6aefa1838b228be4e0e98da94183260b9e907169acfcbb3f01a5",
+      "bytes": 424069831
+    },
+    "builds\\04\\CubeSprite_0.2.0-alpha.1_x64-setup.exe": {
+      "sha256": "7acb3a7d9c39c11dfed1f8c3f446c60a52fcd4362a318a2f5baf190a8d289764",
+      "bytes": 423980088
+    },
+    "builds\\05\\CubeSprite_0.2.0-alpha.1_x64-setup.exe": {
+      "sha256": "a9cf27bee6ba154284199545dc9af0c0a21f71207ab0e567e0dcb167cba4f81c",
+      "bytes": 424022898
+    },
+    "CubeSprite_0.2.0-alpha.1_x64-setup.exe": {
+      "sha256": "98c8afb1d0cd57b5878849a9867165e63cf22c537cdf485805e348f424482724",
+      "bytes": 424039513
+    }
+  },
+  "installed_executable_sha256": "5e4f9bd01dacd9cd6f5c180055827846c0c1d690ba9c41f40161c7bd110af29b",
+  "build_executable_sha256": "188de1f6c926c414871c7926ecc95dd2fb5d82a3b46d4ac8a0d418c6c50faf36",
+  "installed_sidecar_sha256": "1f1374c76cff31a15e1a1a415a79e57f1b52e619775136abb479f4fb1037683f",
+  "source_checkpoint_sha256": "2524860a99c85ae2e2aa2eb018368e906c7bbcfb1191051532a2d75f42cf6f2f",
+  "models": {
+    "cubesprite_v4_flash_preview1": "bbc60a63a72a4ad908006b094c5d7c7a238e204a2a6d857b5cdbfaf09d5e4344",
+    "cubesprite_v3": "61f4619d4b46daba149667697fcc9ffbf28171cef9b03d1b659a07395403814e",
+    "cubesprite_v3_mini": "31143a556257708b2363b3e280988c1bf00fb15df49b7bc842de015fd6a6b8a9",
+    "v2.2_balance": "bb8cc0c6042276dfa3954e67b71f1fd43f603f9d6d9a0492412726cc41d30712",
+    "v3_b6c128": "9e99064b015eec4a2bc7a0bc8fd67d3c7008a4bb50e4638ec64708aa06da32d7",
+    "v3_b8c192": "e8d6ebbe45ceb7251eef09b58183092ee52c02b2f1589c1450ed8364e8bf91f1",
+    "v3_b10c256": "ecd327287d25662e6e0c4ffcb9916177d68e4ad61cf2ccf658da00aa6c7126a8"
+  },
+  "end_to_end": {
+    "passed": true,
+    "data_directory": "isolated via CUBESPRITE_DATA_DIR",
+    "checks": 52,
+    "viewports": [
+      [
+        1536,
+        792
+      ],
+      [
+        1100,
+        720
+      ],
+      [
+        1280,
+        720
+      ],
+      [
+        1440,
+        900
+      ],
+      [
+        1920,
+        1080
+      ]
+    ],
+    "default_appdata_in_this_session": "Independent same-directory os.replace probe fails with WinError 17; this path is not claimed verified."
+  }
+}
