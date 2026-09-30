@@ -539,6 +539,10 @@ class ReplayServiceTests(unittest.TestCase):
         self.assertEqual(continued["status"], "draw")
         self.assertEqual(continued["move_count"], 152)
         self.assertEqual(continued["legal_moves"], [])
+        saved = self.save(continued, "Continued forced passes")
+        replay = self.service.handle("replay.open", self.replay_ref(saved))["replay"]
+        self.assertEqual(replay["participants"], payload["participants"])
+        self.assertEqual(replay["participant_provenance_hash"], payload["participant_provenance_hash"])
 
     def test_v2_gameplay_tamper_requires_a_new_game_fingerprint(self) -> None:
         payload = self.v2_payload()

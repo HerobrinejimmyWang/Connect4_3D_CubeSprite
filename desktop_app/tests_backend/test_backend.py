@@ -54,7 +54,7 @@ class FakeModels:
     def get(self, model_id):
         if model_id in {"cubesprite_v4_flash_preview1", "cubesprite_v3", "cubesprite_v3_mini", "v2.2_balance", "v3_b6c128", "v3_b8c192", "v3_b10c256"}:
             supported_rule_ids = ("classic", "p1_vertical_ignored", "p1_vertical_forbidden", "p1_layer0_ignored", "p1_vertical_and_layer0_ignored") if model_id == "cubesprite_v4_flash_preview1" else ("classic",)
-            return SimpleNamespace(id=model_id, display_name=model_id, placeholder=False, supported_rule_ids=supported_rule_ids)
+            return SimpleNamespace(id=model_id, display_name=model_id, placeholder=False, supported_rule_ids=supported_rule_ids, artifact_sha256="0" * 64)
         raise ModelUnavailableError(f"Unknown model id: {model_id}")
 
     def predictor(self, model_id):

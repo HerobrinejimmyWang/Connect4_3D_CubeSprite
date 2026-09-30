@@ -26,6 +26,26 @@ not Git objects. The source checkpoint remains a local, read-only export input.
 The model was checked for functional export parity and legal search outputs,
 not playing strength. No training lineage or Legacy checkpoint was converted.
 
+## Replay provenance correction after review
+
+The backend now keeps controller identity with retained live-history turns.
+Continuing a replay preserves source participant identities, while undo/restart
+removes identity records together with discarded moves. V2 exports summarize
+multiple controllers in one seat as `external` with null single-controller
+identifiers. Automatic forced passes do not count as model decisions.
+
+Source validation after this correction: 49 backend tests (including seven new
+provenance regressions), 41 compatibility/backend tests with overlap, 78 frontend
+tests, and 12 shared-rule tests passed. TypeScript, production frontend build,
+and source syntax compilation also passed. The regressions exercise v2
+save/open/export validation, inherited prefixes, model changes, undo/restart,
+and forced passes; bookkeeping tests isolate MCTS with deterministic search
+results.
+
+The installer hashes and native checks above describe the original release
+build. The installer/sidecar was not rebuilt or rerun for this source correction;
+those recorded binary checks do not verify the corrected provenance behavior.
+
 ## Reproduction
 
 From the repository root, after installing the documented dependencies and

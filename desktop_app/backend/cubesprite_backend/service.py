@@ -65,17 +65,17 @@ class CubeSpriteService:
         self._revision_counter = 0
         self.session_id = ""
         self._session_model_id = DEFAULT_AI["model_id"]
-        self._session_model_ids: set[str] = set()
+        self._session_origin_participants: dict[int, dict[str, Any]] = {}
         self.mode = "pvp"
         self.human_player = 1
         self.board = self.game.get_init_board()
         self.current_player = 1
-        self.history: list[dict[str, int]] = []
+        self.history: list[dict[str, Any]] = []
         self.status = "playing"
         self.winner: int | None = None
         self.winning_line: list[dict[str, int]] = []
         self.last_move: dict[str, int] | None = None
-        self._session_origin_history: list[dict[str, int]] = []
+        self._session_origin_history: list[dict[str, Any]] = []
         self._history_floor = 0
         self.settings = {
             "roles": {role: dict(DEFAULT_AI) for role in AI_ROLES},
@@ -205,6 +205,8 @@ class CubeSpriteService:
                     raise ServiceError("MODEL_UNSUPPORTED_RULE", "The selected model does not support this rule.")
                 if validated != self.settings["roles"][role]:
                     self.settings["roles"][role] = validated
+                    if role == "combat":
+                        self._session_model_id = validated["model_id"]
                     changed = True
             if changed:
                 self._bump_revision()
@@ -237,7 +239,6 @@ class CubeSpriteService:
             self.engine = RuleEngine(rule_id, registry=BAL5_R2_RULE_REGISTRY)
             self._new_session(mode, human_player)
             self._session_model_id = ai["model_id"]
-            self._session_model_ids = {ai["model_id"]} if mode == "pvai" else set()
             return self.snapshot()
 
     def _cmd_move(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -268,8 +269,10 @@ class CubeSpriteService:
         with self._lock:
             self._assert_fresh(session_id, revision)
             self._session_model_id = ai["model_id"]
-            self._session_model_ids.add(ai["model_id"])
-            self._apply_action(result.action, player)
+            self._apply_action(
+                result.action, player,
+                participant=self._live_participant(player, model_id=ai["model_id"]),
+            )
             snapshot = self.snapshot()
             snapshot["analysis"] = {"value": result.value, "policy": result.policy}
             return snapshot
@@ -512,9 +515,8 @@ class CubeSpriteService:
                 raise ServiceError("MODEL_UNSUPPORTED_RULE", "The selected model does not support this replay rule.")
             self.rule_id = replay["rule_id"]
             self.engine = RuleEngine(self.rule_id, registry=BAL5_R2_RULE_REGISTRY)
-            self._new_session_from_history(mode, human_player, replay["turns"][:step])
+            self._new_session_from_history(mode, human_player, replay["turns"][:step], replay["participants"])
             self._session_model_id = ai["model_id"]
-            self._session_model_ids = {ai["model_id"]} if mode == "pvai" else set()
             return self.snapshot()
 
     def _cmd_undo(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -552,7 +554,7 @@ class CubeSpriteService:
         self.mode = mode
         self.human_player = human_player
         self._session_model_id = self.settings["roles"]["combat"]["model_id"]
-        self._session_model_ids = {self._session_model_id} if mode == "pvai" else set()
+        self._session_origin_participants = {}
         self._session_origin_history = []
         self._history_floor = 0
         self._reset_position()
@@ -563,15 +565,20 @@ class CubeSpriteService:
         mode: str,
         human_player: int,
         source_moves: list[dict[str, Any]],
+        participants: list[dict[str, Any]],
     ) -> None:
         self.session_id = str(uuid.uuid4())
         self.mode = mode
         self.human_player = human_player
         self._session_model_id = self.settings["roles"]["combat"]["model_id"]
-        self._session_model_ids = {self._session_model_id} if mode == "pvai" else set()
+        self._session_origin_participants = {item["player"]: deepcopy(item) for item in participants}
         self._session_origin_history = []
         self._history_floor = 0
-        self._restore_history(source_moves)
+        source_history = [
+            dict(move, _participant=self._session_origin_participants[move["player"]])
+            for move in source_moves
+        ]
+        self._restore_history(source_history)
         while self.status == "playing" and self.engine.required_action(self._state) is not None:
             self._apply_turn(TurnAction.forced_pass(), self.current_player, record_revision=False)
         self._session_origin_history = deepcopy(self.history)
@@ -588,14 +595,14 @@ class CubeSpriteService:
                 raise ServiceError("CORRUPT_HISTORY", "Replay prefix does not alternate players.")
             try:
                 if source.get("kind") == "forced_pass":
-                    self._apply_turn(TurnAction.forced_pass(), player, record_revision=False)
+                    self._apply_turn(TurnAction.forced_pass(), player, record_revision=False, participant=source.get("_participant"))
                 else:
                     action = int(source["action"])
                     layer, row, col = self.game.action_to_coords(action)
                     column = row * 5 + col
                     if action != self.engine.legacy_action_for_column(self._state, column):
                         raise ValueError("History action does not match gravity or game rule.")
-                    self._apply_turn(TurnAction.place(column), player, record_revision=False)
+                    self._apply_turn(TurnAction.place(column), player, record_revision=False, participant=source.get("_participant"))
             except (ValueError, KeyError, TypeError) as exc:
                 raise ServiceError("CORRUPT_HISTORY", str(exc)) from exc
 
@@ -609,7 +616,7 @@ class CubeSpriteService:
         self.winning_line = []
         self.last_move = None
 
-    def _apply_action(self, action: int, player: int) -> None:
+    def _apply_action(self, action: int, player: int, *, participant: dict[str, Any] | None = None) -> None:
         if int(player) != self.current_player:
             raise ServiceError("WRONG_PLAYER", "The move player does not match the authoritative turn.")
         try:
@@ -617,14 +624,17 @@ class CubeSpriteService:
             column = row * 5 + col
             if action != self.engine.legacy_action_for_column(self._state, column):
                 raise ValueError("Action does not match the legal gravity landing cell.")
-            self._apply_turn(TurnAction.place(column), player, record_revision=False)
+            self._apply_turn(TurnAction.place(column), player, record_revision=False, participant=participant)
             while self.status == "playing" and self.engine.required_action(self._state) is not None:
                 self._apply_turn(TurnAction.forced_pass(), self.current_player, record_revision=False)
         except (ValueError, KeyError, TypeError) as exc:
             raise ServiceError("ILLEGAL_MOVE", str(exc)) from exc
         self._bump_revision()
 
-    def _apply_turn(self, turn: TurnAction, player: int, *, record_revision: bool = True) -> None:
+    def _apply_turn(
+        self, turn: TurnAction, player: int, *,
+        record_revision: bool = True, participant: dict[str, Any] | None = None,
+    ) -> None:
         action = self.engine.legacy_action_for_column(self._state, turn.column) if turn.column is not None else None
         self._state = self.engine.step(self._state, turn)
         self.board = np.array(self._state.board, copy=True)
@@ -634,22 +644,54 @@ class CubeSpriteService:
         else:
             layer, row, col = self.game.action_to_coords(action)
             move = {"kind": "place", "action": action, "layer": layer, "row": row, "col": col, "player": player}
+        self.last_move = dict(move)
+        # Private history metadata follows turns through undo/restart. The replay
+        # store emits only protocol fields, and public last_move stays unchanged.
+        move["_participant"] = deepcopy(
+            participant if participant is not None else self._live_participant(player)
+        )
         self.history.append(move)
-        self.last_move = move
         self.status = "won" if self._state.outcome in {GameOutcome.FIRST_PLAYER_WIN, GameOutcome.SECOND_PLAYER_WIN} else "draw" if self._state.outcome == GameOutcome.DRAW else "playing"
         self.winner = self._state.outcome.winner if self.status == "won" else 0 if self.status == "draw" else None
         self.winning_line = find_winning_line(self.board, player, self.game.connect_n, rule_id=self.rule_id) if self.status == "won" else []
         if record_revision:
             self._bump_revision()
 
+    def _live_participant(self, player: int, *, model_id: str | None = None) -> dict[str, Any]:
+        is_ai = self.mode == "pvai" and player != self.human_player
+        model_id = (model_id or self._session_model_id) if is_ai else None
+        return {
+            "seat": "FIRST" if player == 1 else "SECOND",
+            "player": player,
+            "controller_type": "model" if is_ai else "human",
+            "controller_id": model_id,
+            "display_name": "AI" if is_ai else "Player",
+            "model_id": model_id,
+            "lineage_hash": None,
+            "artifact_sha256": self.models.get(model_id).artifact_sha256 if model_id else None,
+        }
+
     def _replay_participants(self) -> list[dict[str, Any]]:
         result = []
-        for seat, player in (("FIRST", 1), ("SECOND", -1)):
-            is_ai = self.mode == "pvai" and player != self.human_player
-            single_model = is_ai and len(self._session_model_ids) == 1
-            model_id = next(iter(self._session_model_ids)) if single_model else None
-            artifact_sha256 = self.models.get(model_id).artifact_sha256 if model_id else None
-            result.append({"seat": seat, "player": player, "controller_type": "model" if single_model else "external" if is_ai else "human", "controller_id": model_id, "display_name": "AI" if single_model else "Mixed AI" if is_ai else "Player", "model_id": model_id, "lineage_hash": None, "artifact_sha256": artifact_sha256})
+        identity_keys = ("controller_type", "controller_id", "model_id", "lineage_hash", "artifact_sha256")
+        for player in (1, -1):
+            # Forced passes are automatic rule transitions, not controller decisions.
+            participants = [
+                move["_participant"] for move in self.history
+                if move["player"] == player and move.get("kind") != "forced_pass"
+            ]
+            if not participants:
+                participant = self._session_origin_participants.get(player)
+                result.append(deepcopy(participant if participant is not None else self._live_participant(player)))
+                continue
+            participant = deepcopy(participants[0])
+            identities = {tuple(item[key] for key in identity_keys) for item in participants}
+            if len(identities) > 1:
+                participant.update(
+                    controller_type="external", display_name="Mixed controllers",
+                    controller_id=None, model_id=None, lineage_hash=None, artifact_sha256=None,
+                )
+            result.append(participant)
         return result
 
     def _combat_config_for_new_game(self, params: dict[str, Any]) -> dict[str, Any]:
